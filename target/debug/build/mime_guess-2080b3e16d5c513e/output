@@ -1,0 +1,1 @@
+cargo:rustc-env=MIME_TYPES_GENERATED_PATH=E:\Projects\awake-windows\target\debug\build\mime_guess-2080b3e16d5c513e\out\mime_types_generated.rs

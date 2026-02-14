@@ -1,0 +1,55 @@
+[package]
+name = "awake-windows"
+version = "0.1.0"
+edition = "2021"
+authors = ["Your Name"]
+description = "Windows Uninstaller CLI Tool - 列出已安装程序、搜索残留痕迹、清理并生成报告"
+license = "MIT"
+
+[dependencies]
+
+# CLI 框架
+clap = { version = "4.5", features = ["derive", "env"] }
+
+# Windows API
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_System_Registry",
+    "Win32_System_Com",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Com_StructuredStorage",
+] }
+
+# 注册表操作
+winreg = "0.52"
+
+# 日志
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+
+# 异步
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "sync"] }
+
+# 文件系统
+walkdir = "2.5"
+glob = "0.3"
+
+# 序列化/模板
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+askama = "0.12"
+chrono = { version = "0.4", features = ["serde"] }
+
+# 其他工具
+thiserror = "1.0"
+anyhow = "1.0"
+dirs = "5.0"
+regex = "1.10"
+fuzzy-matcher = "0.3"
+uuid = { version = "1.0", features = ["v4"] }
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"
