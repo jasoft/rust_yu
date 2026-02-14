@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
-use crate::modules::{lister, scanner};
+use crate::modules::scanner;
 
 #[derive(Parser, Debug)]
 pub struct SearchCommand {

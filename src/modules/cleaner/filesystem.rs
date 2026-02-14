@@ -6,7 +6,6 @@ use super::models::CleanResult;
 /// 删除文件痕迹
 pub async fn delete_file_trace(trace: &Trace) -> Result<CleanResult, UninstallerError> {
     let path = std::path::PathBuf::from(&trace.path);
-    let mut bytes_freed = 0u64;
 
     // 检查路径是否存在
     if !path.exists() {
@@ -20,6 +19,7 @@ pub async fn delete_file_trace(trace: &Trace) -> Result<CleanResult, Uninstaller
     }
 
     // 计算并删除
+    let bytes_freed: u64;
     let result = if path.is_dir() {
         // 目录：计算大小后删除
         bytes_freed = utils::calculate_dir_size(&path).unwrap_or(0);

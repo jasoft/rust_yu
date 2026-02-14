@@ -115,7 +115,7 @@ fn print_html_content(content: &str, output_path: &Option<String>) -> Result<()>
 fn get_reports_dir() -> Result<PathBuf> {
     let dir = dirs::data_local_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("awake-windows")
+        .join("rust-yu")
         .join("reports");
 
     Ok(dir)

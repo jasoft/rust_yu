@@ -1,5 +1,4 @@
 use crate::modules::common::error::UninstallerError;
-use crate::modules::common::utils;
 use winreg::enums::*;
 use winreg::RegKey;
 use super::models::{Trace, TraceType, Confidence};

@@ -10,13 +10,13 @@ pub fn init_logging(verbose: bool) {
     // 创建日志目录
     let log_dir = dirs::data_local_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("awake-windows")
+        .join("rust-yu")
         .join("logs");
 
     let _ = std::fs::create_dir_all(&log_dir);
 
     // 设置文件输出
-    let file_appender = tracing_appender::rolling::daily(&log_dir, "awake-windows.log");
+    let file_appender = tracing_appender::rolling::daily(&log_dir, "rust-yu.log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
     // 保持 guard 存活
@@ -25,7 +25,7 @@ pub fn init_logging(verbose: bool) {
     let subscriber = tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::new(format!(
-                "awake_windows={},info",
+                "rust_yu={},info",
                 level
             ))
         )
@@ -33,11 +33,4 @@ pub fn init_logging(verbose: bool) {
         .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr));
 
     let _ = subscriber.try_init();
-}
-
-pub fn get_log_dir() -> std::path::PathBuf {
-    dirs::data_local_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("awake-windows")
-        .join("logs")
 }

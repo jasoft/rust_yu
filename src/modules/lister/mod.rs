@@ -17,10 +17,11 @@ pub fn list_all_programs(
     let mut all_programs = Vec::new();
 
     // 根据 source 参数决定来源
-    // None 默认返回 standard 列表 (不包括 Store，较快)
+    // None 默认返回 standard 列表 (Registry only，不包括 Store 和 MSI)
+    // MSI (Win32_Product) 非常慢，会触发 MSI 验证
     let sources = match source {
         Some(s) => vec![s],
-        None => vec![InstallSource::Registry, InstallSource::Msi], // 不包括 Store
+        None => vec![InstallSource::Registry], // 只读取注册表，最快
     };
 
     for src in &sources {

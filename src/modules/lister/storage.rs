@@ -10,7 +10,7 @@ use std::path::PathBuf;
 fn get_storage_dir() -> Result<PathBuf, UninstallerError> {
     let app_data = dirs::data_dir()
         .ok_or_else(|| UninstallerError::Other("无法获取 AppData 目录".to_string()))?;
-    let dir = app_data.join("awake-windows");
+    let dir = app_data.join("rust-yu");
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
 }
@@ -49,6 +49,7 @@ pub fn save_program_snapshot(programs: &[InstalledProgram]) -> Result<(), Uninst
 }
 
 /// 获取所有保存的程序
+#[allow(dead_code)]
 pub fn get_saved_programs() -> Result<Vec<InstalledProgram>, UninstallerError> {
     let path = get_storage_file()?;
 
@@ -64,6 +65,7 @@ pub fn get_saved_programs() -> Result<Vec<InstalledProgram>, UninstallerError> {
 }
 
 /// 根据名称获取保存的程序
+#[allow(dead_code)]
 pub fn get_saved_program(name: &str) -> Result<Option<InstalledProgram>, UninstallerError> {
     let programs = get_saved_programs()?;
     let name_lower = name.to_lowercase();
@@ -96,6 +98,7 @@ pub fn delete_saved_program(name: &str) -> Result<(), UninstallerError> {
 }
 
 /// 搜索时优先查询保存的数据
+#[allow(dead_code)]
 pub fn search_programs_with_fallback(query: &str) -> Result<Vec<InstalledProgram>, UninstallerError> {
     let saved = get_saved_programs()?;
     let query_lower = query.to_lowercase();

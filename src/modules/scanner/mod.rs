@@ -21,7 +21,7 @@ pub async fn scan_all_traces(
         TraceType::Shortcut,
     ]);
 
-    let mut all_traces: Vec<Trace> = Vec::new();
+    let _all_traces: Vec<Trace> = Vec::new();
     let program_name = program_name.to_string();
 
     // 使用 Arc 和 Mutex 来收集结果

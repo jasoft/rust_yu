@@ -16,6 +16,7 @@ pub struct UninstallerReport {
     pub warnings: Vec<String>,
 }
 
+#[allow(dead_code)]
 impl UninstallerReport {
     pub fn new(program_name: String) -> Self {
         Self {

@@ -233,7 +233,7 @@ async fn run_uninstall_with_wait(uninstall_string: &str, timeout_secs: u64) -> R
     // 使用 spawn 而不是 output，这样我们可以获取 PID
     #[cfg(windows)]
     {
-        let mut child = Command::new("cmd")
+        let child = Command::new("cmd")
             .args(["/C", &cmd_str])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

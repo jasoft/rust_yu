@@ -1,10 +1,10 @@
 use fuzzy_matcher::FuzzyMatcher;
 use fuzzy_matcher::skim::SkimMatcherV2;
-use std::path::Path;
 use winreg::enums::*;
 use winreg::HKEY;
 
 /// 规范化路径（处理大小写、斜杠等）
+#[allow(dead_code)]
 pub fn normalize_path(path: &str) -> String {
     let path = path.replace('/', "\\");
 
@@ -43,6 +43,7 @@ pub fn fuzzy_match(text: &str, pattern: &str) -> bool {
 }
 
 /// 获取模糊匹配分数
+#[allow(dead_code)]
 pub fn fuzzy_score(text: &str, pattern: &str) -> i64 {
     let matcher = SkimMatcherV2::default();
     matcher.fuzzy_match(text, pattern).unwrap_or(0)
@@ -97,6 +98,7 @@ pub fn is_critical_registry_path(path: &str) -> bool {
 }
 
 /// 生成唯一 ID
+#[allow(dead_code)]
 pub fn generate_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
@@ -119,6 +121,7 @@ pub fn parse_registry_path(path: &str) -> Option<(HKEY, &str)> {
 }
 
 /// 获取 Windows 系统目录
+#[allow(dead_code)]
 pub fn get_system_dirs() -> Vec<std::path::PathBuf> {
     let mut dirs = Vec::new();
 

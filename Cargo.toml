@@ -1,8 +1,12 @@
+[workspace]
+members = ["src-tauri"]
+resolver = "2"
+
 [package]
-name = "awake-windows"
+name = "rust-yu"
 version = "0.1.0"
 edition = "2021"
-authors = ["Your Name"]
+authors = ["John Anders"]
 description = "Windows Uninstaller CLI Tool - 列出已安装程序、搜索残留痕迹、清理并生成报告"
 license = "MIT"
 
@@ -12,7 +16,7 @@ license = "MIT"
 clap = { version = "4.5", features = ["derive", "env"] }
 
 # Windows API
-windows = { version = "0.58", features = [
+windows = { version = "0.62.2", features = [
     "Win32_Foundation",
     "Win32_System_Registry",
     "Win32_System_Com",
@@ -23,7 +27,7 @@ windows = { version = "0.58", features = [
 ] }
 
 # 注册表操作
-winreg = "0.52"
+winreg = "0.55.0"
 
 # 日志
 tracing = "0.1"
@@ -31,7 +35,13 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
 
 # 异步
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "sync", "time"] }
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "macros",
+    "fs",
+    "sync",
+    "time",
+] }
 
 # 文件系统
 walkdir = "2.5"
@@ -51,5 +61,11 @@ regex = "1.10"
 fuzzy-matcher = "0.3"
 uuid = { version = "1.0", features = ["v4"] }
 
-[target.'cfg(windows)'.dependencies]
-winreg = "0.52"
+[lib]
+name = "rust_yu_lib"
+path = "src/lib.rs"
+crate-type = ["lib", "cdylib"]
+
+[[bin]]
+name = "rust-yu"
+path = "src/main.rs"

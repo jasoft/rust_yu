@@ -1,6 +1,7 @@
 use thiserror::Error;
 
 #[derive(Error, Debug)]
+#[allow(dead_code)]
 pub enum UninstallerError {
     #[error("注册表错误: {0}")]
     Registry(String),

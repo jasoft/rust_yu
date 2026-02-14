@@ -100,7 +100,7 @@ fn scan_appdata_dir(dir: &Path, pattern: &str, traces: &mut Vec<Trace>) {
 fn is_system_appdata_dir(path: &Path) -> bool {
     let path_str = path.to_string_lossy().to_lowercase();
 
-    let system_dirs = [
+    let _system_dirs = [
         "microsoft",
         "windows",
         "google\\chrome",  // 浏览器数据通常很大，但不一定是要清理的

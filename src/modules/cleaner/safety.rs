@@ -86,11 +86,13 @@ fn is_critical_registry(path: &str) -> bool {
 }
 
 /// 列出所有关键路径（用于显示）
+#[allow(dead_code)]
 pub fn get_critical_paths() -> &'static [&'static str] {
     CRITICAL_PATHS
 }
 
 /// 列出所有关键注册表路径（用于显示）
+#[allow(dead_code)]
 pub fn get_critical_registry_paths() -> &'static [&'static str] {
     CRITICAL_REGISTRY_PATHS
 }

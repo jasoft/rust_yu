@@ -1,5 +1,4 @@
 use crate::modules::common::error::UninstallerError;
-use crate::modules::common::utils;
 use winreg::enums::*;
 use winreg::RegKey;
 use super::models::{InstalledProgram, InstallSource};
@@ -100,6 +99,7 @@ fn is_system_component(program: &InstalledProgram) -> bool {
 }
 
 /// 获取特定程序的详细信息
+#[allow(dead_code)]
 pub fn get_program_info(name: &str) -> Result<Option<InstalledProgram>, UninstallerError> {
     let programs = list_registry_programs()?;
 

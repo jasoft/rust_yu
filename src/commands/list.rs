@@ -9,7 +9,7 @@ pub struct ListCommand {
     pub format: String,
 
     /// 过滤来源 (registry|msi|store|standard|all)
-    /// standard = registry + msi (不包括商店应用)
+    /// standard = registry (不包括商店应用和 MSI，MSI 较慢)
     #[arg(long, default_value = "standard")]
     pub source: String,
 

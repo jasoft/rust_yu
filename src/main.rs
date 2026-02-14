@@ -6,7 +6,7 @@ mod commands;
 mod modules;
 
 #[derive(Parser, Debug)]
-#[command(name = "awake-windows")]
+#[command(name = "rust-yu")]
 #[command(about = "Windows 卸载程序命令行工具", long_about = None)]
 #[command(version = "0.1.0")]
 struct Cli {
