@@ -1,0 +1,27 @@
+# Build results
+[tT]arget/
+build/
+
+# Rust
+**/*.rs.bk
+
+# Cargo
+Cargo.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+
+# Logs
+*.log

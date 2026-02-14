@@ -31,7 +31,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
 
 # 异步
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "sync"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "sync", "time"] }
 
 # 文件系统
 walkdir = "2.5"

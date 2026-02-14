@@ -37,6 +37,7 @@ async fn main() -> Result<()> {
         commands::Command::Search(cmd) => commands::search::execute(cmd).await,
         commands::Command::Clean(cmd) => commands::clean::execute(cmd).await,
         commands::Command::Report(cmd) => commands::report::execute(cmd).await,
+        commands::Command::Uninstall(cmd) => commands::uninstall::execute(cmd).await,
     };
 
     match result {

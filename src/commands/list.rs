@@ -8,8 +8,9 @@ pub struct ListCommand {
     #[arg(long, default_value = "table")]
     pub format: String,
 
-    /// 过滤来源 (registry|msi|store|all)
-    #[arg(long, default_value = "all")]
+    /// 过滤来源 (registry|msi|store|standard|all)
+    /// standard = registry + msi (不包括商店应用)
+    #[arg(long, default_value = "standard")]
     pub source: String,
 
     /// 搜索关键词
@@ -32,6 +33,7 @@ pub async fn execute(cmd: ListCommand) -> Result<()> {
         "registry" => Some(lister::models::InstallSource::Registry),
         "msi" => Some(lister::models::InstallSource::Msi),
         "store" => Some(lister::models::InstallSource::Store),
+        "standard" => None, // registry + msi (不包括 store)
         _ => None,
     };
 

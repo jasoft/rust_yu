@@ -2,6 +2,7 @@ pub mod models;
 pub mod registry;
 pub mod msi;
 pub mod store;
+pub mod storage;
 
 use crate::modules::common::error::UninstallerError;
 use crate::modules::common::utils;
@@ -16,9 +17,10 @@ pub fn list_all_programs(
     let mut all_programs = Vec::new();
 
     // 根据 source 参数决定来源
+    // None 默认返回 standard 列表 (不包括 Store，较快)
     let sources = match source {
         Some(s) => vec![s],
-        None => vec![InstallSource::Registry, InstallSource::Msi, InstallSource::Store],
+        None => vec![InstallSource::Registry, InstallSource::Msi], // 不包括 Store
     };
 
     for src in &sources {

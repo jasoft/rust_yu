@@ -28,6 +28,12 @@ pub enum UninstallerError {
 
     #[error("其他错误: {0}")]
     Other(String),
+
+    #[error("超时: {0}")]
+    Timeout(String),
+
+    #[error("序列化错误: {0}")]
+    Serde(String),
 }
 
 

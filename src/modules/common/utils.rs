@@ -162,3 +162,79 @@ pub fn get_system_dirs() -> Vec<std::path::PathBuf> {
 
     dirs
 }
+
+/// 等待进程及其所有子进程结束
+///
+/// 在 Windows 上，uninstallString 可能启动 msiexec 或其他安装程序
+/// 这些程序可能再 spawn 子进程，需要等待整个进程组结束
+#[cfg(windows)]
+pub async fn wait_for_process_group(pid: u32, timeout_secs: u64) -> Result<(), crate::modules::common::error::UninstallerError> {
+    use std::time::{Duration, Instant};
+
+    let start = Instant::now();
+
+    // 首先等待主进程
+    // 使用 Windows API 来等待进程结束
+    loop {
+        if start.elapsed() > Duration::from_secs(timeout_secs) {
+            return Err(crate::modules::common::error::UninstallerError::Timeout(
+                format!("进程 {} 在 {} 秒内未结束", pid, timeout_secs)
+            ));
+        }
+
+        // 检查主进程是否还在运行
+        if !is_process_running(pid) {
+            // 主进程已结束，额外等待一下确保子进程也结束
+            tokio::time::sleep(Duration::from_millis(500)).await;
+
+            // 检查是否还有相关子进程
+            if !has_child_processes(pid).await {
+                return Ok(());
+            }
+        }
+
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+}
+
+/// 检查进程是否在运行
+#[cfg(windows)]
+fn is_process_running(pid: u32) -> bool {
+    use std::process::Command;
+
+    let output = Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {}", pid), "/NH"])
+        .output();
+
+    match output {
+        Ok(output) => {
+            let output_str = String::from_utf8_lossy(&output.stdout);
+            // 如果找到进程，tasklist 会返回包含 PID 的行
+            output_str.contains(&pid.to_string())
+        }
+        Err(_) => false,
+    }
+}
+
+/// 检查是否有子进程在运行
+#[cfg(windows)]
+async fn has_child_processes(parent_pid: u32) -> bool {
+    use std::process::Command;
+
+    // 使用 wmic 获取子进程
+    let output = Command::new("wmic")
+        .args(["process", "where", &format!("ParentProcessId={}", parent_pid), "get", "ProcessId"])
+        .output();
+
+    match output {
+        Ok(output) => {
+            let output_str = String::from_utf8_lossy(&output.stdout);
+            // 如果有子进程，输出会包含多个 ProcessId
+            let count = output_str.lines()
+                .filter(|l| !l.trim().is_empty() && l.trim() != "ProcessId")
+                .count();
+            count > 0
+        }
+        Err(_) => false,
+    }
+}

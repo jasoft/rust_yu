@@ -2,6 +2,7 @@ pub mod list;
 pub mod search;
 pub mod clean;
 pub mod report;
+pub mod uninstall;
 
 use clap::Subcommand;
 
@@ -18,4 +19,7 @@ pub enum Command {
 
     /// 查看卸载报告
     Report(report::ReportCommand),
+
+    /// 卸载程序并清理残留
+    Uninstall(uninstall::UninstallCommand),
 }
