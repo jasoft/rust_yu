@@ -12,6 +12,9 @@ license = "MIT"
 
 [dependencies]
 
+# HTTP 服务器 (用于开发模式下的前端 API)
+warp = "0.3"
+
 # CLI 框架
 clap = { version = "4.5", features = ["derive", "env"] }
 

@@ -1,0 +1,53 @@
+[package]
+name = "rust-yu-tauri"
+version = "0.1.0"
+edition = "2021"
+authors = ["John Anders"]
+description = "Windows Uninstaller - 列出已安装程序、搜索残留痕迹、清理并生成报告"
+license = "MIT"
+
+[lib]
+name = "rust_yu_tauri_lib"
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.0", features = [] }
+
+[dependencies]
+
+# Tauri
+tauri = { version = "2.0", features = [] }
+tauri-plugin-shell = "2.0"
+
+# 主项目库
+rust-yu = { path = ".." }
+
+# 序列化
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# 日志
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# 异步
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "macros",
+    "fs",
+    "sync",
+    "time",
+] }
+
+# 其他工具
+dirs = "5.0"
+
+# HTTP 服务器 (用于开发模式)
+warp = "0.3"
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
