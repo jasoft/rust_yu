@@ -37,7 +37,6 @@ pub enum UninstallerError {
     Serde(String),
 }
 
-
 impl serde::Serialize for UninstallerError {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where

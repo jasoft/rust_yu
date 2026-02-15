@@ -1,6 +1,6 @@
+use super::models::{Confidence, Trace, TraceType};
 use crate::modules::common::error::UninstallerError;
 use crate::modules::common::utils;
-use super::models::{Trace, TraceType, Confidence};
 use std::path::Path;
 use walkdir::WalkDir;
 
@@ -68,12 +68,13 @@ fn get_scan_dirs() -> Vec<std::path::PathBuf> {
 /// 扫描目录
 fn scan_directory(dir: &Path, pattern: &str, traces: &mut Vec<Trace>) {
     let walker = WalkDir::new(dir)
-        .max_depth(3)  // 限制深度
+        .max_depth(3) // 限制深度
         .follow_links(false);
 
     for entry in walker.into_iter().filter_map(|e| e.ok()) {
         let path = entry.path();
-        let name = path.file_name()
+        let name = path
+            .file_name()
             .map(|n| n.to_string_lossy().to_lowercase())
             .unwrap_or_default();
 
@@ -99,7 +100,10 @@ fn scan_directory(dir: &Path, pattern: &str, traces: &mut Vec<Trace>) {
             };
 
             let description = if path.is_dir() {
-                format!("目录: {} 个项目", entry.metadata().ok().map(|m| m.len()).unwrap_or(0))
+                format!(
+                    "目录: {} 个项目",
+                    entry.metadata().ok().map(|m| m.len()).unwrap_or(0)
+                )
             } else {
                 size.map(|s| format!("文件大小: {}", utils::format_size(s)))
                     .unwrap_or_default()
@@ -134,12 +138,7 @@ fn is_system_dir(path: &Path) -> bool {
     let path_str = path.to_string_lossy().to_uppercase();
 
     let system_dirs = [
-        "WINDOWS",
-        "SYSTEM32",
-        "SYSWOW64",
-        "WINSXS",
-        "INF",
-        "DRIVERS",
+        "WINDOWS", "SYSTEM32", "SYSWOW64", "WINSXS", "INF", "DRIVERS",
     ];
 
     for sys_dir in &system_dirs {

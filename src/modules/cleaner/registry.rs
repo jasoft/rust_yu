@@ -1,7 +1,7 @@
+use super::models::CleanResult;
 use crate::modules::common::error::UninstallerError;
 use crate::modules::common::utils;
 use crate::modules::scanner::models::{Trace, TraceType};
-use super::models::CleanResult;
 use winreg::enums::*;
 use winreg::RegKey;
 

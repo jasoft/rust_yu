@@ -1,7 +1,7 @@
+use super::models::{InstallSource, InstalledProgram, MetadataConfidence, MetadataSource};
 use crate::modules::common::error::UninstallerError;
 use winreg::enums::*;
 use winreg::RegKey;
-use super::models::{InstalledProgram, InstallSource};
 
 /// 从注册表读取已安装程序
 pub fn list_registry_programs() -> Result<Vec<InstalledProgram>, UninstallerError> {
@@ -9,9 +9,18 @@ pub fn list_registry_programs() -> Result<Vec<InstalledProgram>, UninstallerErro
 
     // 注册表路径列表
     let paths = [
-        (HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
-        (HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"),
-        (HKEY_CURRENT_USER, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
+        (
+            HKEY_LOCAL_MACHINE,
+            r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+        ),
+        (
+            HKEY_LOCAL_MACHINE,
+            r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+        ),
+        (
+            HKEY_CURRENT_USER,
+            r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+        ),
     ];
 
     for (hkey, path) in &paths {
@@ -59,10 +68,22 @@ fn parse_registry_entry(subkey: &RegKey) -> Option<InstalledProgram> {
     program.url_info_about = subkey.get_value("URLInfoAbout").ok();
     program.help_link = subkey.get_value("HelpLink").ok();
 
+    if program.install_date.is_some() {
+        program.install_date_source = MetadataSource::Registry;
+        program.install_date_confidence = MetadataConfidence::Medium;
+    }
+
+    if program.icon_path.is_some() {
+        program.icon_source = MetadataSource::Registry;
+        program.icon_confidence = MetadataConfidence::Medium;
+    }
+
     // 估算大小 (KB)
     if let Ok(size) = subkey.get_value::<u32, _>("EstimatedSize") {
         program.estimated_size = Some(size as u64 * 1024); // 转换为字节
         program.size = program.estimated_size;
+        program.size_source = MetadataSource::Registry;
+        program.size_confidence = MetadataConfidence::High;
     }
 
     Some(program)
@@ -81,7 +102,11 @@ fn is_system_component(program: &InstalledProgram) -> bool {
 
     // 检查名称
     for component in &system_components {
-        if program.name.to_lowercase().contains(&component.to_lowercase()) {
+        if program
+            .name
+            .to_lowercase()
+            .contains(&component.to_lowercase())
+        {
             // 但不是所有 Windows 开头的都是系统组件
             if program.name.to_lowercase().contains("windows") {
                 // 检查是否是第三方程序

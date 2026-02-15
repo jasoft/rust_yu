@@ -1,7 +1,7 @@
+pub mod appdata;
+pub mod filesystem;
 pub mod models;
 pub mod registry;
-pub mod filesystem;
-pub mod appdata;
 pub mod shortcuts;
 
 use crate::modules::common::error::UninstallerError;
@@ -14,12 +14,14 @@ pub async fn scan_all_traces(
     program_name: &str,
     trace_types: Option<Vec<TraceType>>,
 ) -> Result<Vec<Trace>, UninstallerError> {
-    let types = trace_types.unwrap_or_else(|| vec![
-        TraceType::RegistryKey,
-        TraceType::File,
-        TraceType::AppData,
-        TraceType::Shortcut,
-    ]);
+    let types = trace_types.unwrap_or_else(|| {
+        vec![
+            TraceType::RegistryKey,
+            TraceType::File,
+            TraceType::AppData,
+            TraceType::Shortcut,
+        ]
+    });
 
     let _all_traces: Vec<Trace> = Vec::new();
     let program_name = program_name.to_string();
@@ -134,7 +136,10 @@ fn assign_confidence_scores(program_name: &str, traces: &mut Vec<Trace>) {
             trace.is_critical = true;
         }
 
-        if matches!(trace.trace_type, TraceType::RegistryKey | TraceType::RegistryValue) {
+        if matches!(
+            trace.trace_type,
+            TraceType::RegistryKey | TraceType::RegistryValue
+        ) {
             if crate::modules::common::utils::is_critical_registry_path(&trace.path) {
                 trace.is_critical = true;
             }

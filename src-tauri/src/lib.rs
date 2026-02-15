@@ -2,8 +2,15 @@ pub mod commands;
 
 use commands::*;
 
+use std::path::PathBuf;
+
 use tauri::Manager;
 use warp::Filter;
+
+#[derive(Debug, serde::Deserialize)]
+struct IconFileQuery {
+    path: String,
+}
 
 // 启动 HTTP API 服务器（用于开发模式）
 fn start_api_server() {
@@ -13,12 +20,19 @@ fn start_api_server() {
     let programs_route = warp::path!("api" / "programs")
         .and(warp::get())
         .map(move || {
-            // 调用主项目的 list_all_programs 函数
-            let result = lister::list_all_programs(None, None);
+            // 调用缓存版本接口，避免每次请求都重复做图标/大小计算
+            let query = lister::models::ListProgramsQuery {
+                source: Some(lister::models::InstallSource::Registry),
+                search: None,
+                refresh: false,
+                cache_ttl_seconds: lister::storage::DEFAULT_CACHE_TTL_SECONDS,
+            };
+            let result = lister::list_programs_with_cache(query);
 
             // 转换为 API 响应格式
             let response: Vec<serde_json::Value> = match result {
-                Ok(programs) => programs
+                Ok(program_response) => program_response
+                    .programs
                     .iter()
                     .map(|p| {
                         serde_json::json!({
@@ -30,7 +44,22 @@ fn start_api_server() {
                             "install_date": p.install_date,
                             "uninstall_string": p.uninstall_string,
                             "install_source": p.install_source.to_string(),
+                            "size": p.size,
+                            "icon_path": p.icon_path,
+                            "icon_cache_path_32": p.icon_cache_path_32,
+                            "icon_cache_path_48": p.icon_cache_path_48,
+                            "size_last_updated_at": p.size_last_updated_at,
+                            "icon_data_url": p.icon_data_url,
+                            "icon_data_url_32": p.icon_data_url_32,
+                            "icon_data_url_48": p.icon_data_url_48,
                             "estimated_size": p.estimated_size,
+                            "install_date_source": p.install_date_source,
+                            "install_date_confidence": p.install_date_confidence,
+                            "icon_source": p.icon_source,
+                            "icon_confidence": p.icon_confidence,
+                            "size_source": p.size_source,
+                            "size_confidence": p.size_confidence,
+                            "metadata_confidence": p.metadata_confidence,
                         })
                     })
                     .collect(),
@@ -43,13 +72,58 @@ fn start_api_server() {
             warp::reply::json(&response)
         });
 
+    // 读取图标缓存文件（仅允许 icon-cache 目录）
+    let icon_route = warp::path!("api" / "icon")
+        .and(warp::get())
+        .and(warp::query::<IconFileQuery>())
+        .and_then(|query: IconFileQuery| async move {
+            let icon_root = match lister::storage::get_icon_cache_dir() {
+                Ok(path) => path,
+                Err(error) => {
+                    tracing::warn!("icon route: get icon cache dir failed: {}", error);
+                    return Err(warp::reject::not_found());
+                }
+            };
+
+            let requested_path = PathBuf::from(query.path);
+            let canonical_root = match std::fs::canonicalize(&icon_root) {
+                Ok(path) => path,
+                Err(_) => return Err(warp::reject::not_found()),
+            };
+            let canonical_requested = match std::fs::canonicalize(&requested_path) {
+                Ok(path) => path,
+                Err(_) => return Err(warp::reject::not_found()),
+            };
+
+            if !canonical_requested.starts_with(&canonical_root) {
+                tracing::warn!(
+                    "icon route: rejected path outside icon cache: {}",
+                    canonical_requested.to_string_lossy()
+                );
+                return Err(warp::reject::not_found());
+            }
+
+            match tokio::fs::read(&canonical_requested).await {
+                Ok(bytes) => {
+                    let response = warp::http::Response::builder()
+                        .header("content-type", "image/png")
+                        .body(bytes);
+                    match response {
+                        Ok(ok) => Ok(ok),
+                        Err(_) => Err(warp::reject::not_found()),
+                    }
+                }
+                Err(_) => Err(warp::reject::not_found()),
+            }
+        });
+
     // 仅开发调试使用：允许本地前端页面跨域读取程序列表
     let cors = warp::cors()
         .allow_any_origin()
         .allow_methods(vec!["GET"])
         .allow_headers(vec!["content-type"]);
 
-    let routes = programs_route.with(cors);
+    let routes = programs_route.or(icon_route).with(cors);
 
     // 在后台线程启动服务器
     std::thread::spawn(move || {

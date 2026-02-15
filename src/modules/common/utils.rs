@@ -1,5 +1,5 @@
-use fuzzy_matcher::FuzzyMatcher;
 use fuzzy_matcher::skim::SkimMatcherV2;
+use fuzzy_matcher::FuzzyMatcher;
 use winreg::enums::*;
 use winreg::HKEY;
 
@@ -25,7 +25,10 @@ pub fn calculate_dir_size(path: &std::path::Path) -> std::io::Result<u64> {
         return path.metadata().map(|m| m.len());
     }
 
-    for entry in walkdir::WalkDir::new(path).into_iter().filter_map(|e| e.ok()) {
+    for entry in walkdir::WalkDir::new(path)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
         if entry.file_type().is_file() {
             if let Ok(metadata) = entry.metadata() {
                 size += metadata.len();
@@ -79,7 +82,9 @@ pub fn is_system_critical_path(path: &str) -> bool {
         r"C:\PROGRAM FILES\WINDOWS",
     ];
 
-    critical_paths.iter().any(|p| path_upper.starts_with(&p.to_uppercase()))
+    critical_paths
+        .iter()
+        .any(|p| path_upper.starts_with(&p.to_uppercase()))
 }
 
 /// 检查注册表路径是否为关键路径
@@ -159,8 +164,9 @@ pub fn get_system_dirs() -> Vec<std::path::PathBuf> {
 
     // 开始菜单
     if let Ok(program_data) = std::env::var("ProgramData") {
-        dirs.push(std::path::PathBuf::from(program_data)
-            .join("Microsoft\\Windows\\Start Menu\\Programs"));
+        dirs.push(
+            std::path::PathBuf::from(program_data).join("Microsoft\\Windows\\Start Menu\\Programs"),
+        );
     }
 
     dirs
@@ -171,7 +177,10 @@ pub fn get_system_dirs() -> Vec<std::path::PathBuf> {
 /// 在 Windows 上，uninstallString 可能启动 msiexec 或其他安装程序
 /// 这些程序可能再 spawn 子进程，需要等待整个进程组结束
 #[cfg(windows)]
-pub async fn wait_for_process_group(pid: u32, timeout_secs: u64) -> Result<(), crate::modules::common::error::UninstallerError> {
+pub async fn wait_for_process_group(
+    pid: u32,
+    timeout_secs: u64,
+) -> Result<(), crate::modules::common::error::UninstallerError> {
     use std::time::{Duration, Instant};
 
     let start = Instant::now();
@@ -181,7 +190,7 @@ pub async fn wait_for_process_group(pid: u32, timeout_secs: u64) -> Result<(), c
     loop {
         if start.elapsed() > Duration::from_secs(timeout_secs) {
             return Err(crate::modules::common::error::UninstallerError::Timeout(
-                format!("进程 {} 在 {} 秒内未结束", pid, timeout_secs)
+                format!("进程 {} 在 {} 秒内未结束", pid, timeout_secs),
             ));
         }
 
@@ -226,14 +235,21 @@ async fn has_child_processes(parent_pid: u32) -> bool {
 
     // 使用 wmic 获取子进程
     let output = Command::new("wmic")
-        .args(["process", "where", &format!("ParentProcessId={}", parent_pid), "get", "ProcessId"])
+        .args([
+            "process",
+            "where",
+            &format!("ParentProcessId={}", parent_pid),
+            "get",
+            "ProcessId",
+        ])
         .output();
 
     match output {
         Ok(output) => {
             let output_str = String::from_utf8_lossy(&output.stdout);
             // 如果有子进程，输出会包含多个 ProcessId
-            let count = output_str.lines()
+            let count = output_str
+                .lines()
                 .filter(|l| !l.trim().is_empty() && l.trim() != "ProcessId")
                 .count();
             count > 0

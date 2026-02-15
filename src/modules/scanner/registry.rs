@@ -1,7 +1,7 @@
+use super::models::{Confidence, Trace, TraceType};
 use crate::modules::common::error::UninstallerError;
 use winreg::enums::*;
 use winreg::RegKey;
-use super::models::{Trace, TraceType, Confidence};
 
 const MAX_DEPTH: u32 = 5;
 
@@ -15,7 +15,10 @@ pub fn scan_registry_traces(program_name: &str) -> Result<Vec<Trace>, Uninstalle
         (HKEY_LOCAL_MACHINE, r"SOFTWARE"),
         (HKEY_CURRENT_USER, r"SOFTWARE"),
         (HKEY_CLASSES_ROOT, r""),
-        (HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths"),
+        (
+            HKEY_LOCAL_MACHINE,
+            r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths",
+        ),
     ];
 
     for (hkey, path) in &search_paths {
@@ -59,19 +62,17 @@ fn scan_registry_key(
             format!("注册表项: {}", key_name)
         };
 
-        let confidence = if path.to_lowercase().contains("uninstall") || path.to_lowercase().contains("app paths") {
+        let confidence = if path.to_lowercase().contains("uninstall")
+            || path.to_lowercase().contains("app paths")
+        {
             Confidence::High
         } else {
             Confidence::Medium
         };
 
-        let trace = Trace::new(
-            pattern.to_string(),
-            TraceType::RegistryKey,
-            full_path,
-        )
-        .with_description(description)
-        .with_confidence(confidence);
+        let trace = Trace::new(pattern.to_string(), TraceType::RegistryKey, full_path)
+            .with_description(description)
+            .with_confidence(confidence);
 
         traces.push(trace);
     }
@@ -92,9 +93,18 @@ fn scan_uninstall_keys(program_name: &str, traces: &mut Vec<Trace>) {
     let search_pattern = program_name.to_lowercase();
 
     let paths = [
-        (HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
-        (HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"),
-        (HKEY_CURRENT_USER, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
+        (
+            HKEY_LOCAL_MACHINE,
+            r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+        ),
+        (
+            HKEY_LOCAL_MACHINE,
+            r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+        ),
+        (
+            HKEY_CURRENT_USER,
+            r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+        ),
     ];
 
     for (hkey, path) in &paths {
@@ -105,20 +115,18 @@ fn scan_uninstall_keys(program_name: &str, traces: &mut Vec<Trace>) {
                         let full_path = format!("{}\\{}\\{}", format_hkey(*hkey), path, name);
 
                         // 获取安装位置
-                        let install_location: Option<String> = subkey.get_value("InstallLocation").ok();
+                        let install_location: Option<String> =
+                            subkey.get_value("InstallLocation").ok();
                         let display_name: Option<String> = subkey.get_value("DisplayName").ok();
 
-                        let trace = Trace::new(
-                            program_name.to_string(),
-                            TraceType::RegistryKey,
-                            full_path,
-                        )
-                        .with_description(format!(
-                            "卸载信息: {} ({})",
-                            display_name.unwrap_or_default(),
-                            install_location.unwrap_or_default()
-                        ))
-                        .with_confidence(Confidence::High);
+                        let trace =
+                            Trace::new(program_name.to_string(), TraceType::RegistryKey, full_path)
+                                .with_description(format!(
+                                    "卸载信息: {} ({})",
+                                    display_name.unwrap_or_default(),
+                                    install_location.unwrap_or_default()
+                                ))
+                                .with_confidence(Confidence::High);
 
                         traces.push(trace);
                     }

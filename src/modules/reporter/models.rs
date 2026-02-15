@@ -1,7 +1,7 @@
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
 use crate::modules::cleaner::models::CleanResult;
 use crate::modules::scanner::models::Trace;
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 
 /// 卸载报告
 #[derive(Debug, Clone, Serialize, Deserialize)]

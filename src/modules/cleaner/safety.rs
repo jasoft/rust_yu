@@ -29,24 +29,22 @@ const CRITICAL_REGISTRY_PATHS: &[&str] = &[
 pub fn pre_delete_check(trace: &Trace) -> Result<(), UninstallerError> {
     // 检查是否标记为关键项
     if trace.is_critical {
-        return Err(UninstallerError::CriticalSystemItem(
-            format!("该项被标记为关键系统项: {}", trace.path),
-        ));
+        return Err(UninstallerError::CriticalSystemItem(format!(
+            "该项被标记为关键系统项: {}",
+            trace.path
+        )));
     }
 
     // 根据类型进行特定检查
     match trace.trace_type {
-        TraceType::RegistryKey
-        | TraceType::RegistryValue => {
+        TraceType::RegistryKey | TraceType::RegistryValue => {
             if is_critical_registry(&trace.path) {
                 return Err(UninstallerError::CriticalSystemItem(
                     "不能删除关键系统注册表项".to_string(),
                 ));
             }
         }
-        TraceType::File
-        | TraceType::AppData
-        | TraceType::Shortcut => {
+        TraceType::File | TraceType::AppData | TraceType::Shortcut => {
             if is_critical_path(&trace.path) {
                 return Err(UninstallerError::CriticalSystemItem(
                     "不能删除关键系统目录".to_string(),

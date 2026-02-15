@@ -1,6 +1,6 @@
+use super::models::{Confidence, Trace, TraceType};
 use crate::modules::common::error::UninstallerError;
 use crate::modules::common::utils;
-use super::models::{Trace, TraceType, Confidence};
 use std::path::Path;
 use walkdir::WalkDir;
 
@@ -36,12 +36,13 @@ pub fn scan_appdata_traces(program_name: &str) -> Result<Vec<Trace>, Uninstaller
 /// 扫描 AppData 目录
 fn scan_appdata_dir(dir: &Path, pattern: &str, traces: &mut Vec<Trace>) {
     let walker = WalkDir::new(dir)
-        .max_depth(4)  // AppData 目录可能比较深
+        .max_depth(4) // AppData 目录可能比较深
         .follow_links(false);
 
     for entry in walker.into_iter().filter_map(|e| e.ok()) {
         let path = entry.path();
-        let name = path.file_name()
+        let name = path
+            .file_name()
             .map(|n| n.to_string_lossy().to_lowercase())
             .unwrap_or_default();
 
@@ -73,11 +74,12 @@ fn scan_appdata_dir(dir: &Path, pattern: &str, traces: &mut Vec<Trace>) {
                     .unwrap_or_else(|| "用户数据文件".to_string())
             };
 
-            let confidence = if name.starts_with(pattern) || name.to_lowercase() == pattern.to_lowercase() {
-                Confidence::High
-            } else {
-                Confidence::Medium
-            };
+            let confidence =
+                if name.starts_with(pattern) || name.to_lowercase() == pattern.to_lowercase() {
+                    Confidence::High
+                } else {
+                    Confidence::Medium
+                };
 
             let mut trace = Trace::new(
                 pattern.to_string(),
@@ -103,7 +105,7 @@ fn is_system_appdata_dir(path: &Path) -> bool {
     let _system_dirs = [
         "microsoft",
         "windows",
-        "google\\chrome",  // 浏览器数据通常很大，但不一定是要清理的
+        "google\\chrome", // 浏览器数据通常很大，但不一定是要清理的
     ];
 
     // 只跳过真正的系统目录

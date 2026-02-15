@@ -1,7 +1,7 @@
-pub mod models;
-pub mod safety;
 pub mod filesystem;
+pub mod models;
 pub mod registry;
+pub mod safety;
 pub mod shortcuts;
 
 use crate::modules::common::error::UninstallerError;
@@ -36,18 +36,10 @@ pub async fn clean_traces(
         }
 
         let result = match trace.trace_type {
-            TraceType::RegistryKey => {
-                registry::delete_registry_trace(&trace).await
-            }
-            TraceType::RegistryValue => {
-                registry::delete_registry_trace(&trace).await
-            }
-            TraceType::File | TraceType::AppData => {
-                filesystem::delete_file_trace(&trace).await
-            }
-            TraceType::Shortcut => {
-                shortcuts::delete_shortcut_trace(&trace).await
-            }
+            TraceType::RegistryKey => registry::delete_registry_trace(&trace).await,
+            TraceType::RegistryValue => registry::delete_registry_trace(&trace).await,
+            TraceType::File | TraceType::AppData => filesystem::delete_file_trace(&trace).await,
+            TraceType::Shortcut => shortcuts::delete_shortcut_trace(&trace).await,
             _ => {
                 results.push(CleanResult {
                     trace_id: trace.id.clone(),

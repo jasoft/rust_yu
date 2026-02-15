@@ -1,7 +1,7 @@
+use crate::modules::{cleaner, lister, reporter, scanner};
 use anyhow::Result;
-use clap::Parser;
 use chrono::Utc;
-use crate::modules::{lister, scanner, cleaner, reporter};
+use clap::Parser;
 
 #[derive(Parser, Debug)]
 pub struct CleanCommand {
@@ -48,7 +48,10 @@ pub async fn execute(cmd: CleanCommand) -> Result<()> {
         } else {
             // 搜索已安装的程序并获取卸载命令
             let programs = lister::list_all_programs(None, Some(&cmd.target))?;
-            if let Some(program) = programs.iter().find(|p| p.name.to_lowercase().contains(&cmd.target.to_lowercase())) {
+            if let Some(program) = programs
+                .iter()
+                .find(|p| p.name.to_lowercase().contains(&cmd.target.to_lowercase()))
+            {
                 if let Some(uninstall_str) = &program.uninstall_string {
                     run_uninstall_command(uninstall_str).await
                 } else {
@@ -101,7 +104,11 @@ pub async fn execute(cmd: CleanCommand) -> Result<()> {
                 "  [{:12}] {} {}",
                 format!("{:?}", trace.trace_type),
                 trace.path,
-                if !size.is_empty() { format!("({})", size) } else { String::new() }
+                if !size.is_empty() {
+                    format!("({})", size)
+                } else {
+                    String::new()
+                }
             );
         }
 
@@ -137,7 +144,9 @@ pub async fn execute(cmd: CleanCommand) -> Result<()> {
             warnings: vec![],
         };
 
-        let report_path = cmd.report_path.unwrap_or_else(|| format!("uninstall_report_{}.html", cmd.target));
+        let report_path = cmd
+            .report_path
+            .unwrap_or_else(|| format!("uninstall_report_{}.html", cmd.target));
         let html = reporter::html::generate_html_report(&report)?;
         std::fs::write(&report_path, html)?;
         println!("\n报告已生成: {}", report_path);
@@ -163,13 +172,9 @@ async fn run_uninstall_command(uninstall_string: &str) -> Result<()> {
         use std::process::Command as StdCommand;
 
         let output = if cmd.contains("msiexec") {
-            StdCommand::new("cmd")
-                .args(["/C", &cmd])
-                .output()?
+            StdCommand::new("cmd").args(["/C", &cmd]).output()?
         } else {
-            StdCommand::new("cmd")
-                .args(["/C", &cmd])
-                .output()?
+            StdCommand::new("cmd").args(["/C", &cmd]).output()?
         };
 
         if !output.status.success() {

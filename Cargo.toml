@@ -63,6 +63,7 @@ dirs = "5.0"
 regex = "1.10"
 fuzzy-matcher = "0.3"
 uuid = { version = "1.0", features = ["v4"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
 
 [lib]
 name = "rust_yu_lib"

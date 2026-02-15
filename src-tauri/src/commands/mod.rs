@@ -1,13 +1,15 @@
-pub mod list;
-pub mod search;
-pub mod scan;
 pub mod clean;
-pub mod uninstall;
+pub mod error;
+pub mod list;
 pub mod report;
+pub mod scan;
+pub mod search;
+pub mod uninstall;
 
-pub use list::*;
-pub use search::*;
-pub use scan::*;
 pub use clean::*;
-pub use uninstall::*;
+pub use error::*;
+pub use list::*;
 pub use report::*;
+pub use scan::*;
+pub use search::*;
+pub use uninstall::*;

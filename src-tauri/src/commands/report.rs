@@ -2,6 +2,8 @@ use rust_yu_lib::reporter::models::UninstallerReport;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+use super::CommandError;
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ReportInfo {
     pub id: String,
@@ -18,7 +20,7 @@ fn get_reports_dir() -> PathBuf {
 }
 
 #[tauri::command]
-pub async fn get_reports() -> Result<Vec<ReportInfo>, String> {
+pub async fn get_reports() -> Result<Vec<ReportInfo>, CommandError> {
     let reports_dir = get_reports_dir();
 
     if !reports_dir.exists() {
@@ -28,7 +30,7 @@ pub async fn get_reports() -> Result<Vec<ReportInfo>, String> {
     let mut reports = Vec::new();
 
     let entries = std::fs::read_dir(&reports_dir)
-        .map_err(|e| format!("读取报告目录失败: {}", e))?;
+        .map_err(|error| CommandError::new(format!("读取报告目录失败: {}", error)))?;
 
     for entry in entries.flatten() {
         let path = entry.path();
@@ -53,21 +55,21 @@ pub async fn get_reports() -> Result<Vec<ReportInfo>, String> {
 }
 
 #[tauri::command]
-pub async fn delete_report(report_id: String) -> Result<bool, String> {
+pub async fn delete_report(report_id: String) -> Result<bool, CommandError> {
     let reports_dir = get_reports_dir();
 
     // 尝试删除 JSON 文件
     let json_path = reports_dir.join(format!("{}.json", report_id));
     if json_path.exists() {
         std::fs::remove_file(&json_path)
-            .map_err(|e| format!("删除报告文件失败: {}", e))?;
+            .map_err(|error| CommandError::new(format!("删除报告文件失败: {}", error)))?;
     }
 
     // 同时删除 HTML 文件
     let html_path = reports_dir.join(format!("{}.html", report_id));
     if html_path.exists() {
         std::fs::remove_file(&html_path)
-            .map_err(|e| format!("删除HTML文件失败: {}", e))?;
+            .map_err(|error| CommandError::new(format!("删除HTML文件失败: {}", error)))?;
     }
 
     Ok(true)

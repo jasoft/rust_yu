@@ -1,7 +1,7 @@
-pub mod list;
-pub mod search;
 pub mod clean;
+pub mod list;
 pub mod report;
+pub mod search;
 pub mod uninstall;
 
 use clap::Subcommand;

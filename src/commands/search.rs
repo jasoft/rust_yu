@@ -1,6 +1,6 @@
+use crate::modules::scanner;
 use anyhow::Result;
 use clap::Parser;
-use crate::modules::scanner;
 
 #[derive(Parser, Debug)]
 pub struct SearchCommand {
@@ -25,7 +25,10 @@ pub async fn execute(cmd: SearchCommand) -> Result<()> {
 
     let trace_types = match cmd.trace_type.as_str() {
         "registry" => vec![scanner::models::TraceType::RegistryKey],
-        "files" => vec![scanner::models::TraceType::File, scanner::models::TraceType::AppData],
+        "files" => vec![
+            scanner::models::TraceType::File,
+            scanner::models::TraceType::AppData,
+        ],
         "shortcuts" => vec![scanner::models::TraceType::Shortcut],
         "appdata" => vec![scanner::models::TraceType::AppData],
         _ => vec![

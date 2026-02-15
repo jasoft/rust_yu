@@ -1,6 +1,6 @@
+use crate::modules::lister::{self, models::InstalledProgram};
 use anyhow::Result;
 use clap::Parser;
-use crate::modules::lister::{self, models::InstalledProgram};
 
 #[derive(Parser, Debug)]
 pub struct ListCommand {
@@ -27,7 +27,11 @@ pub struct ListCommand {
 }
 
 pub async fn execute(cmd: ListCommand) -> Result<()> {
-    tracing::info!("列出已安装程序, source: {}, search: {:?}", cmd.source, cmd.search);
+    tracing::info!(
+        "列出已安装程序, source: {}, search: {:?}",
+        cmd.source,
+        cmd.search
+    );
 
     let source = match cmd.source.as_str() {
         "registry" => Some(lister::models::InstallSource::Registry),
@@ -37,7 +41,13 @@ pub async fn execute(cmd: ListCommand) -> Result<()> {
         _ => None,
     };
 
-    let mut programs = lister::list_all_programs(source, cmd.search.as_deref())?;
+    let query = lister::models::ListProgramsQuery {
+        source,
+        search: cmd.search.clone(),
+        refresh: false,
+        cache_ttl_seconds: lister::storage::DEFAULT_CACHE_TTL_SECONDS,
+    };
+    let mut programs = lister::list_programs_with_cache(query)?.programs;
 
     // 排序
     match cmd.sort_by.as_str() {
@@ -65,7 +75,10 @@ pub async fn execute(cmd: ListCommand) -> Result<()> {
 
 fn print_table(programs: &[InstalledProgram]) {
     println!("\n{}", "=".repeat(100));
-    println!("{:<45} {:<25} {:<15} {:<12}", "名称", "发布者", "版本", "来源");
+    println!(
+        "{:<45} {:<25} {:<15} {:<12}",
+        "名称", "发布者", "版本", "来源"
+    );
     println!("{}", "=".repeat(100));
 
     for p in programs {

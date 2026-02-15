@@ -1,5 +1,5 @@
+use super::models::{InstallSource, InstalledProgram};
 use crate::modules::common::error::UninstallerError;
-use super::models::{InstalledProgram, InstallSource};
 
 /// 列出 MSI 产品
 pub fn list_msi_products() -> Result<Vec<InstalledProgram>, UninstallerError> {
@@ -44,7 +44,10 @@ fn list_msi_products_impl() -> Result<Vec<InstalledProgram>, UninstallerError> {
                 let json_str = String::from_utf8_lossy(&output.stdout);
                 parse_msi_products(&json_str)
             } else {
-                tracing::warn!("获取MSI产品失败: {}", String::from_utf8_lossy(&output.stderr));
+                tracing::warn!(
+                    "获取MSI产品失败: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
                 Ok(Vec::new())
             }
         }
@@ -61,12 +64,11 @@ fn parse_msi_products(json_str: &str) -> Result<Vec<InstalledProgram>, Uninstall
         return Ok(Vec::new());
     }
 
-    let products: Vec<MsiProductJson> = serde_json::from_str(json_str)
-        .unwrap_or_else(|_| {
-            serde_json::from_str::<MsiProductJson>(json_str)
-                .map(|p| vec![p])
-                .unwrap_or_default()
-        });
+    let products: Vec<MsiProductJson> = serde_json::from_str(json_str).unwrap_or_else(|_| {
+        serde_json::from_str::<MsiProductJson>(json_str)
+            .map(|p| vec![p])
+            .unwrap_or_default()
+    });
 
     let mut programs = Vec::new();
 

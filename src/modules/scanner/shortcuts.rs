@@ -1,5 +1,5 @@
+use super::models::{Confidence, Trace, TraceType};
 use crate::modules::common::error::UninstallerError;
-use super::models::{Trace, TraceType, Confidence};
 use std::path::Path;
 use walkdir::WalkDir;
 
@@ -44,7 +44,8 @@ fn get_shortcut_dirs() -> Vec<std::path::PathBuf> {
 
     // 开始菜单 - 当前用户
     if let Some(home) = dirs::home_dir() {
-        let start_menu = home.join("AppData")
+        let start_menu = home
+            .join("AppData")
             .join("Roaming")
             .join("Microsoft")
             .join("Windows")
@@ -74,16 +75,15 @@ fn get_shortcut_dirs() -> Vec<std::path::PathBuf> {
 
 /// 在目录中扫描快捷方式
 fn scan_shortcuts_in_dir(dir: &Path, pattern: &str, traces: &mut Vec<Trace>) {
-    let walker = WalkDir::new(dir)
-        .max_depth(3)
-        .follow_links(false);
+    let walker = WalkDir::new(dir).max_depth(3).follow_links(false);
 
     for entry in walker.into_iter().filter_map(|e| e.ok()) {
         let path = entry.path();
 
         // 只处理 .lnk 文件
         if path.extension().map(|e| e == "lnk").unwrap_or(false) {
-            let name = path.file_stem()
+            let name = path
+                .file_stem()
                 .map(|n| n.to_string_lossy().to_lowercase())
                 .unwrap_or_default();
 

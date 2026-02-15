@@ -1,33 +1,43 @@
 use rust_yu_lib::lister;
-use rust_yu_lib::lister::models::{InstalledProgram, InstallSource};
+use rust_yu_lib::lister::models::{InstallSource, ListProgramsQuery, ProgramListResponse};
 use serde::{Deserialize, Serialize};
+
+use super::CommandError;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ListOptions {
     pub source: Option<String>,
     pub search: Option<String>,
+    pub refresh: Option<bool>,
 }
 
 #[tauri::command]
-pub async fn list_programs(options: Option<ListOptions>) -> Result<Vec<InstalledProgram>, String> {
-    let source = options
-        .as_ref()
-        .and_then(|o| o.source.as_deref())
-        .map(|s| match s.to_lowercase().as_str() {
+pub async fn list_programs(
+    options: Option<ListOptions>,
+) -> Result<ProgramListResponse, CommandError> {
+    let source = options.as_ref().and_then(|o| o.source.as_deref()).map(|s| {
+        match s.to_lowercase().as_str() {
             "registry" => InstallSource::Registry,
             "msi" => InstallSource::Msi,
             "store" => InstallSource::Store,
             _ => InstallSource::Registry,
-        });
+        }
+    });
 
-    let search = options.and_then(|o| o.search);
+    let search = options.as_ref().and_then(|o| o.search.clone());
+    let refresh = options.as_ref().and_then(|o| o.refresh).unwrap_or(false);
 
-    let search_ref = search.as_deref();
+    let query = ListProgramsQuery {
+        source,
+        search,
+        refresh,
+        cache_ttl_seconds: rust_yu_lib::lister::storage::DEFAULT_CACHE_TTL_SECONDS,
+    };
 
-    // 由于 list_all_programs 是同步函数，我们可以直接调用
-    // 如果需要异步，可以在主项目中添加 async 版本
-    let programs = lister::list_all_programs(source, search_ref)
-        .map_err(|e| e.to_string())?;
+    let join_result =
+        tauri::async_runtime::spawn_blocking(move || lister::list_programs_with_cache(query))
+            .await
+            .map_err(|error| CommandError::new(format!("程序列表任务执行失败: {}", error)))?;
 
-    Ok(programs)
+    join_result.map_err(CommandError::from)
 }

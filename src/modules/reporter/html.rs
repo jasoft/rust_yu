@@ -1,11 +1,12 @@
+use super::models::UninstallerReport;
+use crate::modules::cleaner::models::CleanResult;
 use crate::modules::common::error::UninstallerError;
 use crate::modules::common::utils;
-use crate::modules::cleaner::models::CleanResult;
-use super::models::UninstallerReport;
 
 /// 生成 HTML 报告
 pub fn generate_html_report(report: &UninstallerReport) -> Result<String, UninstallerError> {
-    let html = format!(r#"<!DOCTYPE html>
+    let html = format!(
+        r#"<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -205,7 +206,8 @@ fn generate_results_table(results: &[CleanResult]) -> String {
         return "<p>暂无删除记录</p>".to_string();
     }
 
-    let mut html = String::from(r#"
+    let mut html = String::from(
+        r#"
         <h2 class="section-title">删除详情</h2>
         <table>
             <thead>
@@ -217,7 +219,8 @@ fn generate_results_table(results: &[CleanResult]) -> String {
                 </tr>
             </thead>
             <tbody>
-    "#);
+    "#,
+    );
 
     for result in results {
         let status_html = if result.success {
@@ -233,7 +236,10 @@ fn generate_results_table(results: &[CleanResult]) -> String {
         };
 
         // 尝试从路径推断类型
-        let type_html = if result.path.contains("HKLM") || result.path.contains("HKCU") || result.path.contains("HKCR") {
+        let type_html = if result.path.contains("HKLM")
+            || result.path.contains("HKCU")
+            || result.path.contains("HKCR")
+        {
             r#"<span class="type-badge">注册表</span>"#
         } else if result.path.ends_with(".lnk") {
             r#"<span class="type-badge">快捷方式</span>"#
@@ -243,7 +249,8 @@ fn generate_results_table(results: &[CleanResult]) -> String {
             r#"<span class="type-badge">文件/目录</span>"#
         };
 
-        html.push_str(&format!(r#"
+        html.push_str(&format!(
+            r#"
                 <tr>
                     <td>{}</td>
                     <td>{}</td>

@@ -1,10 +1,10 @@
 //! uninstall 命令 - 卸载程序并清理残留
 
+use crate::modules::common::utils;
+use crate::modules::lister::storage;
+use crate::modules::{cleaner, lister, scanner};
 use anyhow::Result;
 use clap::Parser;
-use crate::modules::{lister, scanner, cleaner};
-use crate::modules::lister::storage;
-use crate::modules::common::utils;
 
 #[derive(Parser, Debug)]
 pub struct UninstallCommand {
@@ -115,13 +115,20 @@ pub async fn execute(cmd: UninstallCommand) -> Result<()> {
                 // 预览模式，让用户选择
                 println!("=== 预览模式 ===\n");
                 for (i, trace) in existing_traces.iter().enumerate() {
-                    let size = trace.size.map(|s| utils::format_size(s)).unwrap_or_default();
+                    let size = trace
+                        .size
+                        .map(|s| utils::format_size(s))
+                        .unwrap_or_default();
                     println!(
                         "  [{}] {:12} {} {}",
                         i + 1,
                         format!("{:?}", trace.trace_type),
                         trace.path,
-                        if !size.is_empty() { format!("({})", size) } else { String::new() }
+                        if !size.is_empty() {
+                            format!("({})", size)
+                        } else {
+                            String::new()
+                        }
                     );
                 }
 
@@ -176,6 +183,10 @@ pub async fn execute(cmd: UninstallCommand) -> Result<()> {
     } else {
         println!("\n[4/4] 保留程序信息缓存 (可使用 --preserve=false 清理)");
     }
+
+    // 卸载流程会改变已安装程序列表，保守起见直接失效列表缓存
+    storage::invalidate_scan_cache_for_program(&cmd.target)?;
+    println!("  - 已失效安装列表缓存");
 
     println!("\n=== 卸载完成 ===");
     Ok(())
@@ -251,9 +262,7 @@ async fn run_uninstall_with_wait(uninstall_string: &str, timeout_secs: u64) -> R
 
     #[cfg(not(windows))]
     {
-        let output = Command::new("cmd")
-            .args(["/C", &cmd_str])
-            .output()?;
+        let output = Command::new("cmd").args(["/C", &cmd_str]).output()?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);

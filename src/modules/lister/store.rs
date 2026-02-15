@@ -1,5 +1,5 @@
+use super::models::{InstallSource, InstalledProgram};
 use crate::modules::common::error::UninstallerError;
-use super::models::{InstalledProgram, InstallSource};
 use std::process::Command;
 
 /// 列出微软商店应用
@@ -30,7 +30,10 @@ pub fn list_store_apps() -> Result<Vec<InstalledProgram>, UninstallerError> {
                 parse_store_apps(&json_str)
             } else {
                 // 如果 PowerShell 失败，返回空列表
-                tracing::warn!("获取商店应用失败: {}", String::from_utf8_lossy(&output.stderr));
+                tracing::warn!(
+                    "获取商店应用失败: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
                 Ok(Vec::new())
             }
         }
@@ -47,13 +50,12 @@ fn parse_store_apps(json_str: &str) -> Result<Vec<InstalledProgram>, Uninstaller
     }
 
     // 尝试解析 JSON
-    let apps: Vec<StoreAppJson> = serde_json::from_str(json_str)
-        .unwrap_or_else(|_| {
-            // 可能是单个对象
-            serde_json::from_str::<StoreAppJson>(json_str)
-                .map(|a| vec![a])
-                .unwrap_or_default()
-        });
+    let apps: Vec<StoreAppJson> = serde_json::from_str(json_str).unwrap_or_else(|_| {
+        // 可能是单个对象
+        serde_json::from_str::<StoreAppJson>(json_str)
+            .map(|a| vec![a])
+            .unwrap_or_default()
+    });
 
     let mut programs = Vec::new();
 
@@ -71,7 +73,10 @@ fn parse_store_apps(json_str: &str) -> Result<Vec<InstalledProgram>, Uninstaller
         // 商店应用的卸载命令
         if let Some(ref pkg) = app.package_full_name {
             program.id = pkg.clone();
-            program.uninstall_string = Some(format!("powershell -Command \"Remove-AppxPackage -Package '{}'\"", pkg));
+            program.uninstall_string = Some(format!(
+                "powershell -Command \"Remove-AppxPackage -Package '{}'\"",
+                pkg
+            ));
         } else {
             program.id = uuid::Uuid::new_v4().to_string();
         }

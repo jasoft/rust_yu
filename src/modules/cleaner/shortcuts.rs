@@ -1,6 +1,6 @@
+use super::models::CleanResult;
 use crate::modules::common::error::UninstallerError;
 use crate::modules::scanner::models::Trace;
-use super::models::CleanResult;
 
 /// 删除快捷方式
 pub async fn delete_shortcut_trace(trace: &Trace) -> Result<CleanResult, UninstallerError> {

@@ -1,7 +1,7 @@
+use super::models::CleanResult;
 use crate::modules::common::error::UninstallerError;
 use crate::modules::common::utils;
 use crate::modules::scanner::models::Trace;
-use super::models::CleanResult;
 
 /// 删除文件痕迹
 pub async fn delete_file_trace(trace: &Trace) -> Result<CleanResult, UninstallerError> {

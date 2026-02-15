@@ -36,14 +36,21 @@ pub async fn execute(cmd: ReportCommand) -> Result<()> {
             if path.extension().map(|e| e == "html").unwrap_or(false) {
                 count += 1;
                 let metadata = std::fs::metadata(&path)?;
-                let modified = metadata.modified()?
+                let modified = metadata
+                    .modified()?
                     .duration_since(std::time::UNIX_EPOCH)
                     .ok()
-                    .and_then(|d| chrono::DateTime::<chrono::Utc>::from_timestamp(d.as_secs() as i64, 0))
+                    .and_then(|d| {
+                        chrono::DateTime::<chrono::Utc>::from_timestamp(d.as_secs() as i64, 0)
+                    })
                     .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
                     .unwrap_or_default();
 
-                println!("  {}  (修改时间: {})", path.file_name().unwrap().to_string_lossy(), modified);
+                println!(
+                    "  {}  (修改时间: {})",
+                    path.file_name().unwrap().to_string_lossy(),
+                    modified
+                );
             }
         }
 

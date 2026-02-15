@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use super::CommandError;
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UninstallOptions {
     pub program_name: String,
@@ -21,9 +23,14 @@ pub struct UninstallResult {
 pub async fn uninstall_program(
     program_name: String,
     scan_only: bool,
-) -> Result<UninstallResult, String> {
+) -> Result<UninstallResult, CommandError> {
     // TODO: 实现真正的程序卸载功能
     // 这需要调用 Windows API 如 MsiEnumProducts 或通过注册表查找卸载命令
+
+    if !scan_only {
+        rust_yu_lib::lister::storage::invalidate_scan_cache_for_program(&program_name)
+            .map_err(CommandError::from)?;
+    }
 
     Ok(UninstallResult {
         success: true,

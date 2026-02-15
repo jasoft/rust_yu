@@ -23,12 +23,10 @@ pub fn init_logging(verbose: bool) {
     std::mem::forget(_guard);
 
     let subscriber = tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::new(format!(
-                "rust_yu={},info",
-                level
-            ))
-        )
+        .with(tracing_subscriber::EnvFilter::new(format!(
+            "rust_yu={},info",
+            level
+        )))
         .with(tracing_subscriber::fmt::layer().with_writer(non_blocking))
         .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr));
 

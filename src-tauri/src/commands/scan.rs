@@ -2,6 +2,8 @@ use rust_yu_lib::scanner;
 use rust_yu_lib::scanner::models::Trace;
 use serde::{Deserialize, Serialize};
 
+use super::CommandError;
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ScanOptions {
     pub program_name: String,
@@ -9,7 +11,10 @@ pub struct ScanOptions {
 }
 
 #[tauri::command]
-pub async fn scan_traces(program_name: String, trace_types: Option<Vec<String>>) -> Result<Vec<Trace>, String> {
+pub async fn scan_traces(
+    program_name: String,
+    trace_types: Option<Vec<String>>,
+) -> Result<Vec<Trace>, CommandError> {
     use rust_yu_lib::scanner::models::TraceType;
 
     let types = trace_types.map(|t| {
@@ -27,7 +32,7 @@ pub async fn scan_traces(program_name: String, trace_types: Option<Vec<String>>)
 
     let traces = scanner::scan_all_traces(&program_name, types)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(CommandError::from)?;
 
     Ok(traces)
 }
