@@ -1,0 +1,10 @@
+{
+  "$schema": "https://schemas.tauri.app/capability/2",
+  "identifier": "default",
+  "description": "Default capabilities for Rust Yu",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "shell:allow-open"
+  ]
+}

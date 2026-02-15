@@ -43,7 +43,13 @@ fn start_api_server() {
             warp::reply::json(&response)
         });
 
-    let routes = programs_route;
+    // 仅开发调试使用：允许本地前端页面跨域读取程序列表
+    let cors = warp::cors()
+        .allow_any_origin()
+        .allow_methods(vec!["GET"])
+        .allow_headers(vec!["content-type"]);
+
+    let routes = programs_route.with(cors);
 
     // 在后台线程启动服务器
     std::thread::spawn(move || {

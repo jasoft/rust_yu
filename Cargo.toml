@@ -13,7 +13,7 @@ license = "MIT"
 [dependencies]
 
 # HTTP 服务器 (用于开发模式下的前端 API)
-warp = "0.3"
+warp = "0.4.2"
 
 # CLI 框架
 clap = { version = "4.5", features = ["derive", "env"] }
@@ -72,3 +72,10 @@ crate-type = ["lib", "cdylib"]
 [[bin]]
 name = "rust-yu"
 path = "src/main.rs"
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

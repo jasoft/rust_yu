@@ -44,10 +44,3 @@ dirs = "5.0"
 
 # HTTP 服务器 (用于开发模式)
 warp = "0.3"
-
-[profile.release]
-panic = "abort"
-codegen-units = 1
-lto = true
-opt-level = "s"
-strip = true
