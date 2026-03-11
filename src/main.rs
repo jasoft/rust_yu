@@ -6,7 +6,7 @@ mod commands;
 mod modules;
 
 #[derive(Parser, Debug)]
-#[command(name = "rust-yu")]
+#[command(name = "yu")]
 #[command(about = "Windows 卸载程序命令行工具", long_about = None)]
 #[command(version = "0.1.0")]
 struct Cli {
@@ -53,4 +53,17 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Cli;
+    use clap::CommandFactory;
+
+    #[test]
+    fn cli_command_name_is_yu() {
+        let command = Cli::command();
+
+        assert_eq!(command.get_name(), "yu");
+    }
 }

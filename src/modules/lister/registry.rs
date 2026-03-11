@@ -46,6 +46,42 @@ pub fn list_registry_programs() -> Result<Vec<InstalledProgram>, UninstallerErro
     Ok(programs)
 }
 
+/// 检查程序是否仍存在于卸载注册表中。
+pub fn registry_program_exists(name: &str) -> Result<bool, UninstallerError> {
+    let target = name.to_lowercase();
+
+    let paths = [
+        (
+            HKEY_LOCAL_MACHINE,
+            r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+        ),
+        (
+            HKEY_LOCAL_MACHINE,
+            r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+        ),
+        (
+            HKEY_CURRENT_USER,
+            r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+        ),
+    ];
+
+    for (hkey, path) in &paths {
+        if let Ok(key) = RegKey::predef(*hkey).open_subkey(path) {
+            for subkey_name in key.enum_keys().filter_map(|item| item.ok()) {
+                if let Ok(subkey) = key.open_subkey(&subkey_name) {
+                    if let Ok(display_name) = subkey.get_value::<String, _>("DisplayName") {
+                        if display_name.to_lowercase() == target {
+                            return Ok(true);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(false)
+}
+
 /// 解析注册表项
 fn parse_registry_entry(subkey: &RegKey) -> Option<InstalledProgram> {
     // 必须有 DisplayName
@@ -64,6 +100,7 @@ fn parse_registry_entry(subkey: &RegKey) -> Option<InstalledProgram> {
     program.install_date = subkey.get_value("InstallDate").ok();
     program.install_location = subkey.get_value("InstallLocation").ok();
     program.uninstall_string = subkey.get_value("UninstallString").ok();
+    program.quiet_uninstall_string = subkey.get_value("QuietUninstallString").ok();
     program.icon_path = subkey.get_value("DisplayIcon").ok();
     program.url_info_about = subkey.get_value("URLInfoAbout").ok();
     program.help_link = subkey.get_value("HelpLink").ok();

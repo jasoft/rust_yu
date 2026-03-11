@@ -22,8 +22,16 @@ pub struct ListCommand {
     pub sort_by: String,
 
     /// 按升序排序
-    #[arg(long)]
+    #[arg(long, conflicts_with = "descending")]
     pub ascending: bool,
+
+    /// 按降序排序
+    #[arg(long, conflicts_with = "ascending")]
+    pub descending: bool,
+
+    /// 跳过读取缓存，立即重新扫描并刷新缓存
+    #[arg(long)]
+    pub refresh: bool,
 }
 
 pub async fn execute(cmd: ListCommand) -> Result<()> {
@@ -33,33 +41,10 @@ pub async fn execute(cmd: ListCommand) -> Result<()> {
         cmd.search
     );
 
-    let source = match cmd.source.as_str() {
-        "registry" => Some(lister::models::InstallSource::Registry),
-        "msi" => Some(lister::models::InstallSource::Msi),
-        "store" => Some(lister::models::InstallSource::Store),
-        "standard" => None, // registry + msi (不包括 store)
-        _ => None,
-    };
-
-    let query = lister::models::ListProgramsQuery {
-        source,
-        search: cmd.search.clone(),
-        refresh: false,
-        cache_ttl_seconds: lister::storage::DEFAULT_CACHE_TTL_SECONDS,
-    };
+    let query = build_query(&cmd);
     let mut programs = lister::list_programs_with_cache(query)?.programs;
 
-    // 排序
-    match cmd.sort_by.as_str() {
-        "name" => programs.sort_by(|a, b| a.name.cmp(&b.name)),
-        "date" => programs.sort_by(|a, b| a.install_date.cmp(&b.install_date)),
-        "size" => programs.sort_by(|a, b| b.size.cmp(&a.size)),
-        _ => {}
-    }
-
-    if !cmd.ascending {
-        programs.reverse();
-    }
+    sort_programs(&mut programs, &cmd);
 
     match cmd.format.as_str() {
         "json" => {
@@ -71,6 +56,36 @@ pub async fn execute(cmd: ListCommand) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn sort_programs(programs: &mut [InstalledProgram], cmd: &ListCommand) {
+    match cmd.sort_by.as_str() {
+        "name" => programs.sort_by(|a, b| a.name.cmp(&b.name)),
+        "date" => programs.sort_by(|a, b| a.install_date.cmp(&b.install_date)),
+        "size" => programs.sort_by(|a, b| a.size.cmp(&b.size)),
+        _ => {}
+    }
+
+    if cmd.descending {
+        programs.reverse();
+    }
+}
+
+fn build_query(cmd: &ListCommand) -> lister::models::ListProgramsQuery {
+    let source = match cmd.source.as_str() {
+        "registry" => Some(lister::models::InstallSource::Registry),
+        "msi" => Some(lister::models::InstallSource::Msi),
+        "store" => Some(lister::models::InstallSource::Store),
+        "standard" => None, // registry + msi (不包括 store)
+        _ => None,
+    };
+
+    lister::models::ListProgramsQuery {
+        source,
+        search: cmd.search.clone(),
+        refresh: cmd.refresh,
+        cache_ttl_seconds: lister::storage::DEFAULT_CACHE_TTL_SECONDS,
+    }
 }
 
 fn print_table(programs: &[InstalledProgram]) {
@@ -109,5 +124,77 @@ fn truncate_string(s: &str, max_len: usize) -> String {
         format!("{}..", chars)
     } else {
         s.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_query, sort_programs, ListCommand};
+    use crate::modules::lister::models::{InstallSource, InstalledProgram};
+    use clap::Parser;
+
+    #[test]
+    fn list_command_accepts_refresh_flag() {
+        let parsed = ListCommand::try_parse_from(["rust-yu", "--refresh"]);
+
+        assert!(parsed.is_ok(), "expected --refresh to parse successfully");
+    }
+
+    #[test]
+    fn build_query_enables_refresh_when_flag_is_set() {
+        let cmd = ListCommand {
+            format: "table".to_string(),
+            source: "standard".to_string(),
+            search: Some("7zip".to_string()),
+            sort_by: "name".to_string(),
+            ascending: false,
+            descending: false,
+            refresh: true,
+        };
+
+        let query = build_query(&cmd);
+
+        assert!(query.refresh);
+        assert_eq!(query.search.as_deref(), Some("7zip"));
+        assert!(query.source.is_none());
+    }
+
+    #[test]
+    fn default_name_sort_is_ascending() {
+        let mut programs = vec![
+            InstalledProgram::new("Zeta".to_string(), InstallSource::Registry),
+            InstalledProgram::new("Alpha".to_string(), InstallSource::Registry),
+        ];
+        let cmd = ListCommand {
+            format: "table".to_string(),
+            source: "standard".to_string(),
+            search: None,
+            sort_by: "name".to_string(),
+            ascending: false,
+            descending: false,
+            refresh: false,
+        };
+
+        sort_programs(&mut programs, &cmd);
+
+        assert_eq!(programs[0].name, "Alpha");
+        assert_eq!(programs[1].name, "Zeta");
+    }
+
+    #[test]
+    fn list_command_accepts_descending_flag() {
+        let parsed = ListCommand::try_parse_from(["yu", "--descending"]);
+
+        assert!(parsed.is_ok(), "expected --descending to parse successfully");
+    }
+
+    #[test]
+    fn list_command_rejects_conflicting_direction_flags() {
+        let parsed = ListCommand::try_parse_from(["yu", "--ascending", "--descending"]);
+
+        assert!(
+            parsed.is_err(),
+            "expected conflicting direction flags to be rejected"
+        );
     }
 }

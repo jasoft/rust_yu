@@ -1,4 +1,5 @@
 use crate::modules::{cleaner, lister, reporter, scanner};
+use crate::modules::common::utils;
 use anyhow::Result;
 use chrono::Utc;
 use clap::Parser;
@@ -52,7 +53,7 @@ pub async fn execute(cmd: CleanCommand) -> Result<()> {
                 .iter()
                 .find(|p| p.name.to_lowercase().contains(&cmd.target.to_lowercase()))
             {
-                if let Some(uninstall_str) = &program.uninstall_string {
+                if let Some(uninstall_str) = program.preferred_uninstall_string() {
                     run_uninstall_command(uninstall_str).await
                 } else {
                     anyhow::bail!("程序没有卸载命令")
@@ -156,14 +157,10 @@ pub async fn execute(cmd: CleanCommand) -> Result<()> {
 }
 
 async fn run_uninstall_command(uninstall_string: &str) -> Result<()> {
+    utils::ensure_running_as_administrator()?;
+
     // 处理常见的卸载命令格式
-    let cmd = if uninstall_string.to_lowercase().starts_with("msiexec") {
-        // MSI 卸载
-        format!("{} /quiet /norestart", uninstall_string)
-    } else {
-        // 普通卸载命令
-        uninstall_string.to_string()
-    };
+    let cmd = utils::normalize_uninstall_command(uninstall_string);
 
     tracing::info!("执行卸载命令: {}", cmd);
 
@@ -171,11 +168,10 @@ async fn run_uninstall_command(uninstall_string: &str) -> Result<()> {
     {
         use std::process::Command as StdCommand;
 
-        let output = if cmd.contains("msiexec") {
-            StdCommand::new("cmd").args(["/C", &cmd]).output()?
-        } else {
-            StdCommand::new("cmd").args(["/C", &cmd]).output()?
-        };
+        let (executable, arguments) = utils::split_command_for_spawn(&cmd)?;
+        let output = StdCommand::new(&executable)
+            .args(&arguments)
+            .output()?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);

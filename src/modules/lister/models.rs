@@ -53,6 +53,8 @@ pub struct InstalledProgram {
     pub install_location: Option<String>,
     pub uninstall_string: Option<String>,
     #[serde(default)]
+    pub quiet_uninstall_string: Option<String>,
+    #[serde(default)]
     pub install_source: InstallSource,
     pub size: Option<u64>,
     pub icon_path: Option<String>,
@@ -98,6 +100,7 @@ impl InstalledProgram {
             install_date: None,
             install_location: None,
             uninstall_string: None,
+            quiet_uninstall_string: None,
             install_source: source,
             size: None,
             icon_path: None,
@@ -119,6 +122,13 @@ impl InstalledProgram {
             size_confidence: MetadataConfidence::Unknown,
             metadata_confidence: MetadataConfidence::Unknown,
         }
+    }
+
+    /// 返回卸载时优先使用的命令。
+    pub fn preferred_uninstall_string(&self) -> Option<&str> {
+        self.quiet_uninstall_string
+            .as_deref()
+            .or(self.uninstall_string.as_deref())
     }
 }
 
@@ -190,4 +200,35 @@ pub struct ListProgramsQuery {
 pub struct ProgramListResponse {
     pub programs: Vec<InstalledProgram>,
     pub cache: ProgramListCacheState,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{InstallSource, InstalledProgram};
+
+    #[test]
+    fn preferred_uninstall_string_prefers_quiet_variant() {
+        let mut program = InstalledProgram::new("QuietApp".to_string(), InstallSource::Registry);
+        program.uninstall_string = Some(r#""C:\Program Files\QuietApp\uninstall.exe""#.to_string());
+        program.quiet_uninstall_string =
+            Some(r#""C:\Program Files\QuietApp\uninstall.exe" /S"#.to_string());
+
+        assert_eq!(
+            program.preferred_uninstall_string(),
+            Some(r#""C:\Program Files\QuietApp\uninstall.exe" /S"#)
+        );
+    }
+
+    #[test]
+    fn preferred_uninstall_string_falls_back_to_default_variant() {
+        let mut program =
+            InstalledProgram::new("FallbackApp".to_string(), InstallSource::Registry);
+        program.uninstall_string =
+            Some(r#""C:\Program Files\FallbackApp\uninstall.exe""#.to_string());
+
+        assert_eq!(
+            program.preferred_uninstall_string(),
+            Some(r#""C:\Program Files\FallbackApp\uninstall.exe""#)
+        );
+    }
 }
