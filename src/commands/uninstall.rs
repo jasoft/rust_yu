@@ -1,6 +1,6 @@
 //! uninstall 命令 - 卸载程序并清理残留
 
-use crate::modules::common::utils;
+use crate::modules::common::{process, utils};
 use crate::modules::lister::storage;
 use crate::modules::{cleaner, lister, scanner};
 use anyhow::Result;
@@ -60,7 +60,7 @@ pub async fn execute(cmd: UninstallCommand) -> Result<()> {
     }
 
     // 2. 执行卸载命令并等待
-    println!("\n[2/4] 执行卸载命令并等待进程结束...");
+    println!("\n[2/4] 执行卸载命令并等待完成...");
 
     let uninstall_str = program
         .as_ref()
@@ -68,22 +68,80 @@ pub async fn execute(cmd: UninstallCommand) -> Result<()> {
         .or(cmd.uninstall_string);
 
     if let Some(uninstall_str) = uninstall_str {
+        let uninstall_str = utils::normalize_uninstall_command(&uninstall_str);
         println!("  - 卸载命令: {}", uninstall_str);
 
         utils::ensure_running_as_administrator()?;
 
-        // 执行卸载并等待进程组结束
-        match run_uninstall_with_wait(&uninstall_str, cmd.timeout).await {
-            Ok(_) => {
-                println!("  - 卸载进程已结束");
+        if process::is_likely_interactive_uninstall(&uninstall_str) {
+            let display_name = program
+                .as_ref()
+                .map(|installed| installed.name.as_str())
+                .unwrap_or(&cmd.target);
+            println!("{}", process::build_interactive_uninstall_message(display_name));
+        }
+
+        let run_result = process::run_uninstall_command(&uninstall_str, cmd.timeout).await?;
+        if run_result.used_job_object {
+            println!("  - 已使用 Job Object 等待卸载进程链结束");
+        } else {
+            println!("  - 已等待直接卸载进程结束");
+        }
+
+        match run_result.completion_status {
+            process::UninstallCompletionStatus::InterruptedByUser => {
+                let message = process::build_unsuccessful_uninstall_message(
+                    program
+                        .as_ref()
+                        .map(|installed| installed.name.as_str())
+                        .unwrap_or(&cmd.target),
+                    true,
+                    false,
+                    run_result.exit_code,
+                    false,
+                    true,
+                );
+                anyhow::bail!(message);
             }
-            Err(e) => {
-                println!("  - 警告: 卸载进程等待超时或出错: {}", e);
+            process::UninstallCompletionStatus::Completed => {
+                println!(
+                    "  - 卸载进程链已结束，exit_code={}",
+                    run_result
+                        .exit_code
+                        .map(|code| code.to_string())
+                        .unwrap_or_else(|| "unknown".to_string())
+                );
             }
         }
 
         if let Some(installed_program) = &program {
-            wait_for_program_removal(installed_program, cmd.timeout).await?;
+            let removal_status = wait_for_program_removal(installed_program, cmd.timeout).await?;
+            if removal_status.removed {
+                println!("  - 已确认程序条目与安装目录均已移除");
+            } else {
+                anyhow::bail!(process::build_unsuccessful_uninstall_message(
+                    &installed_program.name,
+                    removal_status.still_registered,
+                    removal_status.install_dir_exists,
+                    run_result.exit_code,
+                    run_result.classification.user_cancelled,
+                    false,
+                ));
+            }
+        } else if run_result.classification.user_cancelled {
+            anyhow::bail!("卸载已取消，未执行后续残留清理");
+        } else if !run_result.classification.successful {
+            anyhow::bail!(
+                "卸载失败，退出码异常: {}",
+                run_result
+                    .exit_code
+                    .map(|code| code.to_string())
+                    .unwrap_or_else(|| "unknown".to_string())
+            );
+        }
+
+        if run_result.classification.reboot_required {
+            println!("  - 卸载器提示需要重启后才能完全生效");
         }
     } else {
         anyhow::bail!("未找到程序对应的卸载命令，请确认程序名称或手动传入 --uninstall-string");
@@ -269,7 +327,7 @@ fn select_matching_program(
 async fn wait_for_program_removal(
     program: &lister::models::InstalledProgram,
     timeout_secs: u64,
-) -> Result<()> {
+) -> Result<ProgramRemovalStatus> {
     use std::time::{Duration, Instant};
 
     let started_at = Instant::now();
@@ -303,81 +361,30 @@ async fn wait_for_program_removal(
         );
 
         if !still_registered && !install_dir_exists {
-            println!("  - 已确认程序条目与安装目录均已移除");
-            return Ok(());
+            return Ok(ProgramRemovalStatus {
+                removed: true,
+                still_registered,
+                install_dir_exists,
+            });
         }
 
         if started_at.elapsed() >= Duration::from_secs(timeout_secs) {
-            anyhow::bail!(
-                "卸载命令已退出，但程序仍残留: registered={}, install_dir_exists={}, name={}",
+            return Ok(ProgramRemovalStatus {
+                removed: false,
                 still_registered,
                 install_dir_exists,
-                program.name
-            );
+            });
         }
 
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
 }
 
-/// 执行卸载命令并等待进程组结束
-async fn run_uninstall_with_wait(uninstall_string: &str, _timeout_secs: u64) -> Result<()> {
-    use std::process::{Command, Stdio};
-    use std::time::Duration;
-
-    // 处理常见的卸载命令格式
-    let cmd_str = utils::normalize_uninstall_command(uninstall_string);
-
-    tracing::info!("执行卸载命令: {}", cmd_str);
-
-    // 使用 spawn 而不是 output，这样我们可以获取 PID
-    #[cfg(windows)]
-    {
-        let mut wrapper_script_path = None;
-        let mut child = if cmd_str.to_lowercase().starts_with("msiexec") {
-            let (executable, arguments) = utils::split_command_for_spawn(&cmd_str)?;
-            Command::new(&executable)
-                .args(&arguments)
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn()?
-        } else {
-            let wrapper_script = utils::create_command_wrapper_script(&cmd_str)?;
-            let script_arg = wrapper_script.to_string_lossy().to_string();
-            wrapper_script_path = Some(wrapper_script);
-            Command::new("cmd")
-                .args(["/C", &script_arg])
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn()?
-        };
-
-        let pid = child.id();
-        println!("  - 进程 PID: {}", pid);
-
-        let status = tokio::task::spawn_blocking(move || child.wait()).await??;
-        if let Some(script_path) = wrapper_script_path {
-            let _ = std::fs::remove_file(script_path);
-        }
-        if !status.success() {
-            anyhow::bail!("卸载进程退出码异常: {:?}", status.code());
-        }
-
-        // 额外等待一段时间，确保清理完成
-        tokio::time::sleep(Duration::from_secs(2)).await;
-    }
-
-    #[cfg(not(windows))]
-    {
-        let output = Command::new("cmd").args(["/C", &cmd_str]).output()?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            anyhow::bail!("卸载命令执行失败: {}", stderr);
-        }
-    }
-
-    Ok(())
+#[derive(Debug, Clone, Copy)]
+struct ProgramRemovalStatus {
+    removed: bool,
+    still_registered: bool,
+    install_dir_exists: bool,
 }
 
 #[cfg(test)]

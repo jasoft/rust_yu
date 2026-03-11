@@ -71,10 +71,15 @@
     - TS: `camelCase` (functions), `PascalCase` (components).
 - **Comments:** 关键的系统操作逻辑（特别是删除文件的逻辑）必须写中文注释，解释为什么这样做。
 
+## 7. 测试资源
+
+- winget install 7zip.7zip --silent 可以安装一个测试用的普通app(非msi) 7-zip, 支持静默卸载和gui界面卸载
+- .resources\Xplorer_0.3.1_x64.msi 可以用msi命令行静默安装一个msi程序供测试卸载.
+
 ---
 
 **Think Step-by-Step for every generation:**
 
-1.  **Safety Check:** Does this code delete files? If yes, is there a confirmation step or backup mechanism?
-2.  **Windows Compat:** Does this rely on a specific Windows version API?
-3.  **Async:** Is this blocking the UI thread?
+1. **Safety Check:** Does this code delete files? If yes, is there a confirmation step or backup mechanism?
+2. **Windows Compat:** Does this rely on a specific Windows version API?
+3. **Async:** Is this blocking the UI thread?
