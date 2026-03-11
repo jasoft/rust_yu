@@ -237,7 +237,10 @@ fn run_uninstall_command_windows(
     }
 
     fn to_wide(value: &str) -> Vec<u16> {
-        OsStr::new(value).encode_wide().chain(std::iter::once(0)).collect()
+        OsStr::new(value)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect()
     }
 
     fn infer_current_directory(command: &str) -> Option<Vec<u16>> {
@@ -247,9 +250,7 @@ fn run_uninstall_command_windows(
         Some(to_wide(&working_dir.to_string_lossy()))
     }
 
-    fn try_create_process(
-        command: &str,
-    ) -> Result<ProcessLaunch, windows::core::Error> {
+    fn try_create_process(command: &str) -> Result<ProcessLaunch, windows::core::Error> {
         let mut command_line = to_wide(command);
         let current_directory = infer_current_directory(command);
         let current_directory_ptr = current_directory

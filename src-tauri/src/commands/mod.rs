@@ -4,6 +4,7 @@ pub mod list;
 pub mod report;
 pub mod scan;
 pub mod search;
+pub mod startup;
 pub mod uninstall;
 
 pub use clean::*;
@@ -12,4 +13,5 @@ pub use list::*;
 pub use report::*;
 pub use scan::*;
 pub use search::*;
+pub use startup::*;
 pub use uninstall::*;

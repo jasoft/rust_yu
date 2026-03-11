@@ -164,6 +164,12 @@ pub fn run() {
             uninstall_program,
             get_reports,
             delete_report,
+            list_startup_items,
+            get_startup_item,
+            list_startup_sources,
+            plan_startup_action,
+            apply_startup_action,
+            rollback_startup_action,
         ])
         .run(tauri::generate_context!())
         .expect("启动 Tauri 应用时出错");

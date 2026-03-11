@@ -2,12 +2,22 @@ use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CommandError {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
     pub message: String,
 }
 
 impl CommandError {
     pub fn new(message: impl Into<String>) -> Self {
         Self {
+            code: None,
+            message: message.into(),
+        }
+    }
+
+    pub fn with_code(code: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            code: Some(code.into()),
             message: message.into(),
         }
     }
@@ -36,5 +46,11 @@ impl From<&str> for CommandError {
 impl From<rust_yu_lib::UninstallerError> for CommandError {
     fn from(error: rust_yu_lib::UninstallerError) -> Self {
         Self::new(error.to_string())
+    }
+}
+
+impl From<rust_yu_lib::startup::models::StartupError> for CommandError {
+    fn from(error: rust_yu_lib::startup::models::StartupError) -> Self {
+        Self::with_code(error.code.as_str(), error.message)
     }
 }

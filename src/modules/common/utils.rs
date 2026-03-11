@@ -142,12 +142,47 @@ pub fn split_command_for_spawn(
         args.push(current);
     }
 
-    let mut parts = args.into_iter();
-    let executable = parts.next().ok_or_else(|| {
+    let (executable, remaining_args) = split_executable_and_args(args).ok_or_else(|| {
         crate::modules::common::error::UninstallerError::Other("卸载命令缺少可执行文件".to_string())
     })?;
 
-    Ok((executable, parts.collect()))
+    Ok((executable, remaining_args))
+}
+
+fn split_executable_and_args(args: Vec<String>) -> Option<(String, Vec<String>)> {
+    let mut parts = args.into_iter();
+    let executable = parts.next()?;
+    let remaining = parts.collect::<Vec<_>>();
+
+    if remaining.is_empty() || is_probable_executable(&executable) {
+        return Some((executable, remaining));
+    }
+
+    let mut rebuilt = executable;
+    let mut remaining_iter = remaining.into_iter();
+    let mut executable_parts = vec![rebuilt.clone()];
+
+    while let Some(part) = remaining_iter.next() {
+        rebuilt.push(' ');
+        rebuilt.push_str(&part);
+        executable_parts.push(part);
+
+        if is_probable_executable(&rebuilt) {
+            let tail = remaining_iter.collect::<Vec<_>>();
+            return Some((rebuilt, tail));
+        }
+    }
+
+    Some((executable_parts.join(" "), Vec::new()))
+}
+
+fn is_probable_executable(candidate: &str) -> bool {
+    let lower = candidate.trim().to_lowercase();
+    [
+        ".exe", ".com", ".bat", ".cmd", ".msi", ".ps1", ".vbs", ".js", ".scr",
+    ]
+    .iter()
+    .any(|suffix| lower.ends_with(suffix))
 }
 
 /// 为 GUI/传统 EXE 卸载命令创建临时批处理包装器。
@@ -316,6 +351,20 @@ mod tests {
                 "/norestart".to_string()
             ]
         );
+    }
+
+    #[test]
+    fn split_command_for_spawn_handles_unquoted_windows_path_with_spaces() {
+        let (executable, args) = super::split_command_for_spawn(
+            r#"C:\Program Files (x86)\Adobe\Adobe Creative Cloud Experience\CCXProcess.exe --showwindow=false"#,
+        )
+        .expect("应能解析未加引号但包含空格的可执行文件路径");
+
+        assert_eq!(
+            executable,
+            r#"C:\Program Files (x86)\Adobe\Adobe Creative Cloud Experience\CCXProcess.exe"#
+        );
+        assert_eq!(args, vec!["--showwindow=false".to_string()]);
     }
 
     #[test]
