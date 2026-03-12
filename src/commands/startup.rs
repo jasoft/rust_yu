@@ -80,8 +80,6 @@ pub struct AddStartupCommand {
     #[arg(long, default_value = "json")]
     pub format: String,
     #[arg(long)]
-    pub apply: bool,
-    #[arg(long)]
     pub yes: bool,
     #[arg(long)]
     pub reason: Option<String>,
@@ -100,8 +98,6 @@ pub struct MutateStartupCommand {
     #[arg(long, default_value = "json")]
     pub format: String,
     #[arg(long)]
-    pub apply: bool,
-    #[arg(long)]
     pub yes: bool,
     #[arg(long)]
     pub reason: Option<String>,
@@ -113,8 +109,6 @@ pub struct RollbackStartupCommand {
     pub change_id: String,
     #[arg(long, default_value = "json")]
     pub format: String,
-    #[arg(long)]
-    pub apply: bool,
     #[arg(long)]
     pub yes: bool,
     #[arg(long)]
@@ -170,23 +164,6 @@ fn execute_list(cmd: ListStartupCommand) -> Result<()> {
 }
 
 fn execute_add(cmd: AddStartupCommand) -> Result<()> {
-    if !cmd.apply {
-        match manager::plan_add_registry_run_item(&cmd.name, &cmd.command, cmd.reason.clone(), false) {
-            Ok(plan) => {
-                if cmd.format.eq_ignore_ascii_case("json") {
-                    println!(
-                        "{}",
-                        serde_json::to_string_pretty(&StartupEnvelope::success(plan))?
-                    );
-                } else {
-                    print_item_detail(&serde_json::to_value(plan)?);
-                }
-                return Ok(());
-            }
-            Err(error) => return render_error(&cmd.format, error),
-        }
-    }
-
     if !cmd.yes && !confirm_named_action("add", &cmd.name)? {
         let envelope = StartupEnvelope::<serde_json::Value>::failure("conflict", "操作已取消");
         if cmd.format.eq_ignore_ascii_case("json") {
@@ -255,23 +232,6 @@ fn execute_sources(cmd: SourcesStartupCommand) -> Result<()> {
 }
 
 fn execute_mutation(cmd: MutateStartupCommand, action: StartupAction) -> Result<()> {
-    if !cmd.apply {
-        match manager::plan_action(&cmd.id, action, cmd.reason.clone(), false) {
-            Ok(plan) => {
-                if cmd.format.eq_ignore_ascii_case("json") {
-                    println!(
-                        "{}",
-                        serde_json::to_string_pretty(&StartupEnvelope::success(plan))?
-                    );
-                } else {
-                    print_action_plan(&plan);
-                }
-                return Ok(());
-            }
-            Err(error) => return render_error(&cmd.format, error),
-        }
-    }
-
     if !cmd.yes && !confirm_action(action, &cmd.id)? {
         let envelope = StartupEnvelope::<serde_json::Value>::failure("conflict", "操作已取消");
         if cmd.format.eq_ignore_ascii_case("json") {
@@ -298,24 +258,6 @@ fn execute_mutation(cmd: MutateStartupCommand, action: StartupAction) -> Result<
 }
 
 fn execute_rollback(cmd: RollbackStartupCommand) -> Result<()> {
-    if !cmd.apply {
-        let plan = serde_json::json!({
-            "change_id": cmd.change_id,
-            "action": "rollback",
-            "will_apply": false,
-            "operations": ["读取变更日志", "恢复来源状态", "标记变更已回滚"],
-        });
-        if cmd.format.eq_ignore_ascii_case("json") {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&StartupEnvelope::success(plan))?
-            );
-        } else {
-            print_item_detail(&plan);
-        }
-        return Ok(());
-    }
-
     if !cmd.yes && !confirm_action(StartupAction::Rollback, &cmd.change_id)? {
         let envelope = StartupEnvelope::<serde_json::Value>::failure("conflict", "操作已取消");
         if cmd.format.eq_ignore_ascii_case("json") {
@@ -405,16 +347,6 @@ fn print_items_table(items: &[StartupItem]) {
 fn print_item_detail(value: &serde_json::Value) {
     if let Ok(text) = serde_json::to_string_pretty(value) {
         println!("{text}");
-    }
-}
-
-fn print_action_plan(plan: &crate::modules::startup::models::StartupActionPlan) {
-    println!("项目: {}", plan.item_id);
-    println!("动作: {}", plan.action.as_str());
-    println!("需要管理员: {}", yes_no(plan.requires_admin));
-    println!("预演步骤:");
-    for operation in &plan.operations {
-        println!("  - {operation}");
     }
 }
 
@@ -520,13 +452,12 @@ mod tests {
     }
 
     #[test]
-    fn startup_disable_command_accepts_apply_and_yes() {
+    fn startup_disable_command_accepts_yes_and_reason() {
         let parsed = StartupCommand::try_parse_from([
             "yu",
             "disable",
             "--id",
             "startup:demo",
-            "--apply",
             "--yes",
             "--reason",
             "test",
@@ -544,7 +475,6 @@ mod tests {
             "DemoAdd",
             "--command",
             r#""C:\Windows\System32\notepad.exe""#,
-            "--apply",
             "--yes",
         ]);
 
