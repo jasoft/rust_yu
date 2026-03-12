@@ -3,9 +3,10 @@ use chrono::Utc;
 use crate::modules::common::utils::ensure_running_as_administrator;
 
 use super::models::{
-    StartupAction, StartupActionPlan, StartupActionResult, StartupCapabilities, StartupChangeLog,
-    StartupError, StartupErrorCode, StartupItem, StartupListQuery, StartupListResponse,
-    StartupSnapshot, StartupSource, StartupSourceDescriptor, StartupState,
+    StartupAction, StartupActionPlan, StartupActionResult, StartupAddPlan, StartupAddResult,
+    StartupCapabilities, StartupChangeLog, StartupError, StartupErrorCode, StartupItem,
+    StartupListQuery, StartupListResponse, StartupSnapshot, StartupSource, StartupSourceDescriptor,
+    StartupState,
 };
 use super::{registry_run, rollback, scheduled_tasks, services, startup_folder};
 
@@ -88,6 +89,53 @@ pub fn list_sources() -> Vec<StartupSourceDescriptor> {
             notes: "仅支持启用/禁用启动类型".to_string(),
         },
     ]
+}
+
+pub fn plan_add_registry_run_item(
+    name: &str,
+    command: &str,
+    reason: Option<String>,
+    apply_requested: bool,
+) -> Result<StartupAddPlan, StartupError> {
+    let item = registry_run::preview_create_user_run_item(name, command, true)?;
+    let mut warnings = item.warnings.clone();
+    if reason.is_none() {
+        warnings.push("未提供 reason，建议在自动化场景填写变更原因".to_string());
+    }
+
+    Ok(StartupAddPlan {
+        item,
+        apply_requested,
+        will_apply: apply_requested,
+        requires_admin: false,
+        warnings,
+        operations: vec![
+            "在 HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run 写入新值".to_string(),
+            format!("创建当前用户启动项 {name}"),
+        ],
+    })
+}
+
+pub fn add_registry_run_item(
+    name: &str,
+    command: &str,
+    reason: Option<String>,
+) -> Result<StartupAddResult, StartupError> {
+    let item = registry_run::create_user_run_item(name, command)?;
+    let mut warnings = item.warnings.clone();
+    if reason.is_none() {
+        warnings.push("未提供 reason，建议在自动化场景填写变更原因".to_string());
+    }
+
+    Ok(StartupAddResult {
+        item,
+        applied: true,
+        warnings,
+        operations: vec![
+            "在 HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run 写入新值".to_string(),
+            format!("创建当前用户启动项 {name}"),
+        ],
+    })
 }
 
 pub fn plan_action(
@@ -360,12 +408,80 @@ fn capture_snapshot(item: &StartupItem) -> Result<StartupSnapshot, StartupError>
 
 #[cfg(test)]
 mod tests {
-    use super::list_sources;
+    use std::env;
+    use winreg::enums::HKEY_CURRENT_USER;
+    use winreg::RegKey;
+
+    use super::{add_registry_run_item, apply_action, get_startup_item, list_sources};
+    use crate::modules::startup::models::{StartupAction, StartupScope, StartupState};
+    use crate::modules::startup::TEST_STARTUP_ENV_LOCK;
 
     #[test]
     fn source_descriptors_cover_all_v1_sources() {
         let descriptors = list_sources();
         assert_eq!(descriptors.len(), 6);
         assert!(descriptors.iter().any(|value| value.label == "计划任务"));
+    }
+
+    #[test]
+    fn add_disable_enable_delete_user_run_item_roundtrip() {
+        let _guard = TEST_STARTUP_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let suffix = uuid::Uuid::new_v4().to_string();
+        let run_path = format!(r"Software\rust-yu-test\{}\Run", suffix);
+        let approved_base = format!(r"Software\rust-yu-test\{}\StartupApproved", suffix);
+        let storage_dir = env::temp_dir().join(format!("rust-yu-startup-add-test-{suffix}"));
+        env::set_var("RUST_YU_STARTUP_HKCU_RUN_PATH", &run_path);
+        env::set_var("RUST_YU_STARTUP_APPROVED_HKCU_BASE", &approved_base);
+        env::set_var("RUST_YU_STORAGE_DIR", &storage_dir);
+
+        let add_result = add_registry_run_item(
+            "DemoLifecycle",
+            r#""C:\Windows\System32\notepad.exe""#,
+            Some("test".to_string()),
+        )
+        .expect("应能创建 HKCU Run 启动项");
+        assert_eq!(add_result.item.scope, StartupScope::User);
+        assert_eq!(add_result.item.state, StartupState::Enabled);
+
+        let disabled = apply_action(
+            &add_result.item.id,
+            StartupAction::Disable,
+            Some("disable".to_string()),
+        )
+        .expect("应能禁用新增启动项");
+        assert!(disabled.applied);
+
+        let disabled_item = get_startup_item(&add_result.item.id, false).expect("应能读取禁用项");
+        assert_eq!(disabled_item.state, StartupState::Disabled);
+
+        let enabled = apply_action(
+            &add_result.item.id,
+            StartupAction::Enable,
+            Some("enable".to_string()),
+        )
+        .expect("应能重新启用启动项");
+        assert!(enabled.applied);
+
+        let enabled_item = get_startup_item(&add_result.item.id, false).expect("应能读取启用项");
+        assert_eq!(enabled_item.state, StartupState::Enabled);
+
+        let deleted = apply_action(
+            &add_result.item.id,
+            StartupAction::Delete,
+            Some("delete".to_string()),
+        )
+        .expect("应能删除启动项");
+        assert!(deleted.applied);
+        assert!(get_startup_item(&add_result.item.id, false).is_err());
+
+        let hive = RegKey::predef(HKEY_CURRENT_USER);
+        hive.delete_subkey_all(&format!(r"Software\rust-yu-test\{}", suffix))
+            .ok();
+        std::fs::remove_dir_all(&storage_dir).ok();
+        env::remove_var("RUST_YU_STARTUP_HKCU_RUN_PATH");
+        env::remove_var("RUST_YU_STARTUP_APPROVED_HKCU_BASE");
+        env::remove_var("RUST_YU_STORAGE_DIR");
     }
 }

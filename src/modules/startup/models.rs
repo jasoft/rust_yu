@@ -274,6 +274,28 @@ pub struct StartupActionResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StartupAddPlan {
+    pub item: StartupItem,
+    pub apply_requested: bool,
+    pub will_apply: bool,
+    pub requires_admin: bool,
+    #[serde(default)]
+    pub warnings: Vec<String>,
+    #[serde(default)]
+    pub operations: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StartupAddResult {
+    pub item: StartupItem,
+    pub applied: bool,
+    #[serde(default)]
+    pub warnings: Vec<String>,
+    #[serde(default)]
+    pub operations: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StartupChangeLog {
     pub change_id: String,
     pub item_id: String,

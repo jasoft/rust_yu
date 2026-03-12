@@ -56,6 +56,52 @@ pub fn collect_items(include_raw: bool) -> Result<Vec<StartupItem>, StartupError
     Ok(items)
 }
 
+pub fn preview_create_user_run_item(
+    name: &str,
+    command: &str,
+    include_raw: bool,
+) -> Result<StartupItem, StartupError> {
+    let config = build_configs()
+        .into_iter()
+        .find(|value| {
+            value.source == StartupSource::RegistryRun
+                && value.scope == StartupScope::User
+                && value.hive == HKEY_CURRENT_USER
+        })
+        .ok_or_else(|| StartupError::new(StartupErrorCode::IoError, "未找到 HKCU Run 配置"))?;
+
+    validate_create_user_run_item(&config, name, command)?;
+
+    Ok(build_user_run_item(&config, name, command, include_raw))
+}
+
+pub fn create_user_run_item(name: &str, command: &str) -> Result<StartupItem, StartupError> {
+    let item = preview_create_user_run_item(name, command, true)?;
+    let config = resolve_config_for_item(&item)?;
+    let hive = RegKey::predef(config.hive);
+    let (subkey, _) = hive.create_subkey(&config.path).map_err(|error| {
+        StartupError::new(
+            StartupErrorCode::IoError,
+            format!("创建注册表键失败: {error}"),
+        )
+    })?;
+
+    subkey
+        .set_value(name, &command.to_string())
+        .map_err(|error| {
+            StartupError::new(
+                StartupErrorCode::IoError,
+                format!("写入注册表启动项失败: {error}"),
+            )
+        })?;
+
+    if let Some(bucket) = config.approved_bucket.as_deref() {
+        startup_approved::write_state(StartupScope::User, bucket, name, true)?;
+    }
+
+    Ok(build_user_run_item(&config, name, command, true))
+}
+
 pub fn capture_snapshot(item: &StartupItem) -> Result<StartupSnapshot, StartupError> {
     if item.source == StartupSource::RegistryPolicyRun && item.state == StartupState::Disabled {
         let disabled_entry = rollback::get_disabled_entry(&item.id)?.ok_or_else(|| {
@@ -369,6 +415,73 @@ fn delete_registry_value(key: &RegKey, path: &str, value_name: &str) -> Result<(
     Ok(())
 }
 
+fn validate_create_user_run_item(
+    config: &RegistrySourceConfig,
+    name: &str,
+    command: &str,
+) -> Result<(), StartupError> {
+    if name.trim().is_empty() {
+        return Err(StartupError::new(
+            StartupErrorCode::InvalidSelector,
+            "启动项名称不能为空",
+        ));
+    }
+
+    if command.trim().is_empty() {
+        return Err(StartupError::new(
+            StartupErrorCode::InvalidSelector,
+            "启动项命令不能为空",
+        ));
+    }
+
+    let hive = RegKey::predef(config.hive);
+    if let Ok(key) = hive.open_subkey_with_flags(&config.path, KEY_READ) {
+        if key.get_raw_value(name).is_ok() {
+            return Err(StartupError::new(
+                StartupErrorCode::Conflict,
+                format!("启动项已存在: {name}"),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn build_user_run_item(
+    config: &RegistrySourceConfig,
+    name: &str,
+    command: &str,
+    include_raw: bool,
+) -> StartupItem {
+    let mut item = StartupItem::new(
+        name,
+        config.source,
+        config.scope,
+        StartupLocator {
+            location: format!(r"{}\{}\{}", hive_name(config.hive), config.path, name),
+            bucket: Some(config.locator_bucket.clone()),
+        },
+    );
+    populate_command_fields(&mut item, command);
+    item.command = Some(command.to_string());
+    item.requires_admin = false;
+
+    if item.target_exists == Some(false) {
+        item.state = StartupState::Broken;
+        item.warnings.push("目标程序不存在".to_string());
+    }
+
+    if include_raw {
+        item.raw = Some(serde_json::json!({
+            "registry_path": config.path,
+            "value_name": name,
+            "registry_type": "REG_SZ",
+        }));
+    }
+
+    item
+}
+
 fn decode_reg_string(value: &RegValue) -> Result<String, StartupError> {
     if !matches!(value.vtype, REG_SZ | REG_EXPAND_SZ) {
         return Err(StartupError::new(
@@ -543,10 +656,10 @@ fn reg_type_from_u32(value: u32) -> RegType {
 
 #[cfg(test)]
 mod tests {
-    use winreg::enums::HKEY_CURRENT_USER;
+    use winreg::enums::{HKEY_CURRENT_USER, KEY_READ};
     use winreg::RegKey;
 
-    use super::collect_items;
+    use super::{collect_items, create_user_run_item};
     use crate::modules::startup::models::{StartupScope, StartupSource, StartupState};
     use crate::modules::startup::TEST_STARTUP_ENV_LOCK;
 
@@ -604,5 +717,36 @@ mod tests {
         std::env::remove_var("RUST_YU_STARTUP_HKCU_POLICY_RUN_PATH");
         std::env::remove_var("RUST_YU_STARTUP_APPROVED_HKCU_BASE");
         std::env::remove_var("RUST_YU_STORAGE_DIR");
+    }
+
+    #[test]
+    fn create_user_run_item_writes_hkcu_run_value() {
+        let _guard = TEST_STARTUP_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let suffix = uuid::Uuid::new_v4().to_string();
+        let run_path = format!(r"Software\rust-yu-test\{}\Run", suffix);
+        let approved_base = format!(r"Software\rust-yu-test\{}\StartupApproved", suffix);
+        std::env::set_var("RUST_YU_STARTUP_HKCU_RUN_PATH", &run_path);
+        std::env::set_var("RUST_YU_STARTUP_APPROVED_HKCU_BASE", &approved_base);
+
+        let item = create_user_run_item("DemoAdd", r#""C:\Windows\System32\notepad.exe""#)
+            .expect("应能创建 HKCU Run 启动项");
+
+        assert_eq!(item.name, "DemoAdd");
+        assert_eq!(item.source, StartupSource::RegistryRun);
+        assert_eq!(item.scope, StartupScope::User);
+
+        let hive = RegKey::predef(HKEY_CURRENT_USER);
+        let key = hive
+            .open_subkey_with_flags(&run_path, KEY_READ)
+            .expect("应能打开测试 run 键");
+        let value: String = key.get_value("DemoAdd").expect("应能读取新增值");
+        assert_eq!(value, r#""C:\Windows\System32\notepad.exe""#);
+
+        hive.delete_subkey_all(&format!(r"Software\rust-yu-test\{}", suffix))
+            .ok();
+        std::env::remove_var("RUST_YU_STARTUP_HKCU_RUN_PATH");
+        std::env::remove_var("RUST_YU_STARTUP_APPROVED_HKCU_BASE");
     }
 }

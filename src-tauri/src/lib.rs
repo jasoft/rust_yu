@@ -170,6 +170,8 @@ pub fn run() {
             plan_startup_action,
             apply_startup_action,
             rollback_startup_action,
+            plan_add_startup_item,
+            add_startup_item,
         ])
         .run(tauri::generate_context!())
         .expect("启动 Tauri 应用时出错");

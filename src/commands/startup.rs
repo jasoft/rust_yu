@@ -17,6 +17,8 @@ pub struct StartupCommand {
 pub enum StartupSubcommand {
     /// 列出自启动项
     List(ListStartupCommand),
+    /// 在当前用户 Run 中新增自启动项
+    Add(AddStartupCommand),
     /// 查看单个自启动项
     Show(ShowStartupCommand),
     /// 查看支持的来源
@@ -70,6 +72,22 @@ pub struct ShowStartupCommand {
 }
 
 #[derive(Parser, Debug)]
+pub struct AddStartupCommand {
+    #[arg(long)]
+    pub name: String,
+    #[arg(long)]
+    pub command: String,
+    #[arg(long, default_value = "json")]
+    pub format: String,
+    #[arg(long)]
+    pub apply: bool,
+    #[arg(long)]
+    pub yes: bool,
+    #[arg(long)]
+    pub reason: Option<String>,
+}
+
+#[derive(Parser, Debug)]
 pub struct SourcesStartupCommand {
     #[arg(long, default_value = "table")]
     pub format: String,
@@ -106,6 +124,7 @@ pub struct RollbackStartupCommand {
 pub async fn execute(cmd: StartupCommand) -> Result<()> {
     match cmd.command {
         StartupSubcommand::List(command) => execute_list(command),
+        StartupSubcommand::Add(command) => execute_add(command),
         StartupSubcommand::Show(command) => execute_show(command),
         StartupSubcommand::Sources(command) => execute_sources(command),
         StartupSubcommand::Enable(command) => execute_mutation(command, StartupAction::Enable),
@@ -143,6 +162,49 @@ fn execute_list(cmd: ListStartupCommand) -> Result<()> {
                 .and_then(|value| serde_json::from_value::<Vec<StartupItem>>(value).ok())
             {
                 print_items_table(&items);
+            }
+            Ok(())
+        }
+        Err(error) => render_error(&cmd.format, error),
+    }
+}
+
+fn execute_add(cmd: AddStartupCommand) -> Result<()> {
+    if !cmd.apply {
+        match manager::plan_add_registry_run_item(&cmd.name, &cmd.command, cmd.reason.clone(), false) {
+            Ok(plan) => {
+                if cmd.format.eq_ignore_ascii_case("json") {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&StartupEnvelope::success(plan))?
+                    );
+                } else {
+                    print_item_detail(&serde_json::to_value(plan)?);
+                }
+                return Ok(());
+            }
+            Err(error) => return render_error(&cmd.format, error),
+        }
+    }
+
+    if !cmd.yes && !confirm_named_action("add", &cmd.name)? {
+        let envelope = StartupEnvelope::<serde_json::Value>::failure("conflict", "操作已取消");
+        if cmd.format.eq_ignore_ascii_case("json") {
+            println!("{}", serde_json::to_string_pretty(&envelope)?);
+            return Ok(());
+        }
+        return Err(anyhow!("操作已取消"));
+    }
+
+    match manager::add_registry_run_item(&cmd.name, &cmd.command, cmd.reason.clone()) {
+        Ok(result) => {
+            if cmd.format.eq_ignore_ascii_case("json") {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&StartupEnvelope::success(result))?
+                );
+            } else {
+                print_item_detail(&serde_json::to_value(result)?);
             }
             Ok(())
         }
@@ -368,9 +430,13 @@ fn print_action_result(result: &crate::modules::startup::models::StartupActionRe
 }
 
 fn confirm_action(action: StartupAction, target: &str) -> Result<bool> {
+    confirm_named_action(action.as_str(), target)
+}
+
+fn confirm_named_action(action: &str, target: &str) -> Result<bool> {
     use std::io::{self, Write};
 
-    print!("确认对 {target} 执行 {}? [y/N]: ", action.as_str());
+    print!("确认对 {target} 执行 {action}? [y/N]: ");
     io::stdout().flush()?;
     let mut input = String::new();
     io::stdin().read_line(&mut input)?;
@@ -467,6 +533,22 @@ mod tests {
         ]);
 
         assert!(parsed.is_ok(), "expected startup disable flags to parse");
+    }
+
+    #[test]
+    fn startup_add_command_accepts_name_and_command() {
+        let parsed = StartupCommand::try_parse_from([
+            "yu",
+            "add",
+            "--name",
+            "DemoAdd",
+            "--command",
+            r#""C:\Windows\System32\notepad.exe""#,
+            "--apply",
+            "--yes",
+        ]);
+
+        assert!(parsed.is_ok(), "expected startup add flags to parse");
     }
 
     #[test]

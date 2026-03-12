@@ -1,8 +1,8 @@
 use rust_yu_lib::startup::manager;
 use rust_yu_lib::startup::models::{
-    StartupAction, StartupActionPlan, StartupActionResult, StartupEnvelope, StartupItem,
-    StartupListQuery, StartupListResponse, StartupScope, StartupSource, StartupState,
-    StartupSourceDescriptor,
+    StartupAction, StartupActionPlan, StartupActionResult, StartupAddPlan, StartupAddResult,
+    StartupEnvelope, StartupItem, StartupListQuery, StartupListResponse, StartupScope,
+    StartupSource, StartupState, StartupSourceDescriptor,
 };
 use serde::{Deserialize, Serialize};
 
@@ -30,6 +30,13 @@ pub struct StartupActionOptions {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StartupRollbackOptions {
     pub change_id: String,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StartupAddOptions {
+    pub name: String,
+    pub command: String,
     pub reason: Option<String>,
 }
 
@@ -131,6 +138,38 @@ pub async fn rollback_startup_action(
     })
     .await
     .map_err(|error| CommandError::new(format!("startup rollback 任务执行失败: {error}")))?;
+
+    Ok(match result {
+        Ok(response) => StartupEnvelope::success(response),
+        Err(error) => StartupEnvelope::from_startup_error(&error),
+    })
+}
+
+#[tauri::command]
+pub async fn plan_add_startup_item(
+    options: StartupAddOptions,
+) -> Result<StartupEnvelope<StartupAddPlan>, CommandError> {
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        manager::plan_add_registry_run_item(&options.name, &options.command, options.reason, false)
+    })
+    .await
+    .map_err(|error| CommandError::new(format!("startup add plan 任务执行失败: {error}")))?;
+
+    Ok(match result {
+        Ok(response) => StartupEnvelope::success(response),
+        Err(error) => StartupEnvelope::from_startup_error(&error),
+    })
+}
+
+#[tauri::command]
+pub async fn add_startup_item(
+    options: StartupAddOptions,
+) -> Result<StartupEnvelope<StartupAddResult>, CommandError> {
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        manager::add_registry_run_item(&options.name, &options.command, options.reason)
+    })
+    .await
+    .map_err(|error| CommandError::new(format!("startup add 任务执行失败: {error}")))?;
 
     Ok(match result {
         Ok(response) => StartupEnvelope::success(response),
