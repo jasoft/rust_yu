@@ -1,5 +1,7 @@
 use std::process::Command;
 
+use crate::modules::common::text::{build_powershell_script, decode_windows_output};
+
 use super::models::{
     StartupError, StartupErrorCode, StartupItem, StartupLocator, StartupScope, StartupSnapshot,
     StartupSource, StartupState,
@@ -199,7 +201,7 @@ fn run_powershell(script: &str) -> Result<String, StartupError> {
             "-ExecutionPolicy",
             "Bypass",
             "-Command",
-            script,
+            &build_powershell_script(script),
         ])
         .output()
         .map_err(|error| {
@@ -212,11 +214,11 @@ fn run_powershell(script: &str) -> Result<String, StartupError> {
     if !output.status.success() {
         return Err(StartupError::new(
             StartupErrorCode::IoError,
-            String::from_utf8_lossy(&output.stderr).trim().to_string(),
+            decode_windows_output(&output.stderr).trim().to_string(),
         ));
     }
 
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    Ok(decode_windows_output(&output.stdout).trim().to_string())
 }
 
 fn parse_json_array<T>(json: &str) -> Result<Vec<T>, StartupError>

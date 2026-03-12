@@ -1,5 +1,6 @@
 use super::models::{InstallSource, InstalledProgram};
 use crate::modules::common::error::UninstallerError;
+use crate::modules::common::text::{build_powershell_script, decode_windows_output};
 
 /// 列出 MSI 产品
 pub fn list_msi_products() -> Result<Vec<InstalledProgram>, UninstallerError> {
@@ -23,7 +24,8 @@ fn list_msi_products_impl() -> Result<Vec<InstalledProgram>, UninstallerError> {
         .args([
             "-NoProfile",
             "-Command",
-            r#"
+            &build_powershell_script(
+                r#"
             $products = Get-WmiObject -Class Win32_Product | ForEach-Object {
                 [PSCustomObject]@{
                     Name = $_.Name
@@ -35,18 +37,19 @@ fn list_msi_products_impl() -> Result<Vec<InstalledProgram>, UninstallerError> {
             }
             $products | ConvertTo-Json -Depth 2
             "#,
+            ),
         ])
         .output();
 
     match output {
         Ok(output) => {
             if output.status.success() {
-                let json_str = String::from_utf8_lossy(&output.stdout);
+                let json_str = decode_windows_output(&output.stdout);
                 parse_msi_products(&json_str)
             } else {
                 tracing::warn!(
                     "获取MSI产品失败: {}",
-                    String::from_utf8_lossy(&output.stderr)
+                    decode_windows_output(&output.stderr)
                 );
                 Ok(Vec::new())
             }

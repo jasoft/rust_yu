@@ -1,5 +1,6 @@
 use super::models::{InstallSource, InstalledProgram};
 use crate::modules::common::error::UninstallerError;
+use crate::modules::common::text::{build_powershell_script, decode_windows_output};
 use std::process::Command;
 
 /// 列出微软商店应用
@@ -9,7 +10,8 @@ pub fn list_store_apps() -> Result<Vec<InstalledProgram>, UninstallerError> {
         .args([
             "-NoProfile",
             "-Command",
-            r#"
+            &build_powershell_script(
+                r#"
             Get-AppxPackage | Where-Object { $_.IsFramework -eq $false -and $_.SignatureKind -ne 'System' } | ForEach-Object {
                 [PSCustomObject]@{
                     Name = $_.Name
@@ -20,19 +22,20 @@ pub fn list_store_apps() -> Result<Vec<InstalledProgram>, UninstallerError> {
                 }
             } | ConvertTo-Json -Depth 2
             "#,
+            ),
         ])
         .output();
 
     match output {
         Ok(output) => {
             if output.status.success() {
-                let json_str = String::from_utf8_lossy(&output.stdout);
+                let json_str = decode_windows_output(&output.stdout);
                 parse_store_apps(&json_str)
             } else {
                 // 如果 PowerShell 失败，返回空列表
                 tracing::warn!(
                     "获取商店应用失败: {}",
-                    String::from_utf8_lossy(&output.stderr)
+                    decode_windows_output(&output.stderr)
                 );
                 Ok(Vec::new())
             }

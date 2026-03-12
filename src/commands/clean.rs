@@ -1,4 +1,5 @@
 use crate::modules::{cleaner, lister, reporter, scanner};
+use crate::modules::common::text::decode_windows_output;
 use crate::modules::common::utils;
 use anyhow::Result;
 use chrono::Utc;
@@ -174,7 +175,7 @@ async fn run_uninstall_command(uninstall_string: &str) -> Result<()> {
             .output()?;
 
         if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stderr = decode_windows_output(&output.stderr);
             anyhow::bail!("卸载命令执行失败: {}", stderr);
         }
     }

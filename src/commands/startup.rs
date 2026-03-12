@@ -337,26 +337,7 @@ fn parse_state_filter(state: &str) -> Result<Option<StartupState>> {
 }
 
 fn print_items_table(items: &[StartupItem]) {
-    println!(
-        "{:<18} {:<12} {:<8} {:<10} {:<8} 名称",
-        "ID",
-        "来源",
-        "作用域",
-        "状态",
-        "提权"
-    );
-    for item in items {
-        println!(
-            "{:<18} {:<12} {:<8} {:<10} {:<8} {}",
-            shorten(&item.id, 18),
-            item.source.as_str(),
-            item.scope.as_str(),
-            format!("{:?}", item.state).to_lowercase(),
-            yes_no(item.requires_admin),
-            item.name
-        );
-    }
-    println!("总计: {}", items.len());
+    print!("{}", format_items_table(items));
 }
 
 fn print_item_detail(value: &serde_json::Value) {
@@ -404,13 +385,21 @@ fn yes_no(value: bool) -> &'static str {
     }
 }
 
-fn shorten(input: &str, max_len: usize) -> String {
-    if input.chars().count() <= max_len {
-        return input.to_string();
+fn format_items_table(items: &[StartupItem]) -> String {
+    let mut output = String::from("ID\t来源\t作用域\t状态\t提权\t名称\n");
+    for item in items {
+        output.push_str(&format!(
+            "{}\t{}\t{}\t{}\t{}\t{}\n",
+            item.id,
+            item.source.as_str(),
+            item.scope.as_str(),
+            format!("{:?}", item.state).to_lowercase(),
+            yes_no(item.requires_admin),
+            item.name
+        ));
     }
-
-    let prefix: String = input.chars().take(max_len.saturating_sub(2)).collect();
-    format!("{prefix}..")
+    output.push_str(&format!("总计: {}\n", items.len()));
+    output
 }
 
 fn apply_field_projection_to_items(value: &mut serde_json::Value, fields: &[String]) {
@@ -438,8 +427,11 @@ fn apply_field_projection(value: &mut serde_json::Value, fields: &[String]) {
 
 #[cfg(test)]
 mod tests {
-    use super::StartupCommand;
+    use super::{format_items_table, StartupCommand};
     use clap::Parser;
+    use crate::modules::startup::models::{
+        StartupCapabilities, StartupItem, StartupLocator, StartupScope, StartupSource, StartupState,
+    };
 
     #[test]
     fn startup_list_command_accepts_json_flags() {
@@ -475,5 +467,27 @@ mod tests {
         ]);
 
         assert!(parsed.is_ok(), "expected startup disable flags to parse");
+    }
+
+    #[test]
+    fn startup_table_output_keeps_full_id_for_copying() {
+        let mut item = StartupItem::new(
+            "Demo",
+            StartupSource::RegistryRun,
+            StartupScope::Machine,
+            StartupLocator {
+                location: "HKLM\\Software\\Demo".to_string(),
+                bucket: Some("run_machine".to_string()),
+            },
+        );
+        item.id = "startup:abcdefghijklmnopqrstuvwxyz1234567890".to_string();
+        item.state = StartupState::Disabled;
+        item.capabilities = StartupCapabilities::for_source(StartupSource::RegistryRun);
+        item.requires_admin = true;
+
+        let output = format_items_table(&[item]);
+
+        assert!(output.contains("startup:abcdefghijklmnopqrstuvwxyz1234567890"));
+        assert!(!output.contains("startup:abcdefghijklmnop.."));
     }
 }

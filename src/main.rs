@@ -20,6 +20,8 @@ struct Cli {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    modules::common::text::init_console_utf8();
+
     // 初始化日志
     modules::common::logging::init_logging(false);
 

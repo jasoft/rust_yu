@@ -10,6 +10,7 @@ use walkdir::WalkDir;
 
 use super::models::{InstalledProgram, MetadataConfidence, MetadataSource};
 use super::storage;
+use crate::modules::common::text::{build_powershell_script, decode_windows_output};
 
 const SIZE_SCAN_TIMEOUT: Duration = Duration::from_millis(300);
 const SIZE_SCAN_MAX_ENTRIES: usize = 20_000;
@@ -586,7 +587,7 @@ public static class ShellIconBridge {
                 "-ExecutionPolicy",
                 "Bypass",
                 "-Command",
-                script,
+                &build_powershell_script(script),
             ])
             .env("RUST_YU_ICON_SOURCE", &source_abs_path)
             .env("RUST_YU_ICON_INDEX", &icon_index_value)
@@ -601,8 +602,8 @@ public static class ShellIconBridge {
                 source_abs_path,
                 icon_index,
                 output.status.code(),
-                String::from_utf8_lossy(&output.stderr),
-                String::from_utf8_lossy(&output.stdout)
+                decode_windows_output(&output.stderr),
+                decode_windows_output(&output.stdout)
             );
             return None;
         }
