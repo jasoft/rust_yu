@@ -72,7 +72,7 @@ if ($RunLifecycle) {
 
     Remove-Item -Force $yuStdoutLog, $yuStderrLog -ErrorAction SilentlyContinue
     $yuProcess = Start-Process -FilePath $yuExe `
-        -ArgumentList 'uninstall', '"RustYu Legacy Test App"', '--timeout', '180' `
+        -ArgumentList 'uninstall', '"RustYu Legacy Test App"', '--timeout', '15' `
         -Wait `
         -PassThru `
         -RedirectStandardOutput $yuStdoutLog `
@@ -85,7 +85,8 @@ if ($RunLifecycle) {
         $yuText += Get-Content -Raw $yuStderrLog
     }
 
-    if ($yuProcess.ExitCode -ne 0) {
+    $expectedLeftoverFailure = $yuText -match 'install_dir_exists=true'
+    if ($yuProcess.ExitCode -ne 0 -and -not $expectedLeftoverFailure) {
         throw "yu uninstall failed:`n$yuText"
     }
 

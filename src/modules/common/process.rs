@@ -202,8 +202,8 @@ fn run_uninstall_command_windows(
                 },
                 Threading::{
                     CreateProcessW, GetExitCodeProcess, ResumeThread, WaitForSingleObject,
-                    CREATE_BREAKAWAY_FROM_JOB, CREATE_SUSPENDED, PROCESS_INFORMATION,
-                    STARTUPINFOW,
+                    PROCESS_CREATION_FLAGS, CREATE_BREAKAWAY_FROM_JOB, CREATE_SUSPENDED,
+                    PROCESS_INFORMATION, STARTUPINFOW,
                 },
             },
         },
@@ -251,7 +251,48 @@ fn run_uninstall_command_windows(
     }
 
     fn try_create_process(command: &str) -> Result<ProcessLaunch, windows::core::Error> {
+        fn create_process(
+            application_name_ptr: PCWSTR,
+            command_line: &mut [u16],
+            current_directory_ptr: PCWSTR,
+            startup_info: &STARTUPINFOW,
+            process_info: &mut PROCESS_INFORMATION,
+            creation_flags: PROCESS_CREATION_FLAGS,
+        ) -> Result<(), windows::core::Error> {
+            unsafe {
+                CreateProcessW(
+                    application_name_ptr,
+                    Some(PWSTR(command_line.as_mut_ptr())),
+                    None,
+                    None,
+                    false,
+                    creation_flags,
+                    None,
+                    current_directory_ptr,
+                    startup_info,
+                    process_info,
+                )
+            }
+        }
+
         let mut command_line = to_wide(command);
+        let application_name = crate::modules::common::utils::split_command_for_spawn(command)
+            .ok()
+            .and_then(|(executable, _)| {
+                let executable_path = PathBuf::from(&executable);
+                if executable_path.is_absolute()
+                    || executable.contains('\\')
+                    || executable.contains('/')
+                {
+                    Some(to_wide(&executable))
+                } else {
+                    None
+                }
+            });
+        let application_name_ptr = application_name
+            .as_ref()
+            .map(|name| PCWSTR(name.as_ptr()))
+            .unwrap_or(PCWSTR::null());
         let current_directory = infer_current_directory(command);
         let current_directory_ptr = current_directory
             .as_ref()
@@ -261,18 +302,25 @@ fn run_uninstall_command_windows(
         startup_info.cb = size_of::<STARTUPINFOW>() as u32;
         let mut process_info = PROCESS_INFORMATION::default();
 
-        unsafe {
-            CreateProcessW(
-                PCWSTR::null(),
-                Some(PWSTR(command_line.as_mut_ptr())),
-                None,
-                None,
-                false,
-                CREATE_SUSPENDED | CREATE_BREAKAWAY_FROM_JOB,
-                None,
+        if let Err(primary_error) = create_process(
+            application_name_ptr,
+            &mut command_line,
+            current_directory_ptr,
+            &startup_info,
+            &mut process_info,
+            CREATE_SUSPENDED | CREATE_BREAKAWAY_FROM_JOB,
+        ) {
+            tracing::warn!(
+                "CreateProcessW 使用 breakaway 失败，回退为普通挂起启动: {}",
+                primary_error
+            );
+            create_process(
+                application_name_ptr,
+                &mut command_line,
                 current_directory_ptr,
                 &startup_info,
                 &mut process_info,
+                CREATE_SUSPENDED,
             )?;
         }
 
@@ -410,7 +458,7 @@ fn run_uninstall_command_windows(
 mod tests {
     use super::{
         build_unsuccessful_uninstall_message, classify_uninstall_exit_code,
-        is_likely_interactive_uninstall,
+        is_likely_interactive_uninstall, run_uninstall_command, UninstallCompletionStatus,
     };
 
     #[test]
@@ -418,6 +466,19 @@ mod tests {
         assert!(is_likely_interactive_uninstall(
             r#""C:\Program Files\App\uninstall.exe""#
         ));
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn run_uninstall_command_supports_quoted_absolute_shell_executable() {
+        let command = r#""C:\Windows\System32\cmd.exe" /C exit 0"#;
+
+        let result = run_uninstall_command(command, 5).await;
+
+        assert!(result.is_ok(), "expected quoted absolute shell command to start");
+        let result = result.unwrap();
+        assert_eq!(result.completion_status, UninstallCompletionStatus::Completed);
+        assert_eq!(result.exit_code, Some(0));
     }
 
     #[test]
