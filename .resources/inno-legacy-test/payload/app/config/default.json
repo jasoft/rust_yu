@@ -1,0 +1,9 @@
+{
+  "fixtureName": "RustYu Legacy Test App",
+  "installType": "legacy-inno-setup",
+  "uninstallFlow": "spawn-parent-then-worker",
+  "expectedLeftovers": [
+    "logs\\leftover.log",
+    "%LocalAppData%\\RustYuLegacyTest\\Data\\leftover-user-profile.json"
+  ]
+}

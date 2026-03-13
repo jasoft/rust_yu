@@ -1,0 +1,5 @@
+{
+  "user": "fixture",
+  "persistAfterUninstall": true,
+  "reason": "Validate AppData residue scanning"
+}

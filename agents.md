@@ -75,6 +75,12 @@
 
 - winget install 7zip.7zip --silent 可以安装一个测试用的普通app(非msi) 7-zip, 支持静默卸载和gui界面卸载
 - .resources\Xplorer_0.3.1_x64.msi 可以用msi命令行静默安装一个msi程序供测试卸载.
+- winget install --id JRSoftware.InnoSetup --silent --accept-package-agreements --accept-source-agreements 可以安装 Inno Setup 6 编译器
+- .resources\inno-legacy-test\LegacyUninstallTest.iss 是一个 legacy 非 MSI 测试夹具脚本，编译命令为 `C:\Program Files (x86)\Inno Setup 6\ISCC.exe .resources\inno-legacy-test\LegacyUninstallTest.iss`
+- .resources\inno-legacy-test\output\RustYuLegacyTestSetup.exe 是编译产物，支持 GUI 安装和 `/VERYSILENT /NORESTART` 静默安装
+- 这个 legacy 测试夹具会把 `UninstallString` 和 `QuietUninstallString` 都包装为 `SpawnUninstall.ps1 -> UninstallWorker.ps1 -> unins000.exe` 的进程链，用来验证 `yu.exe uninstall` 的 `waitforjobs` 路径
+- 这个 legacy 测试夹具卸载后应保留 `C:\Program Files\RustYu Legacy Test App\logs\leftover.log` 和 `%LocalAppData%\RustYuLegacyTest\Data\leftover-user-profile.json`，便于验证安装目录与 AppData 残留扫描
+- tools\test\Verify-InnoLegacyFixture.ps1 默认验证夹具结构和安装包；传入 `-RunLifecycle` 时需要管理员 PowerShell，会安装夹具、检查卸载命令是否走 spawn wrapper，并调用 `yu uninstall` 验证 `waitforjobs`
 
 ---
 
