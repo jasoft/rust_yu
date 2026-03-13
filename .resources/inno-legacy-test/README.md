@@ -13,12 +13,14 @@
 - `LegacyUninstallTest.iss`: Inno Setup 主脚本
 - `payload/`: 安装时复制的样例文件
 - `output/`: `ISCC.exe` 编译后的安装包输出目录
+- `tools/SpawnUninstallHelper.rs`: 原生卸载包装器源码
+- `Build-InnoLegacyFixture.ps1`: 统一编译 helper 和安装包
 
 ## 卸载进程模型
 
 - 注册表中的 `UninstallString` 和 `QuietUninstallString` 都不会直接执行 `unins000.exe`
-- 它们会先调用 `SpawnUninstall.ps1`
-- `SpawnUninstall.ps1` 会再派生 `UninstallWorker.ps1` 并立即退出
+- 它们会先调用 `SpawnUninstallHelper.exe`
+- `SpawnUninstallHelper.exe` 会再派生 `UninstallWorker.ps1` 并立即退出
 - `UninstallWorker.ps1` 会延迟启动真正的 `unins000.exe`，然后等待卸载结束
 
 这个链式模型用于验证 `yu.exe uninstall` 在父进程已退出时，仍能依赖 Job Object 等待整条卸载进程链结束
@@ -26,7 +28,7 @@
 ## 编译
 
 ```powershell
-& 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' '.resources\inno-legacy-test\LegacyUninstallTest.iss'
+powershell -ExecutionPolicy Bypass -File '.\.resources\inno-legacy-test\Build-InnoLegacyFixture.ps1'
 ```
 
 默认会生成：
@@ -71,10 +73,10 @@ Start-Process 'C:\Program Files\RustYu Legacy Test App\unins000.exe' -ArgumentLi
 
 也可以直接读取卸载注册表中的 `QuietUninstallString`。
 
-推荐用 `yu` 走完整 waitforjobs 验证：
+推荐用 `target\debug\yu.exe` 走完整 waitforjobs 验证：
 
 ```powershell
-cargo run --bin yu -- uninstall "RustYu Legacy Test App" --timeout 180
+.\target\debug\yu.exe uninstall "RustYu Legacy Test App" --timeout 180
 ```
 
 ## 预期残留

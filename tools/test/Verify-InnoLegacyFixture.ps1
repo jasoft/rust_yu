@@ -8,14 +8,16 @@ Set-StrictMode -Version Latest
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..\..')
 $fixtureRoot = Join-Path $repoRoot '.resources\inno-legacy-test'
+$buildScriptPath = Join-Path $fixtureRoot 'Build-InnoLegacyFixture.ps1'
 $scriptPath = Join-Path $fixtureRoot 'LegacyUninstallTest.iss'
 $readmePath = Join-Path $fixtureRoot 'README.md'
 $outputPath = Join-Path $fixtureRoot 'output\RustYuLegacyTestSetup.exe'
-$spawnScriptPath = Join-Path $fixtureRoot 'payload\app\SpawnUninstall.ps1'
+$spawnScriptPath = Join-Path $fixtureRoot 'payload\app\SpawnUninstallHelper.exe'
 $workerScriptPath = Join-Path $fixtureRoot 'payload\app\UninstallWorker.ps1'
 
 $requiredPaths = @(
     $fixtureRoot,
+    $buildScriptPath,
     $scriptPath,
     $readmePath,
     $spawnScriptPath,
@@ -45,6 +47,9 @@ if ($RunLifecycle) {
     $installPath = 'C:\Program Files\RustYu Legacy Test App'
     $leftoverFile = Join-Path $installPath 'logs\leftover.log'
     $appDataFile = Join-Path $env:LOCALAPPDATA 'RustYuLegacyTest\Data\leftover-user-profile.json'
+    $yuExe = Join-Path $repoRoot 'target\debug\yu.exe'
+    $yuStdoutLog = Join-Path $repoRoot 'tools\test\yu-uninstall-stdout.log'
+    $yuStderrLog = Join-Path $repoRoot 'tools\test\yu-uninstall-stderr.log'
 
     Start-Process -FilePath $outputPath -ArgumentList '/VERYSILENT', '/NORESTART' -Wait
 
@@ -53,22 +58,34 @@ if ($RunLifecycle) {
     }
 
     $registryValue = Get-ItemProperty -Path $registryPath
-    if ($registryValue.UninstallString -notmatch 'SpawnUninstall\.ps1') {
-        throw "UninstallString does not point to SpawnUninstall.ps1: $($registryValue.UninstallString)"
+    if ($registryValue.UninstallString -notmatch 'SpawnUninstallHelper\.exe') {
+        throw "UninstallString does not point to SpawnUninstallHelper.exe: $($registryValue.UninstallString)"
     }
 
-    if ($registryValue.QuietUninstallString -notmatch 'SpawnUninstall\.ps1') {
-        throw "QuietUninstallString does not point to SpawnUninstall.ps1: $($registryValue.QuietUninstallString)"
+    if ($registryValue.QuietUninstallString -notmatch 'SpawnUninstallHelper\.exe') {
+        throw "QuietUninstallString does not point to SpawnUninstallHelper.exe: $($registryValue.QuietUninstallString)"
     }
 
-    $yuCommand = @(
-        'cargo', 'run', '--bin', 'yu', '--',
-        'uninstall', 'RustYu Legacy Test App',
-        '--timeout', '180'
-    )
-    $yuOutput = & $yuCommand[0] $yuCommand[1..($yuCommand.Length - 1)] 2>&1
-    $yuText = ($yuOutput | Out-String)
-    if ($LASTEXITCODE -ne 0) {
+    if (-not (Test-Path $yuExe)) {
+        throw "Missing yu executable: $yuExe"
+    }
+
+    Remove-Item -Force $yuStdoutLog, $yuStderrLog -ErrorAction SilentlyContinue
+    $yuProcess = Start-Process -FilePath $yuExe `
+        -ArgumentList 'uninstall', '"RustYu Legacy Test App"', '--timeout', '180' `
+        -Wait `
+        -PassThru `
+        -RedirectStandardOutput $yuStdoutLog `
+        -RedirectStandardError $yuStderrLog
+    $yuText = ''
+    if (Test-Path $yuStdoutLog) {
+        $yuText += Get-Content -Raw $yuStdoutLog
+    }
+    if (Test-Path $yuStderrLog) {
+        $yuText += Get-Content -Raw $yuStderrLog
+    }
+
+    if ($yuProcess.ExitCode -ne 0) {
         throw "yu uninstall failed:`n$yuText"
     }
 
