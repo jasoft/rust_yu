@@ -1,0 +1,23 @@
+{
+    "version":  "0.1.0",
+    "description":  "Windows uninstaller CLI for listing installed programs, preparing uninstall actions, scanning leftovers, and generating reports.",
+    "homepage":  "https://github.com/jasoft/rust_yu",
+    "license":  "MIT",
+    "architecture":  {
+                         "64bit":  {
+                                       "url":  "https://github.com/jasoft/rust_yu/releases/download/v0.1.0/yu-0.1.0-windows-amd64.zip",
+                                       "hash":  "1d217a4f282194c101c2991ae9b9c3586f4f75e9e447864ac8c8618b5bd45102"
+                                   }
+                     },
+    "bin":  "yu.exe",
+    "checkver":  {
+                     "github":  "https://github.com/jasoft/rust_yu"
+                 },
+    "autoupdate":  {
+                       "architecture":  {
+                                            "64bit":  {
+                                                          "url":  "https://github.com/jasoft/rust_yu/releases/download/v$version/yu-$version-windows-amd64.zip"
+                                                      }
+                                        }
+                   }
+}
