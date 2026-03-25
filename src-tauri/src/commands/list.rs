@@ -1,6 +1,6 @@
 use rust_yu_lib::lister;
 use rust_yu_lib::lister::models::{
-    InstallSource, ListProgramsQuery, MetadataWarmupQuery, MetadataWarmupSummary,
+    InstallSourceSelector, ListProgramsQuery, MetadataWarmupQuery, MetadataWarmupSummary,
     ProgramListResponse,
 };
 use serde::{Deserialize, Serialize};
@@ -31,14 +31,12 @@ pub struct MetadataWarmupOptions {
 pub async fn list_programs(
     options: Option<ListOptions>,
 ) -> Result<ProgramListResponse, CommandError> {
-    let source = options.as_ref().and_then(|o| o.source.as_deref()).map(|s| {
-        match s.to_lowercase().as_str() {
-            "registry" => InstallSource::Registry,
-            "msi" => InstallSource::Msi,
-            "store" => InstallSource::Store,
-            _ => InstallSource::Registry,
-        }
-    });
+    let source = options
+        .as_ref()
+        .and_then(|value| value.source.as_deref())
+        .map(parse_source)
+        .transpose()?
+        .unwrap_or(InstallSourceSelector::All);
 
     let search = options.as_ref().and_then(|o| o.search.clone());
     let refresh = options.as_ref().and_then(|o| o.refresh).unwrap_or(false);
@@ -82,7 +80,8 @@ pub async fn warmup_program_metadata(
         .as_ref()
         .and_then(|value| value.source.as_deref())
         .map(parse_source)
-        .transpose()?;
+        .transpose()?
+        .unwrap_or(InstallSourceSelector::All);
     let search = options.as_ref().and_then(|value| value.search.clone());
     let refresh = options
         .as_ref()
@@ -113,29 +112,24 @@ pub async fn warmup_program_metadata(
     join_result.map_err(CommandError::from)
 }
 
-fn parse_source(source: &str) -> Result<InstallSource, CommandError> {
-    match source.to_lowercase().as_str() {
-        "registry" => Ok(InstallSource::Registry),
-        "msi" => Ok(InstallSource::Msi),
-        "store" => Ok(InstallSource::Store),
-        "standard" | "all" => Ok(InstallSource::Registry),
-        other => Err(CommandError::with_code(
-            "invalid_selector",
-            format!("未知来源: {other}"),
-        )),
-    }
+fn parse_source(source: &str) -> Result<InstallSourceSelector, CommandError> {
+    InstallSourceSelector::parse(source)
+        .ok_or_else(|| CommandError::with_code("invalid_selector", format!("未知来源: {source}")))
 }
 
 #[cfg(test)]
 mod tests {
     use super::parse_source;
-    use rust_yu_lib::lister::models::InstallSource;
+    use rust_yu_lib::lister::models::InstallSourceSelector;
 
     #[test]
     fn parse_source_accepts_supported_aliases() {
-        assert_eq!(parse_source("registry").ok(), Some(InstallSource::Registry));
-        assert_eq!(parse_source("MSI").ok(), Some(InstallSource::Msi));
-        assert_eq!(parse_source("all").ok(), Some(InstallSource::Registry));
+        assert_eq!(
+            parse_source("registry").ok(),
+            Some(InstallSourceSelector::Registry)
+        );
+        assert_eq!(parse_source("MSI").ok(), Some(InstallSourceSelector::Msi));
+        assert_eq!(parse_source("all").ok(), Some(InstallSourceSelector::All));
     }
 
     #[test]

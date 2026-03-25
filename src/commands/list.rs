@@ -9,8 +9,8 @@ pub struct ListCommand {
     pub format: String,
 
     /// 数据来源过滤器。
-    /// `standard` 默认仅扫描注册表，避免触发 MSI 等较慢来源。
-    #[arg(long, default_value = "standard")]
+    /// `all` 默认合并 registry/msi/store，`standard` 仅扫描注册表。
+    #[arg(long, default_value = "all")]
     pub source: String,
 
     /// 可选搜索关键词，会对名称和发布者做模糊匹配。
@@ -41,7 +41,7 @@ pub async fn execute(cmd: ListCommand) -> Result<()> {
         cmd.search
     );
 
-    let query = build_query(&cmd);
+    let query = build_query(&cmd)?;
     let mut programs = lister::list_programs_with_cache(query)?.programs;
 
     sort_programs(&mut programs, &cmd);
@@ -71,25 +71,22 @@ fn sort_programs(programs: &mut [InstalledProgram], cmd: &ListCommand) {
     }
 }
 
-fn build_query(cmd: &ListCommand) -> lister::models::ListProgramsQuery {
-    let source = parse_install_source_selector(&cmd.source);
+fn build_query(cmd: &ListCommand) -> Result<lister::models::ListProgramsQuery> {
+    let source = parse_install_source_selector(&cmd.source)?;
 
-    lister::models::ListProgramsQuery {
+    Ok(lister::models::ListProgramsQuery {
         source,
         search: cmd.search.clone(),
         refresh: cmd.refresh,
         cache_ttl_seconds: lister::storage::DEFAULT_CACHE_TTL_SECONDS,
-    }
+    })
 }
 
-pub(crate) fn parse_install_source_selector(source: &str) -> Option<lister::models::InstallSource> {
-    match source.to_lowercase().as_str() {
-        "registry" => Some(lister::models::InstallSource::Registry),
-        "msi" => Some(lister::models::InstallSource::Msi),
-        "store" => Some(lister::models::InstallSource::Store),
-        "standard" | "all" => None,
-        _ => None,
-    }
+pub(crate) fn parse_install_source_selector(
+    source: &str,
+) -> Result<lister::models::InstallSourceSelector> {
+    lister::models::InstallSourceSelector::parse(source)
+        .ok_or_else(|| anyhow::anyhow!("未知来源: {source}"))
 }
 
 fn print_table(programs: &[InstalledProgram]) {
@@ -133,8 +130,8 @@ fn truncate_string(s: &str, max_len: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_query, sort_programs, ListCommand};
-    use crate::modules::lister::models::{InstallSource, InstalledProgram};
+    use super::{build_query, parse_install_source_selector, sort_programs, ListCommand};
+    use crate::modules::lister::models::{InstallSource, InstallSourceSelector, InstalledProgram};
     use clap::Parser;
 
     #[test]
@@ -142,6 +139,14 @@ mod tests {
         let parsed = ListCommand::try_parse_from(["rust-yu", "--refresh"]);
 
         assert!(parsed.is_ok(), "expected --refresh to parse successfully");
+    }
+
+    #[test]
+    fn list_command_defaults_to_all_sources() {
+        let parsed = ListCommand::try_parse_from(["rust-yu"])
+            .expect("expected default list command to parse");
+
+        assert_eq!(parsed.source, "all");
     }
 
     #[test]
@@ -156,11 +161,28 @@ mod tests {
             refresh: true,
         };
 
-        let query = build_query(&cmd);
+        let query = build_query(&cmd).expect("build query should succeed");
 
         assert!(query.refresh);
         assert_eq!(query.search.as_deref(), Some("7zip"));
-        assert!(query.source.is_none());
+        assert_eq!(query.source, InstallSourceSelector::Standard);
+    }
+
+    #[test]
+    fn build_query_treats_all_as_distinct_selector() {
+        let cmd = ListCommand {
+            format: "table".to_string(),
+            source: "all".to_string(),
+            search: None,
+            sort_by: "name".to_string(),
+            ascending: false,
+            descending: false,
+            refresh: false,
+        };
+
+        let query = build_query(&cmd).expect("build query should succeed");
+
+        assert_eq!(query.source, InstallSourceSelector::All);
     }
 
     #[test]
@@ -203,5 +225,12 @@ mod tests {
             parsed.is_err(),
             "expected conflicting direction flags to be rejected"
         );
+    }
+
+    #[test]
+    fn parse_install_source_selector_rejects_unknown_values() {
+        let result = parse_install_source_selector("winget");
+
+        assert!(result.is_err(), "expected unknown selector to be rejected");
     }
 }

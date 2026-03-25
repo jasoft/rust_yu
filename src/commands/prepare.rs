@@ -51,7 +51,7 @@ pub struct PrepareMetadataCommand {
     )]
     pub sizes: bool,
 
-    /// 数据来源过滤器，推荐使用 `standard` 或 `registry`。
+    /// 数据来源过滤器，支持 `standard`、`registry`、`msi`、`store`、`all`。
     #[arg(long, default_value = "standard")]
     pub source: String,
 
@@ -87,7 +87,7 @@ pub async fn execute(cmd: PrepareMetadataCommand) -> Result<()> {
     let progress_format = cmd.progress_format;
     let progress_stream = cmd.progress_stream;
     let query = MetadataWarmupQuery {
-        source: parse_install_source_selector(&cmd.source),
+        source: parse_install_source_selector(&cmd.source)?,
         search: cmd.search.clone(),
         refresh: cmd.refresh,
         cache_ttl_seconds: lister::storage::DEFAULT_CACHE_TTL_SECONDS,

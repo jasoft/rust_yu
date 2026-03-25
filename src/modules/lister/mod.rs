@@ -10,9 +10,9 @@ use chrono::Utc;
 use crate::modules::common::error::UninstallerError;
 use crate::modules::common::utils;
 use models::{
-    InstallSource, InstalledProgram, ListProgramsQuery, MetadataWarmupItemStatus,
-    MetadataWarmupProgress, MetadataWarmupQuery, MetadataWarmupStage, MetadataWarmupStats,
-    MetadataWarmupSummary, ProgramListCacheState, ProgramListResponse,
+    InstallSource, InstallSourceSelector, InstalledProgram, ListProgramsQuery,
+    MetadataWarmupItemStatus, MetadataWarmupProgress, MetadataWarmupQuery, MetadataWarmupStage,
+    MetadataWarmupStats, MetadataWarmupSummary, ProgramListCacheState, ProgramListResponse,
 };
 
 /// 列出所有已安装程序（兼容旧接口）
@@ -20,7 +20,7 @@ pub fn list_all_programs(
     source: Option<InstallSource>,
     search: Option<&str>,
 ) -> Result<Vec<InstalledProgram>, UninstallerError> {
-    let mut all_programs = collect_programs(source);
+    let mut all_programs = collect_programs(InstallSourceSelector::from_install_source(source));
     enrichment::enrich_programs(&mut all_programs);
     dedupe_and_sort(&mut all_programs);
     apply_search_filter(&mut all_programs, search);
@@ -242,18 +242,17 @@ where
     Ok(summary)
 }
 
-fn is_cache_eligible(source: Option<InstallSource>) -> bool {
-    matches!(source, None | Some(InstallSource::Registry))
+fn is_cache_eligible(source: InstallSourceSelector) -> bool {
+    source.is_cache_eligible()
 }
 
-fn collect_programs(source: Option<InstallSource>) -> Vec<InstalledProgram> {
-    let mut all_programs = Vec::new();
+fn collect_program_sources(source: InstallSourceSelector) -> Vec<InstallSource> {
+    source.install_sources().to_vec()
+}
 
-    // None 默认仅使用 Registry，避免 MSI 调用带来的额外开销
-    let sources = match source {
-        Some(selected) => vec![selected],
-        None => vec![InstallSource::Registry],
-    };
+fn collect_programs(source: InstallSourceSelector) -> Vec<InstalledProgram> {
+    let mut all_programs = Vec::new();
+    let sources = collect_program_sources(source);
 
     for src in &sources {
         match src {
@@ -308,6 +307,7 @@ fn dedupe_and_sort(programs: &mut Vec<InstalledProgram>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::modules::lister::models::InstallSourceSelector;
 
     fn sample_program(name: &str, publisher: Option<&str>) -> InstalledProgram {
         let mut program = InstalledProgram::new(name.to_string(), InstallSource::Registry);
@@ -343,10 +343,10 @@ mod tests {
     }
 
     #[test]
-    fn list_programs_with_cache_marks_unknown_source_as_non_cacheable() {
+    fn list_programs_with_cache_marks_all_source_as_non_cacheable() {
         let response = list_programs_with_cache(ListProgramsQuery {
-            source: Some(InstallSource::Unknown),
-            search: None,
+            source: InstallSourceSelector::All,
+            search: Some("__rust_yu_unmatched_query__".to_string()),
             refresh: false,
             cache_ttl_seconds: 60,
         })
@@ -372,12 +372,12 @@ mod tests {
     }
 
     #[test]
-    fn warmup_program_metadata_for_unknown_source_reports_progress_without_cache() {
+    fn warmup_program_metadata_for_all_source_reports_progress_without_cache() {
         let mut progress_events = Vec::new();
         let summary = warmup_program_metadata(
             MetadataWarmupQuery {
-                source: Some(InstallSource::Unknown),
-                search: None,
+                source: InstallSourceSelector::All,
+                search: Some("__rust_yu_unmatched_query__".to_string()),
                 refresh: false,
                 cache_ttl_seconds: 60,
                 icons: true,
@@ -387,7 +387,7 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("unexpected error: {error}"));
 
-        assert_eq!(summary.total_programs, 0);
+        assert!(summary.total_programs >= summary.matched_programs);
         assert_eq!(summary.matched_programs, 0);
         assert_eq!(
             summary.cache.reason.as_deref(),
@@ -397,5 +397,21 @@ mod tests {
         assert_eq!(progress_events.len(), 2);
         assert_eq!(progress_events[0].stage, MetadataWarmupStage::Started);
         assert_eq!(progress_events[1].stage, MetadataWarmupStage::Completed);
+    }
+
+    #[test]
+    fn install_source_selector_all_expands_to_all_supported_sources() {
+        assert_eq!(
+            collect_program_sources(InstallSourceSelector::All),
+            vec![
+                InstallSource::Registry,
+                InstallSource::Msi,
+                InstallSource::Store
+            ]
+        );
+        assert_eq!(
+            collect_program_sources(InstallSourceSelector::Standard),
+            vec![InstallSource::Registry]
+        );
     }
 }

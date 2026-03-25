@@ -12,6 +12,13 @@ struct IconFileQuery {
     path: String,
 }
 
+#[derive(Debug, Default, serde::Deserialize)]
+struct ProgramListApiQuery {
+    source: Option<String>,
+    search: Option<String>,
+    refresh: Option<bool>,
+}
+
 // 启动 HTTP API 服务器（用于开发模式）
 fn start_api_server() {
     use rust_yu_lib::modules::lister;
@@ -19,12 +26,18 @@ fn start_api_server() {
     // 获取程序列表的 API 路由
     let programs_route = warp::path!("api" / "programs")
         .and(warp::get())
-        .map(move || {
+        .and(warp::query::<ProgramListApiQuery>())
+        .map(move |query_params: ProgramListApiQuery| {
+            let source = query_params
+                .source
+                .as_deref()
+                .and_then(lister::models::InstallSourceSelector::parse)
+                .unwrap_or(lister::models::InstallSourceSelector::All);
             // 调用缓存版本接口，避免每次请求都重复做图标/大小计算
             let query = lister::models::ListProgramsQuery {
-                source: Some(lister::models::InstallSource::Registry),
-                search: None,
-                refresh: false,
+                source,
+                search: query_params.search.clone(),
+                refresh: query_params.refresh.unwrap_or(false),
                 cache_ttl_seconds: lister::storage::DEFAULT_CACHE_TTL_SECONDS,
             };
             let result = lister::list_programs_with_cache(query);

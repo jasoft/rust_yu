@@ -162,6 +162,65 @@ impl std::fmt::Display for InstallSource {
     }
 }
 
+const STANDARD_INSTALL_SOURCES: [InstallSource; 1] = [InstallSource::Registry];
+const REGISTRY_INSTALL_SOURCES: [InstallSource; 1] = [InstallSource::Registry];
+const MSI_INSTALL_SOURCES: [InstallSource; 1] = [InstallSource::Msi];
+const STORE_INSTALL_SOURCES: [InstallSource; 1] = [InstallSource::Store];
+const ALL_INSTALL_SOURCES: [InstallSource; 3] = [
+    InstallSource::Registry,
+    InstallSource::Msi,
+    InstallSource::Store,
+];
+
+/// 列表查询时使用的来源选择器
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum InstallSourceSelector {
+    /// 默认快速模式，仅扫描注册表
+    #[default]
+    Standard,
+    Registry,
+    Msi,
+    Store,
+    All,
+}
+
+impl InstallSourceSelector {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.to_lowercase().as_str() {
+            "standard" => Some(Self::Standard),
+            "registry" => Some(Self::Registry),
+            "msi" => Some(Self::Msi),
+            "store" => Some(Self::Store),
+            "all" => Some(Self::All),
+            _ => None,
+        }
+    }
+
+    pub fn is_cache_eligible(self) -> bool {
+        matches!(self, Self::Standard | Self::Registry)
+    }
+
+    pub fn install_sources(self) -> &'static [InstallSource] {
+        match self {
+            Self::Standard => &STANDARD_INSTALL_SOURCES,
+            Self::Registry => &REGISTRY_INSTALL_SOURCES,
+            Self::Msi => &MSI_INSTALL_SOURCES,
+            Self::Store => &STORE_INSTALL_SOURCES,
+            Self::All => &ALL_INSTALL_SOURCES,
+        }
+    }
+
+    pub fn from_install_source(source: Option<InstallSource>) -> Self {
+        match source {
+            Some(InstallSource::Registry) => Self::Registry,
+            Some(InstallSource::Msi) => Self::Msi,
+            Some(InstallSource::Store) => Self::Store,
+            Some(InstallSource::Unknown) | None => Self::Standard,
+        }
+    }
+}
+
 /// 元数据预热任务类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -237,7 +296,7 @@ pub struct MetadataWarmupProgress {
 /// 元数据预热参数
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MetadataWarmupQuery {
-    pub source: Option<InstallSource>,
+    pub source: InstallSourceSelector,
     pub search: Option<String>,
     pub refresh: bool,
     pub cache_ttl_seconds: i64,
@@ -297,7 +356,7 @@ impl Default for ProgramListCacheState {
 /// 列表查询参数
 #[derive(Debug, Clone, Default)]
 pub struct ListProgramsQuery {
-    pub source: Option<InstallSource>,
+    pub source: InstallSourceSelector,
     pub search: Option<String>,
     pub refresh: bool,
     pub cache_ttl_seconds: i64,
