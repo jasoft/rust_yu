@@ -103,3 +103,32 @@ impl Trace {
         self
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{Confidence, Trace, TraceType};
+
+    #[test]
+    fn trace_type_display_is_stable() {
+        assert_eq!(TraceType::RegistryKey.to_string(), "RegistryKey");
+        assert_eq!(TraceType::Shortcut.to_string(), "Shortcut");
+    }
+
+    #[test]
+    fn trace_builder_methods_update_expected_fields() {
+        let trace = Trace::new(
+            "Demo App".to_string(),
+            TraceType::File,
+            r"C:\Demo App".to_string(),
+        )
+        .with_description("leftover directory".to_string())
+        .with_size(2048)
+        .with_confidence(Confidence::High);
+
+        assert_eq!(trace.description, "leftover directory");
+        assert_eq!(trace.size, Some(2048));
+        assert_eq!(trace.confidence, Confidence::High);
+        assert!(trace.exists);
+        assert!(!trace.is_critical);
+    }
+}

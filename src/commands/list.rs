@@ -4,32 +4,32 @@ use clap::Parser;
 
 #[derive(Parser, Debug)]
 pub struct ListCommand {
-    /// 输出格式 (table/json)
+    /// 列表输出格式，`table` 适合终端人工查看，`json` 适合 agent 解析。
     #[arg(long, default_value = "table")]
     pub format: String,
 
-    /// 过滤来源 (registry|msi|store|standard|all)
-    /// standard = registry (不包括商店应用和 MSI，MSI 较慢)
+    /// 数据来源过滤器。
+    /// `standard` 默认仅扫描注册表，避免触发 MSI 等较慢来源。
     #[arg(long, default_value = "standard")]
     pub source: String,
 
-    /// 搜索关键词
+    /// 可选搜索关键词，会对名称和发布者做模糊匹配。
     #[arg(short, long)]
     pub search: Option<String>,
 
-    /// 排序字段 (name|date|size)
+    /// 排序字段，可选 `name`、`date`、`size`。
     #[arg(long, default_value = "name")]
     pub sort_by: String,
 
-    /// 按升序排序
+    /// 按升序排序。
     #[arg(long, conflicts_with = "descending")]
     pub ascending: bool,
 
-    /// 按降序排序
+    /// 按降序排序。
     #[arg(long, conflicts_with = "ascending")]
     pub descending: bool,
 
-    /// 跳过读取缓存，立即重新扫描并刷新缓存
+    /// 跳过读取缓存并立即重建基础列表缓存。
     #[arg(long)]
     pub refresh: bool,
 }
@@ -72,19 +72,23 @@ fn sort_programs(programs: &mut [InstalledProgram], cmd: &ListCommand) {
 }
 
 fn build_query(cmd: &ListCommand) -> lister::models::ListProgramsQuery {
-    let source = match cmd.source.as_str() {
-        "registry" => Some(lister::models::InstallSource::Registry),
-        "msi" => Some(lister::models::InstallSource::Msi),
-        "store" => Some(lister::models::InstallSource::Store),
-        "standard" => None, // registry + msi (不包括 store)
-        _ => None,
-    };
+    let source = parse_install_source_selector(&cmd.source);
 
     lister::models::ListProgramsQuery {
         source,
         search: cmd.search.clone(),
         refresh: cmd.refresh,
         cache_ttl_seconds: lister::storage::DEFAULT_CACHE_TTL_SECONDS,
+    }
+}
+
+pub(crate) fn parse_install_source_selector(source: &str) -> Option<lister::models::InstallSource> {
+    match source.to_lowercase().as_str() {
+        "registry" => Some(lister::models::InstallSource::Registry),
+        "msi" => Some(lister::models::InstallSource::Msi),
+        "store" => Some(lister::models::InstallSource::Store),
+        "standard" | "all" => None,
+        _ => None,
     }
 }
 
@@ -185,7 +189,10 @@ mod tests {
     fn list_command_accepts_descending_flag() {
         let parsed = ListCommand::try_parse_from(["yu", "--descending"]);
 
-        assert!(parsed.is_ok(), "expected --descending to parse successfully");
+        assert!(
+            parsed.is_ok(),
+            "expected --descending to parse successfully"
+        );
     }
 
     #[test]

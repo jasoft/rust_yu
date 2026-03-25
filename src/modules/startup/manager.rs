@@ -18,7 +18,11 @@ pub fn list_startup_items(query: StartupListQuery) -> Result<StartupListResponse
     let total = items.len();
     let offset = query.offset.min(total);
     let limited = if let Some(limit) = query.limit {
-        items.into_iter().skip(offset).take(limit).collect::<Vec<_>>()
+        items
+            .into_iter()
+            .skip(offset)
+            .take(limit)
+            .collect::<Vec<_>>()
     } else {
         items.into_iter().skip(offset).collect::<Vec<_>>()
     };
@@ -35,7 +39,9 @@ pub fn get_startup_item(id: &str, include_raw: bool) -> Result<StartupItem, Star
     collect_all_items(include_raw)?
         .into_iter()
         .find(|item| item.id == id)
-        .ok_or_else(|| StartupError::new(StartupErrorCode::NotFound, format!("未找到自启动项: {id}")))
+        .ok_or_else(|| {
+            StartupError::new(StartupErrorCode::NotFound, format!("未找到自启动项: {id}"))
+        })
 }
 
 pub fn list_sources() -> Vec<StartupSourceDescriptor> {
@@ -148,10 +154,7 @@ pub fn plan_action(
     validate_action(&item, action)?;
     if apply_requested && item.requires_admin {
         ensure_running_as_administrator().map_err(|error| {
-            StartupError::new(
-                StartupErrorCode::RequiresAdmin,
-                format!("{error}"),
-            )
+            StartupError::new(StartupErrorCode::RequiresAdmin, format!("{error}"))
         })?;
     }
 
@@ -183,10 +186,7 @@ pub fn apply_action(
     validate_action(&item, action)?;
     if item.requires_admin {
         ensure_running_as_administrator().map_err(|error| {
-            StartupError::new(
-                StartupErrorCode::RequiresAdmin,
-                format!("{error}"),
-            )
+            StartupError::new(StartupErrorCode::RequiresAdmin, format!("{error}"))
         })?;
     }
 
@@ -247,19 +247,17 @@ pub fn rollback_action(
         ));
     }
 
-    let snapshot: StartupSnapshot = serde_json::from_str(&change_log.snapshot_json).map_err(|error| {
-        StartupError::new(
-            StartupErrorCode::IoError,
-            format!("解析变更快照失败: {error}"),
-        )
-    })?;
+    let snapshot: StartupSnapshot =
+        serde_json::from_str(&change_log.snapshot_json).map_err(|error| {
+            StartupError::new(
+                StartupErrorCode::IoError,
+                format!("解析变更快照失败: {error}"),
+            )
+        })?;
 
     if snapshot.item.requires_admin {
         ensure_running_as_administrator().map_err(|error| {
-            StartupError::new(
-                StartupErrorCode::RequiresAdmin,
-                format!("{error}"),
-            )
+            StartupError::new(StartupErrorCode::RequiresAdmin, format!("{error}"))
         })?;
     }
 
@@ -301,7 +299,12 @@ fn collect_all_items(include_raw: bool) -> Result<Vec<StartupItem>, StartupError
 fn filter_items(items: Vec<StartupItem>, query: &StartupListQuery) -> Vec<StartupItem> {
     items
         .into_iter()
-        .filter(|item| query.source.map(|value| value == item.source).unwrap_or(true))
+        .filter(|item| {
+            query
+                .source
+                .map(|value| value == item.source)
+                .unwrap_or(true)
+        })
         .filter(|item| query.scope.map(|value| value == item.scope).unwrap_or(true))
         .filter(|item| query.state.map(|value| value == item.state).unwrap_or(true))
         .filter(|item| {
@@ -330,7 +333,9 @@ fn sort_items(items: &mut [StartupItem], sort_by: Option<&str>, descending: bool
     match sort_by.unwrap_or("name") {
         "source" => items.sort_by(|left, right| left.source.as_str().cmp(right.source.as_str())),
         "scope" => items.sort_by(|left, right| left.scope.as_str().cmp(right.scope.as_str())),
-        "state" => items.sort_by(|left, right| state_rank(left.state).cmp(&state_rank(right.state))),
+        "state" => {
+            items.sort_by(|left, right| state_rank(left.state).cmp(&state_rank(right.state)))
+        }
         _ => items.sort_by(|left, right| left.name.to_lowercase().cmp(&right.name.to_lowercase())),
     }
 

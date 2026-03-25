@@ -1,6 +1,6 @@
-use crate::modules::{cleaner, lister, reporter, scanner};
 use crate::modules::common::text::decode_windows_output;
 use crate::modules::common::utils;
+use crate::modules::{cleaner, lister, reporter, scanner};
 use anyhow::Result;
 use chrono::Utc;
 use clap::Parser;
@@ -170,9 +170,7 @@ async fn run_uninstall_command(uninstall_string: &str) -> Result<()> {
         use std::process::Command as StdCommand;
 
         let (executable, arguments) = utils::split_command_for_spawn(&cmd)?;
-        let output = StdCommand::new(&executable)
-            .args(&arguments)
-            .output()?;
+        let output = StdCommand::new(&executable).args(&arguments).output()?;
 
         if !output.status.success() {
             let stderr = decode_windows_output(&output.stderr);

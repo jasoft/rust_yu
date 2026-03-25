@@ -47,10 +47,7 @@ fn list_msi_products_impl() -> Result<Vec<InstalledProgram>, UninstallerError> {
                 let json_str = decode_windows_output(&output.stdout);
                 parse_msi_products(&json_str)
             } else {
-                tracing::warn!(
-                    "获取MSI产品失败: {}",
-                    decode_windows_output(&output.stderr)
-                );
+                tracing::warn!("获取MSI产品失败: {}", decode_windows_output(&output.stderr));
                 Ok(Vec::new())
             }
         }
@@ -114,4 +111,51 @@ struct MsiProductJson {
 
     #[serde(rename = "IdentifyingNumber")]
     identifying_number: Option<String>,
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::parse_msi_products;
+
+    #[test]
+    fn parse_msi_products_supports_array_payloads() {
+        let json = r#"[
+            {
+                "Name": "Demo MSI",
+                "Vendor": "Demo Corp",
+                "Version": "1.0.0",
+                "InstallLocation": "C:\\Program Files\\Demo MSI",
+                "IdentifyingNumber": "ABC-123"
+            }
+        ]"#;
+
+        let programs =
+            parse_msi_products(json).unwrap_or_else(|error| panic!("unexpected error: {error}"));
+
+        assert_eq!(programs.len(), 1);
+        assert_eq!(programs[0].name, "Demo MSI");
+        assert_eq!(programs[0].id, "msi-abc-123");
+        assert_eq!(
+            programs[0].uninstall_string.as_deref(),
+            Some("msiexec /x{ABC-123}")
+        );
+    }
+
+    #[test]
+    fn parse_msi_products_supports_single_object_payloads() {
+        let json = r#"{
+            "Name": "Solo MSI",
+            "Vendor": "Solo Corp",
+            "Version": "2.1.0",
+            "InstallLocation": "C:\\Program Files\\Solo MSI",
+            "IdentifyingNumber": "XYZ-789"
+        }"#;
+
+        let programs =
+            parse_msi_products(json).unwrap_or_else(|error| panic!("unexpected error: {error}"));
+
+        assert_eq!(programs.len(), 1);
+        assert_eq!(programs[0].publisher.as_deref(), Some("Solo Corp"));
+        assert_eq!(programs[0].version.as_deref(), Some("2.1.0"));
+    }
 }

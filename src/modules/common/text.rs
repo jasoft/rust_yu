@@ -32,7 +32,11 @@ pub fn decode_windows_output(bytes: &[u8]) -> String {
 
     #[cfg(windows)]
     {
-        let mut code_pages = vec![unsafe { GetConsoleOutputCP() }, unsafe { GetOEMCP() }, unsafe { GetACP() }];
+        let mut code_pages = vec![
+            unsafe { GetConsoleOutputCP() },
+            unsafe { GetOEMCP() },
+            unsafe { GetACP() },
+        ];
         code_pages.retain(|value| *value != 0);
         code_pages.sort_unstable();
         code_pages.dedup();
@@ -64,7 +68,12 @@ fn decode_multibyte(bytes: &[u8], code_page: u32) -> Option<String> {
 
     let mut wide = vec![0u16; wide_len as usize];
     let written = unsafe {
-        MultiByteToWideChar(code_page, Default::default(), bytes, Some(wide.as_mut_slice()))
+        MultiByteToWideChar(
+            code_page,
+            Default::default(),
+            bytes,
+            Some(wide.as_mut_slice()),
+        )
     };
     if written <= 0 {
         return None;
@@ -99,7 +108,12 @@ fn decode_utf16_without_bom(bytes: &[u8]) -> Option<String> {
         return None;
     }
 
-    let zero_odd = bytes.iter().skip(1).step_by(2).filter(|value| **value == 0).count();
+    let zero_odd = bytes
+        .iter()
+        .skip(1)
+        .step_by(2)
+        .filter(|value| **value == 0)
+        .count();
     let zero_even = bytes.iter().step_by(2).filter(|value| **value == 0).count();
     let threshold = bytes.len() / 4;
 

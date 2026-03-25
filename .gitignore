@@ -1,6 +1,7 @@
 # Build results
 [tT]arget/
 build/
+dist/scoop/*.zip
 
 # Rust
 **/*.rs.bk

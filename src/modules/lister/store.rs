@@ -107,3 +107,51 @@ struct StoreAppJson {
     #[serde(rename = "PackageFullName")]
     package_full_name: Option<String>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::parse_store_apps;
+
+    #[test]
+    fn parse_store_apps_supports_array_payloads() {
+        let json = r#"[
+            {
+                "Name": "Demo.Store",
+                "Publisher": "CN=Demo",
+                "Version": "1.0.0",
+                "InstallLocation": "C:\\Program Files\\WindowsApps\\Demo.Store",
+                "PackageFullName": "Demo.Store_1.0.0_x64__abc"
+            }
+        ]"#;
+
+        let programs =
+            parse_store_apps(json).unwrap_or_else(|error| panic!("unexpected error: {error}"));
+
+        assert_eq!(programs.len(), 1);
+        assert_eq!(programs[0].name, "Demo.Store");
+        assert_eq!(programs[0].id, "Demo.Store_1.0.0_x64__abc");
+        assert!(programs[0]
+            .uninstall_string
+            .as_deref()
+            .unwrap_or_default()
+            .contains("Remove-AppxPackage"));
+    }
+
+    #[test]
+    fn parse_store_apps_supports_single_object_payloads() {
+        let json = r#"{
+            "Name": "Solo.Store",
+            "Publisher": "CN=Solo",
+            "Version": "2.0.0",
+            "InstallLocation": "C:\\Program Files\\WindowsApps\\Solo.Store",
+            "PackageFullName": "Solo.Store_2.0.0_x64__xyz"
+        }"#;
+
+        let programs =
+            parse_store_apps(json).unwrap_or_else(|error| panic!("unexpected error: {error}"));
+
+        assert_eq!(programs.len(), 1);
+        assert_eq!(programs[0].name, "Solo.Store");
+        assert_eq!(programs[0].version.as_deref(), Some("2.0.0"));
+    }
+}

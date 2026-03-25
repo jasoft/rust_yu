@@ -47,3 +47,42 @@ impl UninstallerReport {
         self.warnings.push(warning);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::UninstallerReport;
+    use crate::modules::cleaner::models::CleanResult;
+
+    #[test]
+    fn with_results_updates_size_and_success_state() {
+        let report = UninstallerReport::new("Demo App".to_string()).with_results(vec![
+            CleanResult {
+                trace_id: "1".to_string(),
+                path: r"C:\Demo App".to_string(),
+                success: true,
+                error: None,
+                bytes_freed: 512,
+            },
+            CleanResult {
+                trace_id: "2".to_string(),
+                path: r"C:\Demo App\bad".to_string(),
+                success: false,
+                error: Some("denied".to_string()),
+                bytes_freed: 0,
+            },
+        ]);
+
+        assert_eq!(report.total_size_freed, 512);
+        assert!(!report.success);
+        assert_eq!(report.traces_removed.len(), 2);
+    }
+
+    #[test]
+    fn add_warning_appends_entries() {
+        let mut report = UninstallerReport::new("Demo App".to_string());
+
+        report.add_warning("manual review".to_string());
+
+        assert_eq!(report.warnings, vec!["manual review".to_string()]);
+    }
+}

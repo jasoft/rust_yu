@@ -18,10 +18,7 @@ const DISABLED_ENTRY_TABLE: &str = "startup_disabled_entry";
 static TEST_STARTUP_STORAGE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn map_sqlite_error(context: &str, error: rusqlite::Error) -> StartupError {
-    StartupError::new(
-        StartupErrorCode::IoError,
-        format!("{context}: {error}"),
-    )
+    StartupError::new(StartupErrorCode::IoError, format!("{context}: {error}"))
 }
 
 pub fn get_state_database_path() -> Result<PathBuf, StartupError> {
@@ -36,8 +33,8 @@ pub fn get_state_database_path() -> Result<PathBuf, StartupError> {
 
 fn open_connection() -> Result<Connection, StartupError> {
     let path = get_state_database_path()?;
-    let connection =
-        Connection::open(path).map_err(|error| map_sqlite_error("打开自启动状态数据库失败", error))?;
+    let connection = Connection::open(path)
+        .map_err(|error| map_sqlite_error("打开自启动状态数据库失败", error))?;
 
     connection
         .execute_batch(&format!(

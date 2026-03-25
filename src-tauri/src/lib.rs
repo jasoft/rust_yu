@@ -158,6 +158,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             list_programs,
+            warmup_program_metadata,
             search_programs,
             scan_traces,
             clean_traces,

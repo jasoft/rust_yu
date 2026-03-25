@@ -80,6 +80,8 @@ pub struct AddStartupCommand {
     #[arg(long, default_value = "json")]
     pub format: String,
     #[arg(long)]
+    pub apply: bool,
+    #[arg(long)]
     pub yes: bool,
     #[arg(long)]
     pub reason: Option<String>,
@@ -98,6 +100,8 @@ pub struct MutateStartupCommand {
     #[arg(long, default_value = "json")]
     pub format: String,
     #[arg(long)]
+    pub apply: bool,
+    #[arg(long)]
     pub yes: bool,
     #[arg(long)]
     pub reason: Option<String>,
@@ -109,6 +113,8 @@ pub struct RollbackStartupCommand {
     pub change_id: String,
     #[arg(long, default_value = "json")]
     pub format: String,
+    #[arg(long)]
+    pub apply: bool,
     #[arg(long)]
     pub yes: bool,
     #[arg(long)]
@@ -144,7 +150,8 @@ fn execute_list(cmd: ListStartupCommand) -> Result<()> {
     match manager::list_startup_items(query) {
         Ok(response) => {
             if cmd.format.eq_ignore_ascii_case("json") {
-                let mut value = serde_json::to_value(response).unwrap_or_else(|_| serde_json::json!({}));
+                let mut value =
+                    serde_json::to_value(response).unwrap_or_else(|_| serde_json::json!({}));
                 apply_field_projection_to_items(&mut value, &cmd.fields);
                 println!(
                     "{}",
@@ -164,6 +171,28 @@ fn execute_list(cmd: ListStartupCommand) -> Result<()> {
 }
 
 fn execute_add(cmd: AddStartupCommand) -> Result<()> {
+    if !cmd.apply {
+        match manager::plan_add_registry_run_item(
+            &cmd.name,
+            &cmd.command,
+            cmd.reason.clone(),
+            false,
+        ) {
+            Ok(plan) => {
+                if cmd.format.eq_ignore_ascii_case("json") {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&StartupEnvelope::success(plan))?
+                    );
+                } else {
+                    print_add_plan(&plan);
+                }
+                return Ok(());
+            }
+            Err(error) => return render_error(&cmd.format, error),
+        }
+    }
+
     if !cmd.yes && !confirm_named_action("add", &cmd.name)? {
         let envelope = StartupEnvelope::<serde_json::Value>::failure("conflict", "操作已取消");
         if cmd.format.eq_ignore_ascii_case("json") {
@@ -216,7 +245,10 @@ fn execute_sources(cmd: SourcesStartupCommand) -> Result<()> {
             serde_json::to_string_pretty(&StartupEnvelope::success(response))?
         );
     } else {
-        println!("{:<20} {:<10} {:<10} {:<10} 说明", "来源", "用户", "机器", "删除");
+        println!(
+            "{:<20} {:<10} {:<10} {:<10} 说明",
+            "来源", "用户", "机器", "删除"
+        );
         for item in response {
             println!(
                 "{:<20} {:<10} {:<10} {:<10} {}",
@@ -232,6 +264,23 @@ fn execute_sources(cmd: SourcesStartupCommand) -> Result<()> {
 }
 
 fn execute_mutation(cmd: MutateStartupCommand, action: StartupAction) -> Result<()> {
+    if !cmd.apply {
+        match manager::plan_action(&cmd.id, action, cmd.reason.clone(), false) {
+            Ok(plan) => {
+                if cmd.format.eq_ignore_ascii_case("json") {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&StartupEnvelope::success(plan))?
+                    );
+                } else {
+                    print_action_plan(&plan);
+                }
+                return Ok(());
+            }
+            Err(error) => return render_error(&cmd.format, error),
+        }
+    }
+
     if !cmd.yes && !confirm_action(action, &cmd.id)? {
         let envelope = StartupEnvelope::<serde_json::Value>::failure("conflict", "操作已取消");
         if cmd.format.eq_ignore_ascii_case("json") {
@@ -258,6 +307,24 @@ fn execute_mutation(cmd: MutateStartupCommand, action: StartupAction) -> Result<
 }
 
 fn execute_rollback(cmd: RollbackStartupCommand) -> Result<()> {
+    if !cmd.apply {
+        let plan = serde_json::json!({
+            "change_id": cmd.change_id,
+            "action": "rollback",
+            "will_apply": false,
+            "operations": ["读取变更日志", "恢复来源状态", "标记变更已回滚"],
+        });
+        if cmd.format.eq_ignore_ascii_case("json") {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&StartupEnvelope::success(plan))?
+            );
+        } else {
+            print_item_detail(&plan);
+        }
+        return Ok(());
+    }
+
     if !cmd.yes && !confirm_action(StartupAction::Rollback, &cmd.change_id)? {
         let envelope = StartupEnvelope::<serde_json::Value>::failure("conflict", "操作已取消");
         if cmd.format.eq_ignore_ascii_case("json") {
@@ -287,9 +354,9 @@ fn render_error(format: &str, error: StartupError) -> Result<()> {
     if format.eq_ignore_ascii_case("json") {
         println!(
             "{}",
-            serde_json::to_string_pretty(&StartupEnvelope::<serde_json::Value>::from_startup_error(
-                &error
-            ))?
+            serde_json::to_string_pretty(
+                &StartupEnvelope::<serde_json::Value>::from_startup_error(&error)
+            )?
         );
         return Ok(());
     }
@@ -316,7 +383,9 @@ fn parse_source_filter(source: Option<&str>) -> Result<Option<StartupSource>> {
         Some(value) if value == "scheduled_task" || value == "task" => {
             Ok(Some(StartupSource::ScheduledTask))
         }
-        Some(value) if value == "service" || value == "services" => Ok(Some(StartupSource::Service)),
+        Some(value) if value == "service" || value == "services" => {
+            Ok(Some(StartupSource::Service))
+        }
         Some(value) => Err(anyhow!("未知来源: {value}")),
     }
 }
@@ -347,6 +416,27 @@ fn print_items_table(items: &[StartupItem]) {
 fn print_item_detail(value: &serde_json::Value) {
     if let Ok(text) = serde_json::to_string_pretty(value) {
         println!("{text}");
+    }
+}
+
+fn print_add_plan(plan: &crate::modules::startup::models::StartupAddPlan) {
+    println!("名称: {}", plan.item.name);
+    println!("来源: {}", plan.item.source.as_str());
+    println!("作用域: {}", plan.item.scope.as_str());
+    println!("需要管理员: {}", yes_no(plan.requires_admin));
+    println!("预演步骤:");
+    for operation in &plan.operations {
+        println!("  - {operation}");
+    }
+}
+
+fn print_action_plan(plan: &crate::modules::startup::models::StartupActionPlan) {
+    println!("项目: {}", plan.item_id);
+    println!("动作: {}", plan.action.as_str());
+    println!("需要管理员: {}", yes_no(plan.requires_admin));
+    println!("预演步骤:");
+    for operation in &plan.operations {
+        println!("  - {operation}");
     }
 }
 
@@ -405,7 +495,10 @@ fn apply_field_projection_to_items(value: &mut serde_json::Value, fields: &[Stri
         return;
     }
 
-    if let Some(items) = value.get_mut("items").and_then(|items| items.as_array_mut()) {
+    if let Some(items) = value
+        .get_mut("items")
+        .and_then(|items| items.as_array_mut())
+    {
         for item in items {
             apply_field_projection(item, fields);
         }
@@ -426,10 +519,10 @@ fn apply_field_projection(value: &mut serde_json::Value, fields: &[String]) {
 #[cfg(test)]
 mod tests {
     use super::{format_items_table, StartupCommand};
-    use clap::Parser;
     use crate::modules::startup::models::{
         StartupCapabilities, StartupItem, StartupLocator, StartupScope, StartupSource, StartupState,
     };
+    use clap::Parser;
 
     #[test]
     fn startup_list_command_accepts_json_flags() {
@@ -452,22 +545,26 @@ mod tests {
     }
 
     #[test]
-    fn startup_disable_command_accepts_yes_and_reason() {
+    fn startup_disable_command_accepts_apply_and_yes() {
         let parsed = StartupCommand::try_parse_from([
             "yu",
             "disable",
             "--id",
             "startup:demo",
+            "--apply",
             "--yes",
             "--reason",
             "test",
         ]);
 
-        assert!(parsed.is_ok(), "expected startup disable flags to parse");
+        assert!(
+            parsed.is_ok(),
+            "expected startup disable flags to parse with apply mode"
+        );
     }
 
     #[test]
-    fn startup_add_command_accepts_name_and_command() {
+    fn startup_add_command_accepts_apply_name_and_command() {
         let parsed = StartupCommand::try_parse_from([
             "yu",
             "add",
@@ -475,10 +572,14 @@ mod tests {
             "DemoAdd",
             "--command",
             r#""C:\Windows\System32\notepad.exe""#,
+            "--apply",
             "--yes",
         ]);
 
-        assert!(parsed.is_ok(), "expected startup add flags to parse");
+        assert!(
+            parsed.is_ok(),
+            "expected startup add flags to parse with apply mode"
+        );
     }
 
     #[test]

@@ -78,7 +78,10 @@ pub async fn execute(cmd: UninstallCommand) -> Result<()> {
                 .as_ref()
                 .map(|installed| installed.name.as_str())
                 .unwrap_or(&cmd.target);
-            println!("{}", process::build_interactive_uninstall_message(display_name));
+            println!(
+                "{}",
+                process::build_interactive_uninstall_message(display_name)
+            );
         }
 
         let run_result = process::run_uninstall_command(&uninstall_str, cmd.timeout).await?;
@@ -316,10 +319,7 @@ fn select_matching_program(
                 .map(|program| program.name.as_str())
                 .collect::<Vec<_>>()
                 .join(", ");
-            anyhow::bail!(
-                "找到多个匹配项，请使用更精确的名称: {}",
-                candidates
-            );
+            anyhow::bail!("找到多个匹配项，请使用更精确的名称: {}", candidates);
         }
     }
 }
@@ -403,12 +403,9 @@ mod tests {
 
     #[test]
     fn preserve_accepts_explicit_false() {
-        let command = UninstallCommand::try_parse_from([
-            "rust-yu",
-            "example-app",
-            "--preserve=false",
-        ])
-        .expect("应能解析显式 false");
+        let command =
+            UninstallCommand::try_parse_from(["rust-yu", "example-app", "--preserve=false"])
+                .expect("应能解析显式 false");
 
         assert!(!command.preserve);
     }
@@ -428,10 +425,11 @@ mod tests {
 
     #[test]
     fn select_matching_program_prefers_exact_name_match() {
-        let exact =
-            InstalledProgram::new("7-Zip 24.09 (x64)".to_string(), InstallSource::Registry);
-        let partial =
-            InstalledProgram::new("7-Zip 24.01 (x64 edition)".to_string(), InstallSource::Registry);
+        let exact = InstalledProgram::new("7-Zip 24.09 (x64)".to_string(), InstallSource::Registry);
+        let partial = InstalledProgram::new(
+            "7-Zip 24.01 (x64 edition)".to_string(),
+            InstallSource::Registry,
+        );
 
         let selected = select_matching_program(vec![partial, exact.clone()], "7-Zip 24.09 (x64)")
             .expect("精确匹配不应报错");
@@ -441,10 +439,11 @@ mod tests {
 
     #[test]
     fn select_matching_program_rejects_ambiguous_partial_matches() {
-        let first =
-            InstalledProgram::new("7-Zip 24.09 (x64)".to_string(), InstallSource::Registry);
-        let second =
-            InstalledProgram::new("7-Zip 24.01 (x64 edition)".to_string(), InstallSource::Registry);
+        let first = InstalledProgram::new("7-Zip 24.09 (x64)".to_string(), InstallSource::Registry);
+        let second = InstalledProgram::new(
+            "7-Zip 24.01 (x64 edition)".to_string(),
+            InstallSource::Registry,
+        );
 
         let error = select_matching_program(vec![first, second], "7-Zip")
             .expect_err("模糊匹配多个程序时应拒绝继续");

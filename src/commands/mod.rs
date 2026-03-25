@@ -1,5 +1,6 @@
 pub mod clean;
 pub mod list;
+pub mod prepare;
 pub mod report;
 pub mod search;
 pub mod startup;
@@ -11,6 +12,9 @@ use clap::Subcommand;
 pub enum Command {
     /// 列出所有已安装的程序
     List(list::ListCommand),
+
+    /// 预热图标或大小等耗时元数据缓存
+    Prepare(prepare::PrepareMetadataCommand),
 
     /// 搜索程序残留痕迹
     Search(search::SearchCommand),
