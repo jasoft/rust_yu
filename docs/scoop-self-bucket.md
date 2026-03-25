@@ -66,13 +66,34 @@ https://github.com/jasoft/rust_yu/releases/download/v0.1.0/yu-0.1.0-windows-amd6
 
 ## 后续发版
 
-每次发版只需要：
+现在可以直接执行一键发布脚本：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\release\publish-release.ps1
+```
+
+脚本会自动完成这些步骤：
+
+- 校验 `Cargo.toml` 与 `src-tauri/tauri.conf.json` 的版本一致性
+- 构建 `yu.exe`
+- 生成 `dist\scoop\yu-<version>-windows-amd64.zip`
+- 更新 `bucket/yu.json`
+- 如有变更则自动提交 manifest
+- 创建或校验 `v<version>` tag
+- 推送当前分支与 tag
+- 创建或更新对应的 GitHub Release，并上传 zip 资产
+
+演练时可先执行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\release\publish-release.ps1 -DryRun -AllowDirty -SkipBuild -SkipPush -SkipRelease
+```
+
+如果只想单独刷新 Scoop manifest，也可以继续用原来的脚本：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\scoop\update-manifest.ps1 -Version <new-version>
 ```
-
-然后提交、打 tag、上传对应 zip 到同版本 release。
 
 ## 验证
 
