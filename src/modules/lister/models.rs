@@ -162,6 +162,114 @@ impl std::fmt::Display for InstallSource {
     }
 }
 
+/// 元数据预热任务类型
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MetadataWarmupKind {
+    Icons,
+    Sizes,
+}
+
+impl MetadataWarmupKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Icons => "icons",
+            Self::Sizes => "sizes",
+        }
+    }
+}
+
+impl std::fmt::Display for MetadataWarmupKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// 元数据预热进度阶段
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MetadataWarmupStage {
+    Started,
+    ItemStarted,
+    ItemFinished,
+    Completed,
+}
+
+/// 单个预热条目的结果
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MetadataWarmupItemStatus {
+    Updated,
+    Skipped,
+    Failed,
+}
+
+/// 预热任务统计
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct MetadataWarmupStats {
+    pub total: usize,
+    pub eligible: usize,
+    pub processed: usize,
+    pub updated: usize,
+    pub skipped: usize,
+    pub failed: usize,
+}
+
+/// 预热任务进度事件
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MetadataWarmupProgress {
+    pub kind: MetadataWarmupKind,
+    pub stage: MetadataWarmupStage,
+    pub current: usize,
+    pub total: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub program_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub program_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<MetadataWarmupItemStatus>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub program: Option<InstalledProgram>,
+}
+
+/// 元数据预热参数
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct MetadataWarmupQuery {
+    pub source: Option<InstallSource>,
+    pub search: Option<String>,
+    pub refresh: bool,
+    pub cache_ttl_seconds: i64,
+    pub icons: bool,
+    pub sizes: bool,
+}
+
+impl MetadataWarmupQuery {
+    pub fn selected_kinds(&self) -> Vec<MetadataWarmupKind> {
+        let mut kinds = Vec::new();
+        if self.icons {
+            kinds.push(MetadataWarmupKind::Icons);
+        }
+        if self.sizes {
+            kinds.push(MetadataWarmupKind::Sizes);
+        }
+        kinds
+    }
+}
+
+/// 元数据预热结果
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct MetadataWarmupSummary {
+    pub total_programs: usize,
+    pub matched_programs: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icons: Option<MetadataWarmupStats>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sizes: Option<MetadataWarmupStats>,
+    pub cache: ProgramListCacheState,
+}
+
 /// 列表缓存状态
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProgramListCacheState {
@@ -221,8 +329,7 @@ mod tests {
 
     #[test]
     fn preferred_uninstall_string_falls_back_to_default_variant() {
-        let mut program =
-            InstalledProgram::new("FallbackApp".to_string(), InstallSource::Registry);
+        let mut program = InstalledProgram::new("FallbackApp".to_string(), InstallSource::Registry);
         program.uninstall_string =
             Some(r#""C:\Program Files\FallbackApp\uninstall.exe""#.to_string());
 

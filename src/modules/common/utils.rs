@@ -87,9 +87,7 @@ pub fn normalize_uninstall_command(uninstall_string: &str) -> String {
     if let Some(msi_arg_start) = normalized.find(['/', '-']) {
         let candidate = normalized[msi_arg_start..].to_string();
         let candidate_lower = candidate.to_lowercase();
-        if candidate_lower.starts_with("/i")
-            || candidate_lower.starts_with("-i")
-        {
+        if candidate_lower.starts_with("/i") || candidate_lower.starts_with("-i") {
             normalized.replace_range(msi_arg_start + 1..msi_arg_start + 2, "X");
         }
     }
@@ -192,7 +190,8 @@ fn is_probable_executable(candidate: &str) -> bool {
 pub fn create_command_wrapper_script(
     command: &str,
 ) -> Result<std::path::PathBuf, crate::modules::common::error::UninstallerError> {
-    let script_path = std::env::temp_dir().join(format!("rust-yu-uninstall-{}.cmd", uuid::Uuid::new_v4()));
+    let script_path =
+        std::env::temp_dir().join(format!("rust-yu-uninstall-{}.cmd", uuid::Uuid::new_v4()));
     let script_content = format!("@echo off\r\n{} >nul 2>&1\r\n", command.trim());
     std::fs::write(&script_path, script_content)?;
     Ok(script_path)
@@ -242,8 +241,8 @@ pub fn generate_id() -> String {
 /// 卸载系统级程序前必须先做权限校验，避免卸载器被启动后又因为 UAC
 /// 或权限不足静默失败，导致命令行错误地显示“已结束”。
 #[cfg(windows)]
-pub fn ensure_running_as_administrator() -> Result<(), crate::modules::common::error::UninstallerError>
-{
+pub fn ensure_running_as_administrator(
+) -> Result<(), crate::modules::common::error::UninstallerError> {
     const SECURITY_BUILTIN_DOMAIN_RID: u32 = 0x0000_0020;
     const DOMAIN_ALIAS_RID_ADMINS: u32 = 0x0000_0220;
 
@@ -285,16 +284,18 @@ pub fn ensure_running_as_administrator() -> Result<(), crate::modules::common::e
         if is_member.as_bool() {
             Ok(())
         } else {
-            Err(crate::modules::common::error::UninstallerError::PermissionDenied(
-                "当前进程不是管理员，请以管理员身份重新运行后再卸载".to_string(),
-            ))
+            Err(
+                crate::modules::common::error::UninstallerError::PermissionDenied(
+                    "当前进程不是管理员，请以管理员身份重新运行后再卸载".to_string(),
+                ),
+            )
         }
     }
 }
 
 #[cfg(not(windows))]
-pub fn ensure_running_as_administrator() -> Result<(), crate::modules::common::error::UninstallerError>
-{
+pub fn ensure_running_as_administrator(
+) -> Result<(), crate::modules::common::error::UninstallerError> {
     Ok(())
 }
 
@@ -369,8 +370,9 @@ mod tests {
 
     #[test]
     fn create_command_wrapper_script_writes_expected_command() {
-        let script_path = super::create_command_wrapper_script(r#""C:\Program Files\App\uninstall.exe" /S"#)
-            .expect("应能创建包装脚本");
+        let script_path =
+            super::create_command_wrapper_script(r#""C:\Program Files\App\uninstall.exe" /S"#)
+                .expect("应能创建包装脚本");
         let content = std::fs::read_to_string(&script_path).expect("应能读取包装脚本");
         let _ = std::fs::remove_file(&script_path);
 

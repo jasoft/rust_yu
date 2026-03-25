@@ -94,3 +94,48 @@ pub fn get_critical_paths() -> &'static [&'static str] {
 pub fn get_critical_registry_paths() -> &'static [&'static str] {
     CRITICAL_REGISTRY_PATHS
 }
+
+#[cfg(test)]
+mod tests {
+    use super::pre_delete_check;
+    use crate::modules::scanner::models::{Trace, TraceType};
+
+    fn trace(trace_type: TraceType, path: &str) -> Trace {
+        Trace::new("Demo App".to_string(), trace_type, path.to_string())
+    }
+
+    #[test]
+    fn pre_delete_check_rejects_items_marked_as_critical() {
+        let mut trace = trace(TraceType::File, r"C:\Users\soj\AppData\Local\Demo App");
+        trace.is_critical = true;
+
+        assert!(pre_delete_check(&trace).is_err());
+    }
+
+    #[test]
+    fn pre_delete_check_rejects_critical_system_directories() {
+        let trace = trace(TraceType::File, r"C:\Windows\System32\demo.dll");
+
+        assert!(pre_delete_check(&trace).is_err());
+    }
+
+    #[test]
+    fn pre_delete_check_rejects_critical_registry_paths() {
+        let trace = trace(
+            TraceType::RegistryKey,
+            r"HKLM\SYSTEM\CurrentControlSet\Services\DemoApp",
+        );
+
+        assert!(pre_delete_check(&trace).is_err());
+    }
+
+    #[test]
+    fn pre_delete_check_allows_non_critical_paths() {
+        let trace = trace(
+            TraceType::File,
+            r"C:\Users\soj\AppData\Local\Demo App\cache",
+        );
+
+        assert!(pre_delete_check(&trace).is_ok());
+    }
+}

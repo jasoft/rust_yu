@@ -23,7 +23,11 @@ fn open_hive(scope: StartupScope) -> RegKey {
     RegKey::predef(hive)
 }
 
-pub fn read_state(scope: StartupScope, bucket: &str, value_name: &str) -> Result<Option<bool>, StartupError> {
+pub fn read_state(
+    scope: StartupScope,
+    bucket: &str,
+    value_name: &str,
+) -> Result<Option<bool>, StartupError> {
     let hive = open_hive(scope);
     let path = format!(r"{}\{}", base_path_for_scope(scope), bucket);
     let Ok(key) = hive.open_subkey(&path) else {
@@ -145,7 +149,10 @@ mod tests {
         let _guard = TEST_STARTUP_ENV_LOCK
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let base_path = format!(r"Software\rust-yu-test\StartupApproved\{}", uuid::Uuid::new_v4());
+        let base_path = format!(
+            r"Software\rust-yu-test\StartupApproved\{}",
+            uuid::Uuid::new_v4()
+        );
         std::env::set_var("RUST_YU_STARTUP_APPROVED_HKCU_BASE", &base_path);
 
         write_state(StartupScope::User, "Run", "Demo", false).ok();

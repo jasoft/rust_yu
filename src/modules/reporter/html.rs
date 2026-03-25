@@ -5,6 +5,8 @@ use crate::modules::common::utils;
 
 /// 生成 HTML 报告
 pub fn generate_html_report(report: &UninstallerReport) -> Result<String, UninstallerError> {
+    let escaped_program_name = escape_html(&report.program_name);
+    let escaped_report_id = escape_html(&report.id);
     let html = format!(
         r#"<!DOCTYPE html>
 <html lang="zh-CN">
@@ -187,10 +189,10 @@ pub fn generate_html_report(report: &UninstallerReport) -> Result<String, Uninst
     </div>
 </body>
 </html>"#,
-        report.program_name,
-        report.program_name,
+        escaped_program_name,
+        escaped_program_name,
         report.generated_at.format("%Y-%m-%d %H:%M:%S"),
-        report.id,
+        escaped_report_id,
         report.traces_found.len(),
         report.traces_removed.iter().filter(|r| r.success).count(),
         report.traces_removed.iter().filter(|r| !r.success).count(),
@@ -275,4 +277,67 @@ fn escape_html(s: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{generate_html_report, generate_results_table};
+    use crate::modules::cleaner::models::CleanResult;
+    use crate::modules::reporter::models::UninstallerReport;
+
+    #[test]
+    fn generate_results_table_returns_placeholder_for_empty_results() {
+        assert_eq!(generate_results_table(&[]), "<p>暂无删除记录</p>");
+    }
+
+    #[test]
+    fn generate_html_report_escapes_program_name_and_paths() {
+        let report = UninstallerReport::new(r#"<Demo & "App">"#.to_string()).with_results(vec![
+            CleanResult {
+                trace_id: "1".to_string(),
+                path: r#"<script>alert(1)</script>"#.to_string(),
+                success: true,
+                error: None,
+                bytes_freed: 1024,
+            },
+        ]);
+
+        let html = generate_html_report(&report)
+            .unwrap_or_else(|error| panic!("unexpected error: {error}"));
+
+        assert!(html.contains("&lt;Demo &amp; &quot;App&quot;&gt;"));
+        assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
+        assert!(!html.contains(r#"<script>alert(1)</script>"#));
+    }
+
+    #[test]
+    fn generate_results_table_uses_expected_type_badges() {
+        let html = generate_results_table(&[
+            CleanResult {
+                trace_id: "1".to_string(),
+                path: r"HKCU\Software\Demo".to_string(),
+                success: true,
+                error: None,
+                bytes_freed: 0,
+            },
+            CleanResult {
+                trace_id: "2".to_string(),
+                path: r"C:\Users\soj\Desktop\Demo.lnk".to_string(),
+                success: true,
+                error: None,
+                bytes_freed: 0,
+            },
+            CleanResult {
+                trace_id: "3".to_string(),
+                path: r"C:\Users\soj\AppData\Roaming\Demo".to_string(),
+                success: true,
+                error: None,
+                bytes_freed: 0,
+            },
+        ]);
+
+        assert!(html.contains("注册表"));
+        assert!(html.contains("快捷方式"));
+        assert!(html.contains("AppData"));
+    }
 }

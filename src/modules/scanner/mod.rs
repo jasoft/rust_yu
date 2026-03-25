@@ -146,3 +146,42 @@ fn assign_confidence_scores(program_name: &str, traces: &mut Vec<Trace>) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn trace(trace_type: TraceType, path: &str) -> Trace {
+        Trace::new("Demo App".to_string(), trace_type, path.to_string())
+    }
+
+    #[test]
+    fn assign_confidence_scores_distinguishes_exact_partial_and_non_matches() {
+        let mut traces = vec![
+            trace(TraceType::File, r"C:\Program Files\Demo App\demo app.exe"),
+            trace(TraceType::File, r"C:\Temp\backup-demo app\log.txt"),
+            trace(TraceType::File, r"C:\Temp\another-app\log.txt"),
+        ];
+
+        assign_confidence_scores("Demo App", &mut traces);
+
+        assert_eq!(traces[0].confidence, models::Confidence::High);
+        assert_eq!(traces[1].confidence, models::Confidence::Medium);
+        assert_eq!(traces[2].confidence, models::Confidence::Low);
+    }
+
+    #[test]
+    fn assign_confidence_scores_marks_critical_file_and_registry_locations() {
+        let mut traces = vec![
+            trace(TraceType::File, r"C:\Windows\System32\demo.dll"),
+            trace(
+                TraceType::RegistryKey,
+                r"HKLM\SYSTEM\CurrentControlSet\Services\DemoApp",
+            ),
+        ];
+
+        assign_confidence_scores("Demo App", &mut traces);
+
+        assert!(traces.iter().all(|trace| trace.is_critical));
+    }
+}

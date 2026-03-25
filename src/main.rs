@@ -34,6 +34,7 @@ async fn main() -> Result<()> {
     // 执行命令
     let result = match cli.command {
         commands::Command::List(cmd) => commands::list::execute(cmd).await,
+        commands::Command::Prepare(cmd) => commands::prepare::execute(cmd).await,
         commands::Command::Search(cmd) => commands::search::execute(cmd).await,
         commands::Command::Clean(cmd) => commands::clean::execute(cmd).await,
         commands::Command::Report(cmd) => commands::report::execute(cmd).await,

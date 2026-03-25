@@ -35,7 +35,10 @@ pub fn collect_items(include_raw: bool) -> Result<Vec<StartupItem>, StartupError
             if !path.is_file() {
                 continue;
             }
-            let Some(file_name) = path.file_name().map(|value| value.to_string_lossy().to_string()) else {
+            let Some(file_name) = path
+                .file_name()
+                .map(|value| value.to_string_lossy().to_string())
+            else {
                 continue;
             };
             let mut item = StartupItem::new(
@@ -52,10 +55,13 @@ pub fn collect_items(include_raw: bool) -> Result<Vec<StartupItem>, StartupError
             item.command = Some(path.to_string_lossy().to_string());
             item.executable_path = Some(path.to_string_lossy().to_string());
             item.target_exists = Some(path.exists());
-            item.working_dir = path.parent().map(|value| value.to_string_lossy().to_string());
+            item.working_dir = path
+                .parent()
+                .map(|value| value.to_string_lossy().to_string());
             item.requires_admin = matches!(scope, StartupScope::Machine);
 
-            if let Some(enabled) = startup_approved::read_state(scope, "StartupFolder", &file_name)? {
+            if let Some(enabled) = startup_approved::read_state(scope, "StartupFolder", &file_name)?
+            {
                 item.state = if enabled {
                     StartupState::Enabled
                 } else {
@@ -86,7 +92,9 @@ pub fn capture_snapshot(item: &StartupItem) -> Result<StartupSnapshot, StartupEr
     let file_name = path
         .file_name()
         .map(|value| value.to_string_lossy().to_string())
-        .ok_or_else(|| StartupError::new(StartupErrorCode::InvalidSelector, "缺少启动目录文件名"))?;
+        .ok_or_else(|| {
+            StartupError::new(StartupErrorCode::InvalidSelector, "缺少启动目录文件名")
+        })?;
 
     let bytes = std::fs::read(&path).map_err(|error| {
         StartupError::new(
@@ -98,7 +106,11 @@ pub fn capture_snapshot(item: &StartupItem) -> Result<StartupSnapshot, StartupEr
         file_path: path.to_string_lossy().to_string(),
         file_name: file_name.clone(),
         file_hex: hex_encode(&bytes),
-        approved_state_hex: startup_approved::read_state_hex(item.scope, "StartupFolder", &file_name)?,
+        approved_state_hex: startup_approved::read_state_hex(
+            item.scope,
+            "StartupFolder",
+            &file_name,
+        )?,
     };
 
     Ok(StartupSnapshot {
@@ -142,7 +154,12 @@ pub fn apply_action(
                     format!("删除启动目录文件失败: {error}"),
                 )
             })?;
-            startup_approved::restore_state_hex(item.scope, "StartupFolder", &payload.file_name, None)?;
+            startup_approved::restore_state_hex(
+                item.scope,
+                "StartupFolder",
+                &payload.file_name,
+                None,
+            )?;
             Ok(vec![format!("删除启动目录项 {}", payload.file_name)])
         }
         _ => Err(StartupError::new(

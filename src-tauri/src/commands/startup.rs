@@ -1,8 +1,8 @@
 use rust_yu_lib::startup::manager;
 use rust_yu_lib::startup::models::{
     StartupAction, StartupActionPlan, StartupActionResult, StartupEnvelope, StartupItem,
-    StartupListQuery, StartupListResponse, StartupScope, StartupSource, StartupState,
-    StartupSourceDescriptor,
+    StartupListQuery, StartupListResponse, StartupScope, StartupSource, StartupSourceDescriptor,
+    StartupState,
 };
 use serde::{Deserialize, Serialize};
 
@@ -43,7 +43,10 @@ pub async fn list_startup_items(
         state: parse_state(options.as_ref().and_then(|value| value.state.as_deref()))?,
         search: options.as_ref().and_then(|value| value.search.clone()),
         limit: options.as_ref().and_then(|value| value.limit),
-        offset: options.as_ref().and_then(|value| value.offset).unwrap_or_default(),
+        offset: options
+            .as_ref()
+            .and_then(|value| value.offset)
+            .unwrap_or_default(),
         sort_by: options.as_ref().and_then(|value| value.sort_by.clone()),
         descending: options
             .as_ref()
@@ -71,9 +74,10 @@ pub async fn get_startup_item(
     include_raw: Option<bool>,
 ) -> Result<StartupEnvelope<StartupItem>, CommandError> {
     let include_raw = include_raw.unwrap_or(false);
-    let result = tauri::async_runtime::spawn_blocking(move || manager::get_startup_item(&id, include_raw))
-        .await
-        .map_err(|error| CommandError::new(format!("startup show 任务执行失败: {error}")))?;
+    let result =
+        tauri::async_runtime::spawn_blocking(move || manager::get_startup_item(&id, include_raw))
+            .await
+            .map_err(|error| CommandError::new(format!("startup show 任务执行失败: {error}")))?;
 
     Ok(match result {
         Ok(response) => StartupEnvelope::success(response),
@@ -82,7 +86,8 @@ pub async fn get_startup_item(
 }
 
 #[tauri::command]
-pub async fn list_startup_sources() -> Result<StartupEnvelope<Vec<StartupSourceDescriptor>>, CommandError> {
+pub async fn list_startup_sources(
+) -> Result<StartupEnvelope<Vec<StartupSourceDescriptor>>, CommandError> {
     Ok(StartupEnvelope::success(manager::list_sources()))
 }
 
@@ -142,7 +147,9 @@ fn parse_source(value: Option<&str>) -> Result<Option<StartupSource>, CommandErr
     match value.map(|text| text.to_lowercase()) {
         None => Ok(None),
         Some(text) if text == "all" => Ok(None),
-        Some(text) if text == "registry_run" || text == "run" => Ok(Some(StartupSource::RegistryRun)),
+        Some(text) if text == "registry_run" || text == "run" => {
+            Ok(Some(StartupSource::RegistryRun))
+        }
         Some(text) if text == "registry_run_once" || text == "run_once" => {
             Ok(Some(StartupSource::RegistryRunOnce))
         }
@@ -200,5 +207,53 @@ fn parse_action(value: &str) -> Result<StartupAction, CommandError> {
             "invalid_selector",
             format!("未知动作: {other}"),
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_action, parse_scope, parse_source, parse_state};
+    use rust_yu_lib::startup::models::{StartupAction, StartupScope, StartupSource, StartupState};
+
+    #[test]
+    fn parse_source_accepts_aliases() {
+        assert_eq!(
+            parse_source(Some("run")).ok(),
+            Some(Some(StartupSource::RegistryRun))
+        );
+        assert_eq!(
+            parse_source(Some("services")).ok(),
+            Some(Some(StartupSource::Service))
+        );
+        assert_eq!(parse_source(Some("all")).ok(), Some(None));
+    }
+
+    #[test]
+    fn parse_source_rejects_unknown_values() {
+        let error = parse_source(Some("mystery")).expect_err("expected invalid selector");
+
+        assert_eq!(error.code.as_deref(), Some("invalid_selector"));
+    }
+
+    #[test]
+    fn parse_scope_and_state_accept_supported_values() {
+        assert_eq!(
+            parse_scope(Some("machine")).ok(),
+            Some(Some(StartupScope::Machine))
+        );
+        assert_eq!(parse_scope(Some("all")).ok(), Some(None));
+        assert_eq!(
+            parse_state(Some("broken")).ok(),
+            Some(Some(StartupState::Broken))
+        );
+        assert_eq!(parse_state(Some("all")).ok(), Some(None));
+    }
+
+    #[test]
+    fn parse_action_rejects_unknown_values() {
+        assert_eq!(parse_action("enable").ok(), Some(StartupAction::Enable));
+
+        let error = parse_action("noop").expect_err("expected invalid selector");
+        assert_eq!(error.code.as_deref(), Some("invalid_selector"));
     }
 }

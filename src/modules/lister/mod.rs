@@ -10,7 +10,9 @@ use chrono::Utc;
 use crate::modules::common::error::UninstallerError;
 use crate::modules::common::utils;
 use models::{
-    InstallSource, InstalledProgram, ListProgramsQuery, ProgramListCacheState, ProgramListResponse,
+    InstallSource, InstalledProgram, ListProgramsQuery, MetadataWarmupItemStatus,
+    MetadataWarmupProgress, MetadataWarmupQuery, MetadataWarmupStage, MetadataWarmupStats,
+    MetadataWarmupSummary, ProgramListCacheState, ProgramListResponse,
 };
 
 /// 列出所有已安装程序（兼容旧接口）
@@ -89,6 +91,157 @@ pub fn list_programs_with_cache(
     })
 }
 
+pub fn warmup_program_metadata<F>(
+    mut query: MetadataWarmupQuery,
+    mut on_progress: F,
+) -> Result<MetadataWarmupSummary, UninstallerError>
+where
+    F: FnMut(MetadataWarmupProgress),
+{
+    if query.cache_ttl_seconds <= 0 {
+        query.cache_ttl_seconds = storage::DEFAULT_CACHE_TTL_SECONDS;
+    }
+
+    let selected_kinds = query.selected_kinds();
+    if selected_kinds.is_empty() {
+        return Err(UninstallerError::Other(
+            "至少需要选择一个元数据预热任务".to_string(),
+        ));
+    }
+
+    let cache_eligible = is_cache_eligible(query.source);
+    let base_query = ListProgramsQuery {
+        source: query.source,
+        search: None,
+        refresh: query.refresh,
+        cache_ttl_seconds: query.cache_ttl_seconds,
+    };
+    let mut response = list_programs_with_cache(base_query)?;
+    let mut summary = MetadataWarmupSummary {
+        total_programs: response.programs.len(),
+        matched_programs: 0,
+        cache: response.cache.clone(),
+        ..MetadataWarmupSummary::default()
+    };
+
+    let selected_indices: Vec<usize> = response
+        .programs
+        .iter()
+        .enumerate()
+        .filter(|(_, program)| matches_search(program, query.search.as_deref()))
+        .map(|(index, _)| index)
+        .collect();
+    summary.matched_programs = selected_indices.len();
+
+    for kind in selected_kinds {
+        let eligible_indices: Vec<usize> = selected_indices
+            .iter()
+            .copied()
+            .filter(|index| {
+                enrichment::is_program_metadata_warmup_eligible(&response.programs[*index], kind)
+            })
+            .collect();
+        let target_indices: Vec<usize> = match kind {
+            models::MetadataWarmupKind::Icons => eligible_indices.clone(),
+            models::MetadataWarmupKind::Sizes => selected_indices.clone(),
+        };
+        let mut stats = MetadataWarmupStats {
+            total: target_indices.len(),
+            eligible: eligible_indices.len(),
+            ..MetadataWarmupStats::default()
+        };
+
+        on_progress(MetadataWarmupProgress {
+            kind,
+            stage: MetadataWarmupStage::Started,
+            current: 0,
+            total: target_indices.len(),
+            program_id: None,
+            program_name: None,
+            status: None,
+            message: None,
+            program: None,
+        });
+
+        for (position, index) in target_indices.iter().enumerate() {
+            let program = response.programs[*index].clone();
+            on_progress(MetadataWarmupProgress {
+                kind,
+                stage: MetadataWarmupStage::ItemStarted,
+                current: position + 1,
+                total: target_indices.len(),
+                program_id: Some(program.id.clone()),
+                program_name: Some(program.name.clone()),
+                status: None,
+                message: None,
+                program: None,
+            });
+
+            let (status, message) =
+                enrichment::warmup_program_metadata(&mut response.programs[*index], kind);
+            stats.processed += 1;
+            match status {
+                MetadataWarmupItemStatus::Updated => stats.updated += 1,
+                MetadataWarmupItemStatus::Skipped => stats.skipped += 1,
+                MetadataWarmupItemStatus::Failed => stats.failed += 1,
+            }
+
+            on_progress(MetadataWarmupProgress {
+                kind,
+                stage: MetadataWarmupStage::ItemFinished,
+                current: position + 1,
+                total: target_indices.len(),
+                program_id: Some(response.programs[*index].id.clone()),
+                program_name: Some(response.programs[*index].name.clone()),
+                status: Some(status),
+                message,
+                program: Some(response.programs[*index].clone()),
+            });
+        }
+
+        on_progress(MetadataWarmupProgress {
+            kind,
+            stage: MetadataWarmupStage::Completed,
+            current: target_indices.len(),
+            total: target_indices.len(),
+            program_id: None,
+            program_name: None,
+            status: None,
+            message: None,
+            program: None,
+        });
+
+        match kind {
+            models::MetadataWarmupKind::Icons => summary.icons = Some(stats),
+            models::MetadataWarmupKind::Sizes => summary.sizes = Some(stats),
+        }
+    }
+
+    if cache_eligible {
+        dedupe_and_sort(&mut response.programs);
+        storage::save_scan_cache(&response.programs)?;
+        summary.cache = ProgramListCacheState {
+            cache_hit: false,
+            cache_valid: true,
+            refreshed: true,
+            schema_version: storage::CACHE_SCHEMA_VERSION,
+            generated_at: Some(Utc::now().to_rfc3339()),
+            reason: Some("metadata_warmup".to_string()),
+        };
+    } else {
+        summary.cache = ProgramListCacheState {
+            cache_hit: false,
+            cache_valid: false,
+            refreshed: false,
+            schema_version: storage::CACHE_SCHEMA_VERSION,
+            generated_at: None,
+            reason: Some("source_not_cacheable".to_string()),
+        };
+    }
+
+    Ok(summary)
+}
+
 fn is_cache_eligible(source: Option<InstallSource>) -> bool {
     matches!(source, None | Some(InstallSource::Registry))
 }
@@ -126,21 +279,123 @@ fn collect_programs(source: Option<InstallSource>) -> Vec<InstalledProgram> {
 fn apply_search_filter(programs: &mut Vec<InstalledProgram>, search: Option<&str>) {
     if let Some(query) = search {
         let normalized_query = query.to_lowercase();
-        programs.retain(|program| {
-            utils::fuzzy_match(&program.name.to_lowercase(), &normalized_query)
-                || program
-                    .publisher
-                    .as_ref()
-                    .map(|publisher| {
-                        utils::fuzzy_match(&publisher.to_lowercase(), &normalized_query)
-                    })
-                    .unwrap_or(false)
-        });
+        programs.retain(|program| matches_normalized_search(program, &normalized_query));
     }
+}
+
+fn matches_search(program: &InstalledProgram, search: Option<&str>) -> bool {
+    match search {
+        Some(query) => matches_normalized_search(program, &query.to_lowercase()),
+        None => true,
+    }
+}
+
+fn matches_normalized_search(program: &InstalledProgram, normalized_query: &str) -> bool {
+    utils::fuzzy_match(&program.name.to_lowercase(), normalized_query)
+        || program
+            .publisher
+            .as_ref()
+            .map(|publisher| utils::fuzzy_match(&publisher.to_lowercase(), normalized_query))
+            .unwrap_or(false)
 }
 
 fn dedupe_and_sort(programs: &mut Vec<InstalledProgram>) {
     let mut seen = std::collections::HashSet::new();
     programs.retain(|program| seen.insert(program.name.to_lowercase()));
     programs.sort_by(|left, right| left.name.to_lowercase().cmp(&right.name.to_lowercase()));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_program(name: &str, publisher: Option<&str>) -> InstalledProgram {
+        let mut program = InstalledProgram::new(name.to_string(), InstallSource::Registry);
+        program.publisher = publisher.map(str::to_string);
+        program
+    }
+
+    #[test]
+    fn apply_search_filter_matches_name_and_publisher_case_insensitively() {
+        let mut programs = vec![
+            sample_program("Demo Player", Some("Acme Tools")),
+            sample_program("Other App", Some("Vendor Labs")),
+        ];
+
+        apply_search_filter(&mut programs, Some("vEnDoR"));
+
+        assert_eq!(programs.len(), 1);
+        assert_eq!(programs[0].name, "Other App");
+    }
+
+    #[test]
+    fn dedupe_and_sort_collapses_case_insensitive_duplicates() {
+        let mut programs = vec![
+            sample_program("beta", None),
+            sample_program("Alpha", None),
+            sample_program("alpha", Some("Duplicate")),
+        ];
+
+        dedupe_and_sort(&mut programs);
+
+        let names: Vec<_> = programs.into_iter().map(|program| program.name).collect();
+        assert_eq!(names, vec!["Alpha".to_string(), "beta".to_string()]);
+    }
+
+    #[test]
+    fn list_programs_with_cache_marks_unknown_source_as_non_cacheable() {
+        let response = list_programs_with_cache(ListProgramsQuery {
+            source: Some(InstallSource::Unknown),
+            search: None,
+            refresh: false,
+            cache_ttl_seconds: 60,
+        })
+        .unwrap_or_else(|error| panic!("unexpected error: {error}"));
+
+        assert!(response.programs.is_empty());
+        assert!(!response.cache.cache_hit);
+        assert!(!response.cache.cache_valid);
+        assert!(!response.cache.refreshed);
+        assert_eq!(
+            response.cache.reason.as_deref(),
+            Some("source_not_cacheable")
+        );
+    }
+
+    #[test]
+    fn warmup_program_metadata_requires_selected_kind() {
+        let result = warmup_program_metadata(MetadataWarmupQuery::default(), |_| {});
+
+        assert!(
+            matches!(result, Err(UninstallerError::Other(message)) if message.contains("至少需要选择一个元数据预热任务"))
+        );
+    }
+
+    #[test]
+    fn warmup_program_metadata_for_unknown_source_reports_progress_without_cache() {
+        let mut progress_events = Vec::new();
+        let summary = warmup_program_metadata(
+            MetadataWarmupQuery {
+                source: Some(InstallSource::Unknown),
+                search: None,
+                refresh: false,
+                cache_ttl_seconds: 60,
+                icons: true,
+                sizes: false,
+            },
+            |progress| progress_events.push(progress),
+        )
+        .unwrap_or_else(|error| panic!("unexpected error: {error}"));
+
+        assert_eq!(summary.total_programs, 0);
+        assert_eq!(summary.matched_programs, 0);
+        assert_eq!(
+            summary.cache.reason.as_deref(),
+            Some("source_not_cacheable")
+        );
+        assert!(summary.icons.is_some());
+        assert_eq!(progress_events.len(), 2);
+        assert_eq!(progress_events[0].stage, MetadataWarmupStage::Started);
+        assert_eq!(progress_events[1].stage, MetadataWarmupStage::Completed);
+    }
 }

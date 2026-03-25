@@ -24,10 +24,7 @@ pub struct UninstallRunResult {
 
 pub fn is_likely_interactive_uninstall(command: &str) -> bool {
     let lower = command.trim().to_lowercase();
-    let tokens = lower
-        .split_whitespace()
-        .map(str::trim)
-        .collect::<Vec<_>>();
+    let tokens = lower.split_whitespace().map(str::trim).collect::<Vec<_>>();
 
     if lower.starts_with("msiexec") {
         return !tokens
@@ -38,8 +35,7 @@ pub fn is_likely_interactive_uninstall(command: &str) -> bool {
     !tokens.iter().any(|token| {
         matches!(
             *token,
-            "/s"
-                | "/silent"
+            "/s" | "/silent"
                 | "/verysilent"
                 | "/quiet"
                 | "/qn"
@@ -197,13 +193,13 @@ fn run_uninstall_command_windows(
             Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0, WAIT_TIMEOUT},
             System::{
                 JobObjects::{
-                    AssignProcessToJobObject, CreateJobObjectW, QueryInformationJobObject,
-                    JobObjectBasicAccountingInformation, JOBOBJECT_BASIC_ACCOUNTING_INFORMATION,
+                    AssignProcessToJobObject, CreateJobObjectW,
+                    JobObjectBasicAccountingInformation, QueryInformationJobObject,
+                    JOBOBJECT_BASIC_ACCOUNTING_INFORMATION,
                 },
                 Threading::{
                     CreateProcessW, GetExitCodeProcess, ResumeThread, WaitForSingleObject,
-                    CREATE_BREAKAWAY_FROM_JOB, CREATE_SUSPENDED, PROCESS_INFORMATION,
-                    STARTUPINFOW,
+                    CREATE_BREAKAWAY_FROM_JOB, CREATE_SUSPENDED, PROCESS_INFORMATION, STARTUPINFOW,
                 },
             },
         },
@@ -244,7 +240,8 @@ fn run_uninstall_command_windows(
     }
 
     fn infer_current_directory(command: &str) -> Option<Vec<u16>> {
-        let (executable, _) = crate::modules::common::utils::split_command_for_spawn(command).ok()?;
+        let (executable, _) =
+            crate::modules::common::utils::split_command_for_spawn(command).ok()?;
         let executable_path = PathBuf::from(executable);
         let working_dir = executable_path.parent().filter(|path| path.is_dir())?;
         Some(to_wide(&working_dir.to_string_lossy()))
@@ -315,8 +312,8 @@ fn run_uninstall_command_windows(
     match unsafe { CreateJobObjectW(None, None) } {
         Ok(handle) => {
             let guard = HandleGuard::new(handle);
-            let assigned = unsafe { AssignProcessToJobObject(guard.raw(), process_handle.raw()) }
-                .is_ok();
+            let assigned =
+                unsafe { AssignProcessToJobObject(guard.raw(), process_handle.raw()) }.is_ok();
             if assigned {
                 used_job_object = true;
                 job_handle = Some(guard);
@@ -365,9 +362,7 @@ fn run_uninstall_command_windows(
                     size_of::<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>() as u32,
                     None,
                 )
-                .map_err(|error| {
-                    UninstallerError::Other(format!("读取 Job 状态失败: {error}"))
-                })?;
+                .map_err(|error| UninstallerError::Other(format!("读取 Job 状态失败: {error}")))?;
             }
 
             if info.ActiveProcesses == 0 {
@@ -392,9 +387,8 @@ fn run_uninstall_command_windows(
 
     let mut exit_code = 0u32;
     unsafe {
-        GetExitCodeProcess(process_handle.raw(), &mut exit_code).map_err(|error| {
-            UninstallerError::Other(format!("读取卸载进程退出码失败: {error}"))
-        })?;
+        GetExitCodeProcess(process_handle.raw(), &mut exit_code)
+            .map_err(|error| UninstallerError::Other(format!("读取卸载进程退出码失败: {error}")))?;
     }
 
     Ok(UninstallRunResult {
@@ -445,14 +439,8 @@ mod tests {
 
     #[test]
     fn builds_cancelled_message_when_program_still_present() {
-        let message = build_unsuccessful_uninstall_message(
-            "Demo App",
-            true,
-            true,
-            Some(1602),
-            true,
-            false,
-        );
+        let message =
+            build_unsuccessful_uninstall_message("Demo App", true, true, Some(1602), true, false);
 
         assert!(message.contains("卸载已取消"));
         assert!(message.contains("registered=true"));
@@ -460,14 +448,8 @@ mod tests {
 
     #[test]
     fn builds_interrupted_message_when_user_stops_waiting() {
-        let message = build_unsuccessful_uninstall_message(
-            "Demo App",
-            true,
-            false,
-            None,
-            false,
-            true,
-        );
+        let message =
+            build_unsuccessful_uninstall_message("Demo App", true, false, None, false, true);
 
         assert!(message.contains("用户中断了命令行等待"));
     }

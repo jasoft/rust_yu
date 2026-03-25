@@ -110,11 +110,11 @@ pub fn capture_snapshot(item: &StartupItem) -> Result<StartupSnapshot, StartupEr
     );
     let record: ServiceSnapshotRecord =
         serde_json::from_str(&run_powershell(&script)?).map_err(|error| {
-        StartupError::new(
-            StartupErrorCode::IoError,
-            format!("解析服务快照失败: {error}"),
-        )
-    })?;
+            StartupError::new(
+                StartupErrorCode::IoError,
+                format!("解析服务快照失败: {error}"),
+            )
+        })?;
     let payload = ServiceSnapshotPayload {
         name: record.name,
         start_mode: record.start_mode,
@@ -136,13 +136,13 @@ pub fn apply_action(
     action: super::models::StartupAction,
     snapshot: &StartupSnapshot,
 ) -> Result<Vec<String>, StartupError> {
-    let payload: ServiceSnapshotPayload =
-        serde_json::from_value(snapshot.source_payload.clone()).map_err(|error| {
-            StartupError::new(
-                StartupErrorCode::IoError,
-                format!("解析服务快照失败: {error}"),
-            )
-        })?;
+    let payload: ServiceSnapshotPayload = serde_json::from_value(snapshot.source_payload.clone())
+        .map_err(|error| {
+        StartupError::new(
+            StartupErrorCode::IoError,
+            format!("解析服务快照失败: {error}"),
+        )
+    })?;
 
     let startup_type = match action {
         super::models::StartupAction::Enable => "Automatic",
@@ -168,17 +168,20 @@ pub fn apply_action(
     );
     run_powershell(&script)?;
 
-    Ok(vec![format!("将服务 {} 设置为 {}", payload.name, startup_type)])
+    Ok(vec![format!(
+        "将服务 {} 设置为 {}",
+        payload.name, startup_type
+    )])
 }
 
 pub fn restore_snapshot(snapshot: &StartupSnapshot) -> Result<Vec<String>, StartupError> {
-    let payload: ServiceSnapshotPayload =
-        serde_json::from_value(snapshot.source_payload.clone()).map_err(|error| {
-            StartupError::new(
-                StartupErrorCode::IoError,
-                format!("解析服务快照失败: {error}"),
-            )
-        })?;
+    let payload: ServiceSnapshotPayload = serde_json::from_value(snapshot.source_payload.clone())
+        .map_err(|error| {
+        StartupError::new(
+            StartupErrorCode::IoError,
+            format!("解析服务快照失败: {error}"),
+        )
+    })?;
     let startup_type = match payload.start_mode.as_str() {
         "Disabled" => "Disabled",
         _ => "Automatic",

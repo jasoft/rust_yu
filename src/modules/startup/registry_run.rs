@@ -1,5 +1,5 @@
 use winreg::enums::{
-    HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, RegType, KEY_READ, KEY_WRITE, REG_EXPAND_SZ, REG_SZ,
+    RegType, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, KEY_WRITE, REG_EXPAND_SZ, REG_SZ,
 };
 use winreg::{RegKey, RegValue, HKEY};
 
@@ -58,9 +58,8 @@ pub fn collect_items(include_raw: bool) -> Result<Vec<StartupItem>, StartupError
 
 pub fn capture_snapshot(item: &StartupItem) -> Result<StartupSnapshot, StartupError> {
     if item.source == StartupSource::RegistryPolicyRun && item.state == StartupState::Disabled {
-        let disabled_entry = rollback::get_disabled_entry(&item.id)?.ok_or_else(|| {
-            StartupError::new(StartupErrorCode::NotFound, "未找到禁用状态快照")
-        })?;
+        let disabled_entry = rollback::get_disabled_entry(&item.id)?
+            .ok_or_else(|| StartupError::new(StartupErrorCode::NotFound, "未找到禁用状态快照"))?;
         return serde_json::from_str::<StartupSnapshot>(&disabled_entry.snapshot_json).map_err(
             |error| {
                 StartupError::new(
@@ -88,8 +87,8 @@ pub fn apply_action(
     action: super::models::StartupAction,
     snapshot: &StartupSnapshot,
 ) -> Result<Vec<String>, StartupError> {
-    let payload: RegistrySnapshotPayload =
-        serde_json::from_value(snapshot.source_payload.clone()).map_err(|error| {
+    let payload: RegistrySnapshotPayload = serde_json::from_value(snapshot.source_payload.clone())
+        .map_err(|error| {
             StartupError::new(
                 StartupErrorCode::IoError,
                 format!("解析注册表来源快照失败: {error}"),
@@ -101,10 +100,9 @@ pub fn apply_action(
     match action {
         super::models::StartupAction::Enable => {
             if item.source == StartupSource::RegistryRun {
-                let bucket = payload
-                    .approved_bucket
-                    .clone()
-                    .ok_or_else(|| StartupError::new(StartupErrorCode::Unsupported, "缺少 StartupApproved 桶"))?;
+                let bucket = payload.approved_bucket.clone().ok_or_else(|| {
+                    StartupError::new(StartupErrorCode::Unsupported, "缺少 StartupApproved 桶")
+                })?;
                 startup_approved::write_state(item.scope, &bucket, &payload.value_name, true)?;
                 return Ok(vec![format!("设置 {} 为已启用", payload.value_name)]);
             }
@@ -124,10 +122,9 @@ pub fn apply_action(
         }
         super::models::StartupAction::Disable => {
             if item.source == StartupSource::RegistryRun {
-                let bucket = payload
-                    .approved_bucket
-                    .clone()
-                    .ok_or_else(|| StartupError::new(StartupErrorCode::Unsupported, "缺少 StartupApproved 桶"))?;
+                let bucket = payload.approved_bucket.clone().ok_or_else(|| {
+                    StartupError::new(StartupErrorCode::Unsupported, "缺少 StartupApproved 桶")
+                })?;
                 startup_approved::write_state(item.scope, &bucket, &payload.value_name, false)?;
                 return Ok(vec![format!("设置 {} 为已禁用", payload.value_name)]);
             }
@@ -156,9 +153,14 @@ pub fn apply_action(
             ))
         }
         super::models::StartupAction::Delete => {
-            if item.source == StartupSource::RegistryPolicyRun && item.state == StartupState::Disabled {
+            if item.source == StartupSource::RegistryPolicyRun
+                && item.state == StartupState::Disabled
+            {
                 rollback::remove_disabled_entry(&item.id)?;
-                return Ok(vec![format!("删除禁用状态的策略启动项 {}", payload.value_name)]);
+                return Ok(vec![format!(
+                    "删除禁用状态的策略启动项 {}",
+                    payload.value_name
+                )]);
             }
 
             delete_registry_value(&key, &payload.path, &payload.value_name)?;
@@ -175,8 +177,8 @@ pub fn apply_action(
 }
 
 pub fn restore_snapshot(snapshot: &StartupSnapshot) -> Result<Vec<String>, StartupError> {
-    let payload: RegistrySnapshotPayload =
-        serde_json::from_value(snapshot.source_payload.clone()).map_err(|error| {
+    let payload: RegistrySnapshotPayload = serde_json::from_value(snapshot.source_payload.clone())
+        .map_err(|error| {
             StartupError::new(
                 StartupErrorCode::IoError,
                 format!("解析注册表来源快照失败: {error}"),
@@ -289,12 +291,13 @@ fn read_disabled_policy_items(include_raw: bool) -> Result<Vec<StartupItem>, Sta
     let mut items = Vec::new();
 
     for record in records {
-        let snapshot: StartupSnapshot = serde_json::from_str(&record.snapshot_json).map_err(|error| {
-            StartupError::new(
-                StartupErrorCode::IoError,
-                format!("解析策略启动项禁用快照失败: {error}"),
-            )
-        })?;
+        let snapshot: StartupSnapshot =
+            serde_json::from_str(&record.snapshot_json).map_err(|error| {
+                StartupError::new(
+                    StartupErrorCode::IoError,
+                    format!("解析策略启动项禁用快照失败: {error}"),
+                )
+            })?;
         let mut item = snapshot.item;
         item.state = StartupState::Disabled;
         if !include_raw {
@@ -309,12 +312,14 @@ fn read_disabled_policy_items(include_raw: bool) -> Result<Vec<StartupItem>, Sta
 fn snapshot_payload_from_item(item: &StartupItem) -> Result<RegistrySnapshotPayload, StartupError> {
     let config = resolve_config_for_item(item)?;
     let hive = RegKey::predef(config.hive);
-    let key = hive.open_subkey_with_flags(&config.path, KEY_READ).map_err(|error| {
-        StartupError::new(
-            StartupErrorCode::NotFound,
-            format!("打开注册表键失败: {error}"),
-        )
-    })?;
+    let key = hive
+        .open_subkey_with_flags(&config.path, KEY_READ)
+        .map_err(|error| {
+            StartupError::new(
+                StartupErrorCode::NotFound,
+                format!("打开注册表键失败: {error}"),
+            )
+        })?;
     let approved_value_name = approved_value_name(&config, &item.name);
 
     let raw_value = key.get_raw_value(&item.name).map_err(|error| {
@@ -348,18 +353,29 @@ fn resolve_config_for_item(item: &StartupItem) -> Result<RegistrySourceConfig, S
         .find(|config| {
             config.source == item.source
                 && config.scope == item.scope
-                && item.locator.location.starts_with(&format!(r"{}\{}", hive_name(config.hive), config.path))
+                && item.locator.location.starts_with(&format!(
+                    r"{}\{}",
+                    hive_name(config.hive),
+                    config.path
+                ))
         })
-        .ok_or_else(|| StartupError::new(StartupErrorCode::InvalidSelector, "无法解析注册表来源定位信息"))
+        .ok_or_else(|| {
+            StartupError::new(
+                StartupErrorCode::InvalidSelector,
+                "无法解析注册表来源定位信息",
+            )
+        })
 }
 
 fn delete_registry_value(key: &RegKey, path: &str, value_name: &str) -> Result<(), StartupError> {
-    let subkey = key.open_subkey_with_flags(path, KEY_WRITE).map_err(|error| {
-        StartupError::new(
-            StartupErrorCode::IoError,
-            format!("打开注册表键失败: {error}"),
-        )
-    })?;
+    let subkey = key
+        .open_subkey_with_flags(path, KEY_WRITE)
+        .map_err(|error| {
+            StartupError::new(
+                StartupErrorCode::IoError,
+                format!("打开注册表键失败: {error}"),
+            )
+        })?;
     subkey.delete_value(value_name).map_err(|error| {
         StartupError::new(
             StartupErrorCode::IoError,
@@ -570,7 +586,10 @@ mod tests {
         let hive = RegKey::predef(HKEY_CURRENT_USER);
         let (run_key, _) = hive.create_subkey(&run_path).expect("应能创建测试 run 键");
         run_key
-            .set_value("DemoRun", &r#""C:\Windows\System32\notepad.exe""#.to_string())
+            .set_value(
+                "DemoRun",
+                &r#""C:\Windows\System32\notepad.exe""#.to_string(),
+            )
             .expect("应能写入测试 run 值");
         super::startup_approved::write_state(StartupScope::User, "Run", "DemoRun", false)
             .expect("应能写入禁用状态");
@@ -579,7 +598,10 @@ mod tests {
             .create_subkey(&policy_path)
             .expect("应能创建测试策略键");
         policy_key
-            .set_value("DemoPolicy", &r#""C:\Windows\System32\calc.exe""#.to_string())
+            .set_value(
+                "DemoPolicy",
+                &r#""C:\Windows\System32\calc.exe""#.to_string(),
+            )
             .expect("应能写入策略值");
 
         let items = collect_items(false).expect("应能枚举注册表启动项");

@@ -8,11 +8,17 @@ use chrono::NaiveDate;
 use chrono::Utc;
 use walkdir::WalkDir;
 
-use super::models::{InstalledProgram, MetadataConfidence, MetadataSource};
+use super::models::{
+    InstalledProgram, MetadataConfidence, MetadataSource, MetadataWarmupItemStatus,
+    MetadataWarmupKind,
+};
 use super::storage;
 
 const SIZE_SCAN_TIMEOUT: Duration = Duration::from_millis(300);
 const SIZE_SCAN_MAX_ENTRIES: usize = 20_000;
+const SIZE_SCAN_TOTAL_TIMEOUT: Duration = Duration::from_millis(900);
+const SIZE_SCAN_MAX_TOTAL_ENTRIES: usize = 60_000;
+const SIZE_SCAN_MAX_CANDIDATE_DIRS: usize = 8;
 const ICON_SCAN_MAX_ENTRIES: usize = 128;
 const ICON_SIZE_SMALL: u32 = 32;
 const ICON_SIZE_LARGE: u32 = 48;
@@ -61,39 +67,39 @@ pub fn enrich_program(program: &mut InstalledProgram) {
         program.install_date_confidence = MetadataConfidence::Unknown;
     }
 
-    // 图标：先清洗 DisplayIcon，再从安装目录回退
-    let original_display_icon = program.icon_path.clone();
-    let sanitized_icon = program
-        .icon_path
-        .as_deref()
-        .and_then(sanitize_icon_path)
-        .or_else(|| find_icon_from_install_location(program.install_location.as_deref()));
+    // 图标：列表阶段仅解析来源路径，不同步生成图标缓存文件。
+    resolve_program_icon_path(program);
 
-    if let Some(icon_path) = sanitized_icon {
-        let from_registry = program
-            .icon_path
-            .as_deref()
-            .and_then(sanitize_icon_path)
-            .is_some();
+    // 大小：列表阶段仅使用注册表中的 EstimatedSize。
+    let (resolved_size, size_source, size_confidence) = resolve_cached_program_size(program);
+    program.size = resolved_size;
+    program.size_source = size_source;
+    program.size_confidence = size_confidence;
+    if program.size.is_some() {
+        program.size_last_updated_at = Some(Utc::now().to_rfc3339());
+    }
+
+    refresh_metadata_confidence(program);
+}
+
+/// 批量增强元数据
+pub fn enrich_programs(programs: &mut [InstalledProgram]) {
+    for program in programs {
+        enrich_program(program);
+    }
+}
+
+fn resolve_program_icon_path(program: &mut InstalledProgram) {
+    let sanitized_registry_icon = program.icon_path.as_deref().and_then(sanitize_icon_path);
+    let fallback_icon = find_icon_from_install_location(program.install_location.as_deref());
+    let resolved_icon_path = sanitized_registry_icon.clone().or(fallback_icon);
+
+    if let Some(icon_path) = resolved_icon_path {
         program.icon_path = Some(icon_path);
-        let icon_extract_source = original_display_icon
-            .as_deref()
-            .unwrap_or_else(|| program.icon_path.as_deref().unwrap_or_default());
-        if let Some(icon_assets) = build_icon_assets_from_path(icon_extract_source) {
-            program.icon_cache_path_32 = icon_assets.icon_cache_path_32;
-            program.icon_cache_path_48 = icon_assets.icon_cache_path_48;
-            // 不再缓存/传输 base64 图标，仅保留磁盘缓存路径
-            program.icon_data_url = None;
-            program.icon_data_url_32 = None;
-            program.icon_data_url_48 = None;
-        } else {
-            program.icon_data_url = None;
-            program.icon_data_url_32 = None;
-            program.icon_data_url_48 = None;
-            program.icon_cache_path_32 = None;
-            program.icon_cache_path_48 = None;
-        }
-        if from_registry {
+        program.icon_data_url = None;
+        program.icon_data_url_32 = None;
+        program.icon_data_url_48 = None;
+        if sanitized_registry_icon.is_some() {
             program.icon_source = MetadataSource::Registry;
             program.icon_confidence = MetadataConfidence::High;
         } else {
@@ -102,36 +108,22 @@ pub fn enrich_program(program: &mut InstalledProgram) {
         }
     } else {
         program.icon_path = None;
+        program.icon_cache_path_32 = None;
+        program.icon_cache_path_48 = None;
         program.icon_data_url = None;
         program.icon_data_url_32 = None;
         program.icon_data_url_48 = None;
-        program.icon_cache_path_32 = None;
-        program.icon_cache_path_48 = None;
         program.icon_source = MetadataSource::Unknown;
         program.icon_confidence = MetadataConfidence::Low;
     }
+}
 
-    // 大小：优先 EstimatedSize，缺失时回退文件系统扫描
-    let (resolved_size, size_source, size_confidence) = resolve_program_size(program);
-    program.size = resolved_size;
-    program.size_source = size_source;
-    program.size_confidence = size_confidence;
-    if program.size.is_some() {
-        program.size_last_updated_at = Some(Utc::now().to_rfc3339());
-    }
-
+fn refresh_metadata_confidence(program: &mut InstalledProgram) {
     program.metadata_confidence = MetadataConfidence::lowest(&[
         program.install_date_confidence,
         program.icon_confidence,
         program.size_confidence,
     ]);
-}
-
-/// 批量增强元数据
-pub fn enrich_programs(programs: &mut [InstalledProgram]) {
-    for program in programs {
-        enrich_program(program);
-    }
 }
 
 fn extract_icon_path_candidate(raw: &str) -> Option<String> {
@@ -621,7 +613,7 @@ public static class ShellIconBridge {
     }
 }
 
-fn resolve_program_size(
+fn resolve_cached_program_size(
     program: &InstalledProgram,
 ) -> (Option<u64>, MetadataSource, MetadataConfidence) {
     if let Some(estimated) = program.estimated_size {
@@ -632,55 +624,376 @@ fn resolve_program_size(
         );
     }
 
-    let location = match program.install_location.as_deref() {
-        Some(path) if !path.trim().is_empty() => PathBuf::from(path),
-        _ => {
-            return (None, MetadataSource::Unknown, MetadataConfidence::Low);
-        }
+    (None, MetadataSource::Unknown, MetadataConfidence::Low)
+}
+
+pub fn warmup_program_metadata(
+    program: &mut InstalledProgram,
+    kind: MetadataWarmupKind,
+) -> (MetadataWarmupItemStatus, Option<String>) {
+    let result = match kind {
+        MetadataWarmupKind::Icons => warmup_program_icon_assets(program),
+        MetadataWarmupKind::Sizes => warmup_program_size(program),
     };
+    refresh_metadata_confidence(program);
+    result
+}
 
-    if !location.exists() || !location.is_dir() {
-        return (None, MetadataSource::Unknown, MetadataConfidence::Low);
-    }
-
-    match calculate_directory_size_limited(&location, SIZE_SCAN_TIMEOUT, SIZE_SCAN_MAX_ENTRIES) {
-        Some(size) if size > 0 => (
-            Some(size),
-            MetadataSource::Filesystem,
-            MetadataConfidence::Medium,
-        ),
-        _ => (None, MetadataSource::Unknown, MetadataConfidence::Low),
+pub fn is_program_metadata_warmup_eligible(
+    program: &InstalledProgram,
+    kind: MetadataWarmupKind,
+) -> bool {
+    match kind {
+        MetadataWarmupKind::Icons => {
+            program
+                .icon_path
+                .as_deref()
+                .map(|value| !value.trim().is_empty())
+                .unwrap_or(false)
+                && !has_ready_icon_cache(program)
+        }
+        MetadataWarmupKind::Sizes => {
+            !collect_size_scan_locations(program).is_empty() || program.estimated_size.is_some()
+        }
     }
 }
 
-fn calculate_directory_size_limited(
-    directory: &Path,
-    timeout: Duration,
-    max_entries: usize,
+fn has_ready_icon_cache(program: &InstalledProgram) -> bool {
+    let cache_32_ready = program
+        .icon_cache_path_32
+        .as_deref()
+        .map(Path::new)
+        .map(Path::exists)
+        .unwrap_or(false);
+    let cache_48_ready = program
+        .icon_cache_path_48
+        .as_deref()
+        .map(Path::new)
+        .map(Path::exists)
+        .unwrap_or(false);
+
+    cache_32_ready && cache_48_ready
+}
+
+fn warmup_program_icon_assets(
+    program: &mut InstalledProgram,
+) -> (MetadataWarmupItemStatus, Option<String>) {
+    let Some(icon_extract_source) = program.icon_path.as_deref() else {
+        program.icon_cache_path_32 = None;
+        program.icon_cache_path_48 = None;
+        return (
+            MetadataWarmupItemStatus::Skipped,
+            Some("icon_source_missing".to_string()),
+        );
+    };
+
+    match build_icon_assets_from_path(icon_extract_source) {
+        Some(icon_assets) => {
+            let changed = program.icon_cache_path_32 != icon_assets.icon_cache_path_32
+                || program.icon_cache_path_48 != icon_assets.icon_cache_path_48;
+            program.icon_cache_path_32 = icon_assets.icon_cache_path_32;
+            program.icon_cache_path_48 = icon_assets.icon_cache_path_48;
+            program.icon_data_url = None;
+            program.icon_data_url_32 = None;
+            program.icon_data_url_48 = None;
+            if changed {
+                (MetadataWarmupItemStatus::Updated, None)
+            } else {
+                (
+                    MetadataWarmupItemStatus::Skipped,
+                    Some("icon_cache_ready".to_string()),
+                )
+            }
+        }
+        None => {
+            program.icon_cache_path_32 = None;
+            program.icon_cache_path_48 = None;
+            (
+                MetadataWarmupItemStatus::Failed,
+                Some("icon_extract_failed".to_string()),
+            )
+        }
+    }
+}
+
+fn warmup_program_size(
+    program: &mut InstalledProgram,
+) -> (MetadataWarmupItemStatus, Option<String>) {
+    let candidate_dirs = collect_size_scan_locations(program);
+    if candidate_dirs.is_empty() {
+        if let Some(estimated) = program.estimated_size {
+            program.size = Some(estimated);
+            program.size_source = MetadataSource::Registry;
+            program.size_confidence = MetadataConfidence::High;
+            program.size_last_updated_at = Some(Utc::now().to_rfc3339());
+            return (
+                MetadataWarmupItemStatus::Skipped,
+                Some("estimated_size_only".to_string()),
+            );
+        }
+
+        program.size = None;
+        program.size_source = MetadataSource::Unknown;
+        program.size_confidence = MetadataConfidence::Low;
+        return (
+            MetadataWarmupItemStatus::Skipped,
+            Some("size_scan_location_missing".to_string()),
+        );
+    }
+
+    // 这里显式把安装目录和保守匹配到的 AppData 目录一起纳入统计，
+    // 让 agent / GUI 触发的 size 预热可以反映运行期写入的数据变化。
+    match calculate_directory_sizes_limited(
+        &candidate_dirs,
+        SIZE_SCAN_TIMEOUT,
+        SIZE_SCAN_TOTAL_TIMEOUT,
+        SIZE_SCAN_MAX_ENTRIES,
+        SIZE_SCAN_MAX_TOTAL_ENTRIES,
+    ) {
+        Some(size) if size > 0 => {
+            let changed = program.size != Some(size)
+                || program.size_source != MetadataSource::Filesystem
+                || program.size_confidence != MetadataConfidence::Medium;
+            program.size = Some(size);
+            program.size_source = MetadataSource::Filesystem;
+            program.size_confidence = MetadataConfidence::Medium;
+            program.size_last_updated_at = Some(Utc::now().to_rfc3339());
+            if changed {
+                (MetadataWarmupItemStatus::Updated, None)
+            } else {
+                (
+                    MetadataWarmupItemStatus::Skipped,
+                    Some("filesystem_size_ready".to_string()),
+                )
+            }
+        }
+        Some(_) => {
+            program.size = None;
+            program.size_source = MetadataSource::Unknown;
+            program.size_confidence = MetadataConfidence::Low;
+            (
+                MetadataWarmupItemStatus::Skipped,
+                Some("filesystem_size_empty".to_string()),
+            )
+        }
+        None => {
+            program.size = program.estimated_size;
+            if program.size.is_some() {
+                program.size_source = MetadataSource::Registry;
+                program.size_confidence = MetadataConfidence::Medium;
+            } else {
+                program.size_source = MetadataSource::Unknown;
+                program.size_confidence = MetadataConfidence::Low;
+            }
+            (
+                MetadataWarmupItemStatus::Failed,
+                Some("filesystem_size_timeout".to_string()),
+            )
+        }
+    }
+}
+
+fn calculate_directory_sizes_limited(
+    directories: &[PathBuf],
+    per_directory_timeout: Duration,
+    total_timeout: Duration,
+    per_directory_max_entries: usize,
+    total_max_entries: usize,
 ) -> Option<u64> {
     let started_at = Instant::now();
-    let mut size = 0u64;
-    let mut entries = 0usize;
+    let mut total_size = 0u64;
+    let mut total_entries = 0usize;
 
-    for entry in WalkDir::new(directory).into_iter().filter_map(Result::ok) {
-        if started_at.elapsed() > timeout {
-            return None;
-        }
-        entries += 1;
-        if entries > max_entries {
+    for directory in directories {
+        if started_at.elapsed() > total_timeout {
             return None;
         }
 
-        if !entry.file_type().is_file() {
-            continue;
-        }
+        let directory_started = Instant::now();
+        for entry in WalkDir::new(directory).into_iter().filter_map(Result::ok) {
+            if directory_started.elapsed() > per_directory_timeout
+                || started_at.elapsed() > total_timeout
+            {
+                return None;
+            }
 
-        if let Ok(metadata) = entry.metadata() {
-            size = size.saturating_add(metadata.len());
+            total_entries += 1;
+            if total_entries > total_max_entries
+                || total_entries > directories.len() * per_directory_max_entries
+            {
+                return None;
+            }
+
+            if !entry.file_type().is_file() {
+                continue;
+            }
+
+            if let Ok(metadata) = entry.metadata() {
+                total_size = total_size.saturating_add(metadata.len());
+            }
         }
     }
 
-    Some(size)
+    Some(total_size)
+}
+
+fn collect_size_scan_locations(program: &InstalledProgram) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    if let Some(install_location) = program.install_location.as_deref() {
+        let location = PathBuf::from(install_location.trim());
+        if location.is_dir() {
+            insert_candidate_dir(&mut candidates, &mut seen, location);
+        }
+    }
+
+    // 这里仅在 AppData 的浅层目录中按应用名/发布者保守匹配，
+    // 避免把不相关的大目录误计入程序大小。
+    for root in collect_appdata_roots() {
+        for candidate in discover_matching_appdata_dirs(&root, program) {
+            insert_candidate_dir(&mut candidates, &mut seen, candidate);
+            if candidates.len() >= SIZE_SCAN_MAX_CANDIDATE_DIRS {
+                return candidates;
+            }
+        }
+    }
+
+    candidates
+}
+
+fn insert_candidate_dir(
+    candidates: &mut Vec<PathBuf>,
+    seen: &mut std::collections::HashSet<String>,
+    path: PathBuf,
+) {
+    let normalized = path.to_string_lossy().to_lowercase();
+    if seen.insert(normalized) {
+        candidates.push(path);
+    }
+}
+
+fn collect_appdata_roots() -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        let path = PathBuf::from(appdata);
+        if path.is_dir() {
+            roots.push(path);
+        }
+    }
+
+    if let Ok(local_appdata) = std::env::var("LOCALAPPDATA") {
+        let local_path = PathBuf::from(local_appdata);
+        if local_path.is_dir() {
+            roots.push(local_path.clone());
+            if let Some(parent) = local_path.parent() {
+                let local_low = parent.join("LocalLow");
+                if local_low.is_dir() {
+                    roots.push(local_low);
+                }
+            }
+        }
+    }
+
+    roots
+}
+
+fn discover_matching_appdata_dirs(root: &Path, program: &InstalledProgram) -> Vec<PathBuf> {
+    let app_keys = build_app_match_keys(&program.name);
+    let publisher_keys = program
+        .publisher
+        .as_deref()
+        .map(build_app_match_keys)
+        .unwrap_or_default();
+    let mut matches = Vec::new();
+
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return matches;
+    };
+
+    for entry in entries.flatten().take(128) {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+
+        let directory_name = path
+            .file_name()
+            .map(|value| normalize_match_key(&value.to_string_lossy()))
+            .unwrap_or_default();
+
+        if directory_matches_keys(&directory_name, &app_keys) {
+            matches.push(path);
+            if matches.len() >= SIZE_SCAN_MAX_CANDIDATE_DIRS {
+                return matches;
+            }
+            continue;
+        }
+
+        if directory_matches_keys(&directory_name, &publisher_keys) {
+            let Ok(nested_entries) = std::fs::read_dir(&path) else {
+                continue;
+            };
+            for nested_entry in nested_entries.flatten().take(32) {
+                let nested_path = nested_entry.path();
+                if !nested_path.is_dir() {
+                    continue;
+                }
+
+                let nested_name = nested_path
+                    .file_name()
+                    .map(|value| normalize_match_key(&value.to_string_lossy()))
+                    .unwrap_or_default();
+                if directory_matches_keys(&nested_name, &app_keys) {
+                    matches.push(nested_path);
+                    if matches.len() >= SIZE_SCAN_MAX_CANDIDATE_DIRS {
+                        return matches;
+                    }
+                }
+            }
+        }
+    }
+
+    matches
+}
+
+fn build_app_match_keys(value: &str) -> Vec<String> {
+    let mut keys = Vec::new();
+    let normalized = normalize_match_key(value);
+    if normalized.len() >= 2 {
+        keys.push(normalized);
+    }
+
+    for segment in value.split(|ch: char| !ch.is_alphanumeric() && !is_cjk(ch)) {
+        let normalized_segment = normalize_match_key(segment);
+        if normalized_segment.len() >= 2 && !keys.contains(&normalized_segment) {
+            keys.push(normalized_segment);
+        }
+    }
+
+    keys
+}
+
+fn normalize_match_key(value: &str) -> String {
+    value
+        .chars()
+        .filter(|ch| ch.is_alphanumeric() || is_cjk(*ch))
+        .flat_map(|ch| ch.to_lowercase())
+        .collect()
+}
+
+fn directory_matches_keys(directory_name: &str, keys: &[String]) -> bool {
+    keys.iter().filter(|key| key.len() >= 2).any(|key| {
+        directory_name == key || directory_name.starts_with(key) || directory_name.contains(key)
+    })
+}
+
+fn is_cjk(ch: char) -> bool {
+    matches!(
+        ch as u32,
+        0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xF900..=0xFAFF
+    )
 }
 
 #[cfg(test)]
@@ -707,6 +1020,22 @@ mod tests {
     fn cleanup_storage_root(root: &Path) {
         std::env::remove_var(STORAGE_DIR_ENV);
         let _ = fs::remove_dir_all(root);
+    }
+
+    fn set_appdata_env(root: &Path) {
+        let roaming = root.join("Roaming");
+        let local = root.join("Local");
+        let local_low = root.join("LocalLow");
+        let _ = fs::create_dir_all(&roaming);
+        let _ = fs::create_dir_all(&local);
+        let _ = fs::create_dir_all(&local_low);
+        std::env::set_var("APPDATA", &roaming);
+        std::env::set_var("LOCALAPPDATA", &local);
+    }
+
+    fn clear_appdata_env() {
+        std::env::remove_var("APPDATA");
+        std::env::remove_var("LOCALAPPDATA");
     }
 
     fn write_minimal_png(path: &Path) -> bool {
@@ -899,7 +1228,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_size_falls_back_to_filesystem_when_estimated_missing() {
+    fn enrich_program_keeps_size_empty_when_estimated_missing() {
         let temp_root = std::env::temp_dir().join(format!("rust-yu-test-{}", uuid::Uuid::new_v4()));
         assert!(fs::create_dir_all(&temp_root).is_ok());
         let test_file = temp_root.join("data.bin");
@@ -909,9 +1238,83 @@ mod tests {
         program.install_location = Some(temp_root.to_string_lossy().to_string());
         enrich_program(&mut program);
 
-        assert!(program.size.unwrap_or(0) >= 2048);
-        assert_eq!(program.size_source, MetadataSource::Filesystem);
+        assert_eq!(program.size, None);
+        assert_eq!(program.size_source, MetadataSource::Unknown);
 
         let _ = fs::remove_dir_all(&temp_root);
+    }
+
+    #[test]
+    fn icon_warmup_is_incremental_when_cache_files_exist() {
+        let _guard = super::storage::TEST_STORAGE_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let storage_root = with_storage_root("icon-ready-check");
+        let cache_32 = storage_root.join("icon-cache").join("32").join("ready.png");
+        let cache_48 = storage_root.join("icon-cache").join("48").join("ready.png");
+        assert!(cache_32
+            .parent()
+            .map(fs::create_dir_all)
+            .transpose()
+            .is_ok());
+        assert!(cache_48
+            .parent()
+            .map(fs::create_dir_all)
+            .transpose()
+            .is_ok());
+        assert!(write_minimal_png(&cache_32));
+        assert!(write_minimal_png(&cache_48));
+
+        let mut program = InstalledProgram::new("ReadyIcon".to_string(), InstallSource::Registry);
+        program.icon_path = Some(r"C:\Program Files\ReadyIcon\app.exe".to_string());
+        program.icon_cache_path_32 = Some(cache_32.to_string_lossy().to_string());
+        program.icon_cache_path_48 = Some(cache_48.to_string_lossy().to_string());
+
+        assert!(!is_program_metadata_warmup_eligible(
+            &program,
+            MetadataWarmupKind::Icons
+        ));
+
+        cleanup_storage_root(&storage_root);
+    }
+
+    #[test]
+    fn size_warmup_scans_install_location_and_matching_appdata() {
+        let _guard = super::storage::TEST_STORAGE_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let appdata_root = std::env::temp_dir().join(format!(
+            "rust-yu-appdata-size-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let install_root = std::env::temp_dir().join(format!(
+            "rust-yu-install-size-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        assert!(fs::create_dir_all(&install_root).is_ok());
+        assert!(fs::write(install_root.join("install.bin"), vec![1u8; 2048]).is_ok());
+        set_appdata_env(&appdata_root);
+
+        let app_data_dir = appdata_root
+            .join("Roaming")
+            .join("VendorCo")
+            .join("SizeApp");
+        assert!(fs::create_dir_all(&app_data_dir).is_ok());
+        assert!(fs::write(app_data_dir.join("user.dat"), vec![2u8; 1024]).is_ok());
+
+        let mut program = InstalledProgram::new("SizeApp".to_string(), InstallSource::Registry);
+        program.publisher = Some("VendorCo".to_string());
+        program.install_location = Some(install_root.to_string_lossy().to_string());
+
+        let (status, message) = warmup_program_metadata(&mut program, MetadataWarmupKind::Sizes);
+
+        assert_eq!(status, MetadataWarmupItemStatus::Updated);
+        assert_eq!(message, None);
+        assert!(program.size.unwrap_or(0) >= 3072);
+        assert_eq!(program.size_source, MetadataSource::Filesystem);
+
+        clear_appdata_env();
+        let _ = fs::remove_dir_all(&appdata_root);
+        let _ = fs::remove_dir_all(&install_root);
     }
 }

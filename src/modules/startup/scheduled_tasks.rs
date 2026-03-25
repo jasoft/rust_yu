@@ -129,8 +129,8 @@ pub fn apply_action(
     action: super::models::StartupAction,
     snapshot: &StartupSnapshot,
 ) -> Result<Vec<String>, StartupError> {
-    let payload: TaskSnapshotPayload =
-        serde_json::from_value(snapshot.source_payload.clone()).map_err(|error| {
+    let payload: TaskSnapshotPayload = serde_json::from_value(snapshot.source_payload.clone())
+        .map_err(|error| {
             StartupError::new(
                 StartupErrorCode::IoError,
                 format!("解析计划任务快照失败: {error}"),
@@ -171,8 +171,8 @@ pub fn apply_action(
 }
 
 pub fn restore_snapshot(snapshot: &StartupSnapshot) -> Result<Vec<String>, StartupError> {
-    let payload: TaskSnapshotPayload =
-        serde_json::from_value(snapshot.source_payload.clone()).map_err(|error| {
+    let payload: TaskSnapshotPayload = serde_json::from_value(snapshot.source_payload.clone())
+        .map_err(|error| {
             StartupError::new(
                 StartupErrorCode::IoError,
                 format!("解析计划任务快照失败: {error}"),

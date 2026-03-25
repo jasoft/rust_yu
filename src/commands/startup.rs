@@ -131,7 +131,8 @@ fn execute_list(cmd: ListStartupCommand) -> Result<()> {
     match manager::list_startup_items(query) {
         Ok(response) => {
             if cmd.format.eq_ignore_ascii_case("json") {
-                let mut value = serde_json::to_value(response).unwrap_or_else(|_| serde_json::json!({}));
+                let mut value =
+                    serde_json::to_value(response).unwrap_or_else(|_| serde_json::json!({}));
                 apply_field_projection_to_items(&mut value, &cmd.fields);
                 println!(
                     "{}",
@@ -177,7 +178,10 @@ fn execute_sources(cmd: SourcesStartupCommand) -> Result<()> {
             serde_json::to_string_pretty(&StartupEnvelope::success(response))?
         );
     } else {
-        println!("{:<20} {:<10} {:<10} {:<10} 说明", "来源", "用户", "机器", "删除");
+        println!(
+            "{:<20} {:<10} {:<10} {:<10} 说明",
+            "来源", "用户", "机器", "删除"
+        );
         for item in response {
             println!(
                 "{:<20} {:<10} {:<10} {:<10} {}",
@@ -283,9 +287,9 @@ fn render_error(format: &str, error: StartupError) -> Result<()> {
     if format.eq_ignore_ascii_case("json") {
         println!(
             "{}",
-            serde_json::to_string_pretty(&StartupEnvelope::<serde_json::Value>::from_startup_error(
-                &error
-            ))?
+            serde_json::to_string_pretty(
+                &StartupEnvelope::<serde_json::Value>::from_startup_error(&error)
+            )?
         );
         return Ok(());
     }
@@ -312,7 +316,9 @@ fn parse_source_filter(source: Option<&str>) -> Result<Option<StartupSource>> {
         Some(value) if value == "scheduled_task" || value == "task" => {
             Ok(Some(StartupSource::ScheduledTask))
         }
-        Some(value) if value == "service" || value == "services" => Ok(Some(StartupSource::Service)),
+        Some(value) if value == "service" || value == "services" => {
+            Ok(Some(StartupSource::Service))
+        }
         Some(value) => Err(anyhow!("未知来源: {value}")),
     }
 }
@@ -339,11 +345,7 @@ fn parse_state_filter(state: &str) -> Result<Option<StartupState>> {
 fn print_items_table(items: &[StartupItem]) {
     println!(
         "{:<18} {:<12} {:<8} {:<10} {:<8} 名称",
-        "ID",
-        "来源",
-        "作用域",
-        "状态",
-        "提权"
+        "ID", "来源", "作用域", "状态", "提权"
     );
     for item in items {
         println!(
@@ -418,7 +420,10 @@ fn apply_field_projection_to_items(value: &mut serde_json::Value, fields: &[Stri
         return;
     }
 
-    if let Some(items) = value.get_mut("items").and_then(|items| items.as_array_mut()) {
+    if let Some(items) = value
+        .get_mut("items")
+        .and_then(|items| items.as_array_mut())
+    {
         for item in items {
             apply_field_projection(item, fields);
         }
