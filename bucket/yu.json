@@ -6,7 +6,7 @@
     "architecture":  {
                          "64bit":  {
                                        "url":  "https://github.com/jasoft/rust_yu/releases/download/v0.1.0/yu-0.1.0-windows-amd64.zip",
-                                       "hash":  "1d217a4f282194c101c2991ae9b9c3586f4f75e9e447864ac8c8618b5bd45102"
+                                       "hash":  "3f272ebe52cd6d40eab2ef0bb632999587df1a62dfc2a240c47b586d9bfa71e4"
                                    }
                      },
     "bin":  "yu.exe",
