@@ -1,7 +1,5 @@
 #[cfg(windows)]
-use windows::Win32::Globalization::{
-    GetACP, GetOEMCP, MultiByteToWideChar, WideCharToMultiByte, CP_UTF8,
-};
+use windows::Win32::Globalization::{GetACP, GetOEMCP, MultiByteToWideChar, WideCharToMultiByte};
 #[cfg(windows)]
 use windows::Win32::Storage::FileSystem::{
     GetFileType, FILE_TYPE_CHAR, FILE_TYPE_DISK, FILE_TYPE_PIPE,
@@ -9,9 +7,7 @@ use windows::Win32::Storage::FileSystem::{
 #[cfg(windows)]
 use windows::Win32::System::Console::GetStdHandle;
 #[cfg(windows)]
-use windows::Win32::System::Console::{
-    GetConsoleOutputCP, SetConsoleCP, SetConsoleOutputCP, STD_OUTPUT_HANDLE,
-};
+use windows::Win32::System::Console::{GetConsoleOutputCP, STD_OUTPUT_HANDLE};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum StdoutTarget {
@@ -67,14 +63,6 @@ pub fn decode_windows_output(bytes: &[u8]) -> String {
     }
 
     String::from_utf8_lossy(bytes).to_string()
-}
-
-pub fn init_console_utf8() {
-    #[cfg(windows)]
-    unsafe {
-        let _ = SetConsoleOutputCP(CP_UTF8);
-        let _ = SetConsoleCP(CP_UTF8);
-    }
 }
 
 pub fn write_csv_stdout(text: &str) -> std::io::Result<()> {
@@ -286,10 +274,9 @@ mod tests {
     }
 
     #[test]
-    fn encode_csv_stdout_keeps_utf8_content() {
+    fn encode_csv_stdout_preserves_content_after_roundtrip() {
         let bytes = encode_csv_stdout("Name,Publisher\n中文,公司\n");
-        let text =
-            String::from_utf8_lossy(bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(&bytes));
+        let text = decode_windows_output(&bytes);
 
         assert!(text.contains("中文,公司"));
     }
