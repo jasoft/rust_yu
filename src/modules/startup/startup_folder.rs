@@ -204,56 +204,42 @@ pub fn restore_snapshot(snapshot: &StartupSnapshot) -> Result<Vec<String>, Start
 }
 
 fn startup_directories() -> Result<Vec<(StartupScope, PathBuf)>, StartupError> {
-    Ok(vec![
-        (
-            StartupScope::User,
-            startup_dir_for_scope(StartupScope::User)?,
-        ),
-        (
-            StartupScope::Machine,
-            startup_dir_for_scope(StartupScope::Machine)?,
-        ),
-    ])
+    let mut directories = Vec::new();
+    for scope in [StartupScope::User, StartupScope::Machine] {
+        if let Some(path) = startup_dir_for_scope(scope)? {
+            directories.push((scope, path));
+        }
+    }
+
+    Ok(directories)
 }
 
-fn startup_dir_for_scope(scope: StartupScope) -> Result<PathBuf, StartupError> {
+fn startup_dir_for_scope(scope: StartupScope) -> Result<Option<PathBuf>, StartupError> {
     let override_var = match scope {
         StartupScope::User => "RUST_YU_STARTUP_FOLDER_USER_DIR",
         StartupScope::Machine => "RUST_YU_STARTUP_FOLDER_COMMON_DIR",
     };
-    if let Ok(path) = std::env::var(override_var) {
-        return Ok(PathBuf::from(path));
+    if let Some(path) = std::env::var_os(override_var) {
+        return Ok(Some(PathBuf::from(path)));
     }
 
     match scope {
-        StartupScope::User => {
-            let app_data = std::env::var("APPDATA").map_err(|error| {
-                StartupError::new(
-                    StartupErrorCode::IoError,
-                    format!("读取 APPDATA 失败: {error}"),
-                )
-            })?;
-            Ok(Path::new(&app_data)
+        StartupScope::User => Ok(std::env::var_os("APPDATA").map(|app_data| {
+            Path::new(&app_data)
                 .join("Microsoft")
                 .join("Windows")
                 .join("Start Menu")
                 .join("Programs")
-                .join("Startup"))
-        }
-        StartupScope::Machine => {
-            let program_data = std::env::var("ProgramData").map_err(|error| {
-                StartupError::new(
-                    StartupErrorCode::IoError,
-                    format!("读取 ProgramData 失败: {error}"),
-                )
-            })?;
-            Ok(Path::new(&program_data)
+                .join("Startup")
+        })),
+        StartupScope::Machine => Ok(std::env::var_os("ProgramData").map(|program_data| {
+            Path::new(&program_data)
                 .join("Microsoft")
                 .join("Windows")
                 .join("Start Menu")
                 .join("Programs")
-                .join("Startup"))
-        }
+                .join("Startup")
+        })),
     }
 }
 
@@ -297,5 +283,30 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
         std::env::remove_var("RUST_YU_STARTUP_FOLDER_USER_DIR");
         std::env::remove_var("RUST_YU_STARTUP_APPROVED_HKCU_BASE");
+    }
+
+    #[test]
+    fn startup_folder_skips_missing_environment_directories() {
+        let _guard = TEST_STARTUP_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let original_appdata = std::env::var_os("APPDATA");
+        let original_program_data = std::env::var_os("ProgramData");
+        std::env::remove_var("APPDATA");
+        std::env::remove_var("ProgramData");
+        std::env::remove_var("RUST_YU_STARTUP_FOLDER_USER_DIR");
+        std::env::remove_var("RUST_YU_STARTUP_FOLDER_COMMON_DIR");
+
+        let items = collect_items(false).expect("缺失环境变量时应跳过启动目录来源");
+        assert!(items.is_empty());
+
+        match original_appdata {
+            Some(value) => std::env::set_var("APPDATA", value),
+            None => std::env::remove_var("APPDATA"),
+        }
+        match original_program_data {
+            Some(value) => std::env::set_var("ProgramData", value),
+            None => std::env::remove_var("ProgramData"),
+        }
     }
 }
