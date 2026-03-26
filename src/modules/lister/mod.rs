@@ -348,6 +348,22 @@ mod tests {
     }
 
     #[test]
+    fn apply_search_filter_requires_normalized_substring_match() {
+        let mut programs = vec![
+            sample_program("OpenAI.ChatGPT-Desktop", Some("CN=OpenAI")),
+            sample_program(
+                "Shapr3D.Shapr3D",
+                Some("CN=Shapr3D Zártkörűen Működő Részvénytársaság"),
+            ),
+        ];
+
+        apply_search_filter(&mut programs, Some("chat gpt"));
+
+        assert_eq!(programs.len(), 1);
+        assert_eq!(programs[0].name, "OpenAI.ChatGPT-Desktop");
+    }
+
+    #[test]
     fn dedupe_and_sort_collapses_case_insensitive_duplicates() {
         let mut programs = vec![
             sample_program("beta", None),

@@ -30,7 +30,7 @@ pub struct ListCommand {
     #[arg(long, default_value = "all")]
     pub source: String,
 
-    /// 可选搜索关键词，会对名称和发布者做模糊匹配。
+    /// 可选搜索关键词，会对名称和发布者做忽略大小写、忽略空白的包含匹配。
     #[arg(short, long)]
     pub search: Option<String>,
 

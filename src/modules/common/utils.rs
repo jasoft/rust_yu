@@ -1,5 +1,3 @@
-use fuzzy_matcher::skim::SkimMatcherV2;
-use fuzzy_matcher::FuzzyMatcher;
 use winreg::enums::*;
 use winreg::HKEY;
 
@@ -44,17 +42,23 @@ pub fn calculate_dir_size(path: &std::path::Path) -> std::io::Result<u64> {
     Ok(size)
 }
 
-/// 模糊匹配字符串
+/// 规范化后执行包含匹配，忽略大小写与空白字符差异。
 pub fn fuzzy_match(text: &str, pattern: &str) -> bool {
-    let matcher = SkimMatcherV2::default();
-    matcher.fuzzy_match(text, pattern).is_some()
+    let normalized_pattern = normalize_search_text(pattern);
+    if normalized_pattern.is_empty() {
+        return true;
+    }
+
+    normalize_search_text(text).contains(&normalized_pattern)
 }
 
-/// 获取模糊匹配分数
+/// 获取规范化后的搜索文本，移除全部空白字符并转为小写。
 #[allow(dead_code)]
-pub fn fuzzy_score(text: &str, pattern: &str) -> i64 {
-    let matcher = SkimMatcherV2::default();
-    matcher.fuzzy_match(text, pattern).unwrap_or(0)
+pub fn normalize_search_text(text: &str) -> String {
+    text.chars()
+        .filter(|ch| !ch.is_whitespace())
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 
 /// 格式化文件大小
