@@ -1,3 +1,4 @@
+use crate::modules::common::text::write_csv_stdout;
 use crate::modules::lister::{self, models::InstalledProgram};
 use anyhow::Result;
 use clap::{Parser, ValueEnum};
@@ -68,7 +69,7 @@ pub async fn execute(cmd: ListCommand) -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&programs)?);
         }
         ListOutputFormat::Csv => {
-            print!("{}", render_csv(&programs));
+            write_csv_stdout(&render_csv(&programs))?;
         }
         ListOutputFormat::Table => {
             print!("{}", render_table(&programs));
@@ -150,7 +151,6 @@ fn render_table(programs: &[InstalledProgram]) -> String {
 
 fn render_csv(programs: &[InstalledProgram]) -> String {
     let mut output = String::new();
-    output.push('\u{feff}');
     output.push_str(
         "Name,Publisher,Version,Source,InstallDate,InstallLocation,UninstallString,QuietUninstallString,Size,EstimatedSize,Id\n",
     );
@@ -432,7 +432,7 @@ mod tests {
 
         let rendered = render_csv(&programs);
 
-        assert!(rendered.starts_with("\u{feff}Name,Publisher,Version,Source"));
+        assert!(rendered.starts_with("Name,Publisher,Version,Source"));
         assert!(rendered.contains("\"App,Name\""));
         assert!(rendered.contains("\"Vendor \"\"Quoted\"\"\""));
         assert!(rendered.contains("Store"));
