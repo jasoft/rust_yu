@@ -1,6 +1,6 @@
 [package]
 name = "rust-yu-tauri"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 authors = ["John Anders"]
 description = "Windows Uninstaller - 列出已安装程序、搜索残留痕迹、清理并生成报告"
@@ -44,5 +44,6 @@ dirs = "5.0"
 
 # HTTP 服务器 (用于开发模式)
 warp = "0.3"
+
 
 
