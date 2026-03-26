@@ -86,6 +86,15 @@ Set-Content -LiteralPath (Join-Path $tempRoot "src-tauri\tauri.conf.json") -Valu
 Set-Content -LiteralPath (Join-Path $tempRoot "src\main.rs") -Value @'
 #[command(version = "0.1.0")]
 '@
+Set-Content -LiteralPath (Join-Path $tempRoot "Cargo.lock") -Value @'
+[[package]]
+name = "rust-yu"
+version = "0.1.0"
+
+[[package]]
+name = "rust-yu-tauri"
+version = "0.1.0"
+'@
 
 Set-ProjectVersion -RepoRoot $tempRoot -Version "0.1.1"
 
@@ -111,6 +120,15 @@ if (-not $updatedVersionState.IsConsistent) {
 
 if ($updatedVersionState.Version -ne "0.1.1") {
     throw "expected temp repo version 0.1.1, got $($updatedVersionState.Version)"
+}
+
+$updatedCargoLock = Get-Content -LiteralPath (Join-Path $tempRoot "Cargo.lock") -Raw
+if ($updatedCargoLock -notmatch 'name = "rust-yu"\s+version = "0.1.1"') {
+    throw "expected Cargo.lock to update rust-yu package version"
+}
+
+if ($updatedCargoLock -notmatch 'name = "rust-yu-tauri"\s+version = "0.1.1"') {
+    throw "expected Cargo.lock to update rust-yu-tauri package version"
 }
 
 $artifactName = Get-ReleaseAssetFileName -Version $versionState.Version

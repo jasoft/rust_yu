@@ -169,11 +169,13 @@ function Get-ReleaseVersionFiles {
         TauriCargoToml = Join-Path $RepoRoot "src-tauri\Cargo.toml"
         TauriConfig    = Join-Path $RepoRoot "src-tauri\tauri.conf.json"
         CliMainRs      = Join-Path $RepoRoot "src\main.rs"
+        CargoLock      = Join-Path $RepoRoot "Cargo.lock"
         TrackedPaths   = @(
             "Cargo.toml",
             "src-tauri/Cargo.toml",
             "src-tauri/tauri.conf.json",
-            "src/main.rs"
+            "src/main.rs",
+            "Cargo.lock"
         )
     }
 }
@@ -336,6 +338,34 @@ function Set-CliCommandVersion {
     Write-TextFileUtf8 -Path $CliMainPath -Content $updatedContent
 }
 
+function Set-CargoLockPackageVersions {
+    param(
+        [Parameter(Mandatory = $true)][string]$CargoLockPath,
+        [Parameter(Mandatory = $true)][string]$Version
+    )
+
+    if (-not (Test-Path -LiteralPath $CargoLockPath)) {
+        return
+    }
+
+    $content = Read-TextFileUtf8 -Path $CargoLockPath
+    $regex = [regex]'(?ms)(\[\[package\]\]\r?\nname = "(?:rust-yu|rust-yu-tauri)"\r?\nversion = ")([^"]+)(")'
+    $updatedContent = $regex.Replace(
+        $content,
+        {
+            param($match)
+
+            return $match.Groups[1].Value + $Version + $match.Groups[3].Value
+        }
+    )
+
+    if ($updatedContent -eq $content) {
+        throw "无法更新 Cargo.lock 中的本地包版本: $CargoLockPath"
+    }
+
+    Write-TextFileUtf8 -Path $CargoLockPath -Content $updatedContent
+}
+
 function Set-ProjectVersion {
     param(
         [Parameter(Mandatory = $true)][string]$RepoRoot,
@@ -347,6 +377,7 @@ function Set-ProjectVersion {
     Set-CargoPackageVersion -CargoTomlPath $files.TauriCargoToml -Version $Version
     Set-TauriConfigVersion -TauriConfigPath $files.TauriConfig -Version $Version
     Set-CliCommandVersion -CliMainPath $files.CliMainRs -Version $Version
+    Set-CargoLockPackageVersions -CargoLockPath $files.CargoLock -Version $Version
 }
 
 function Test-ReleaseTagExists {
