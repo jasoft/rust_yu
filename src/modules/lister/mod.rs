@@ -42,7 +42,7 @@ pub fn list_programs_with_cache(
     };
 
     if cache_eligible && !query.refresh {
-        let cached = storage::read_scan_cache(query.cache_ttl_seconds)?;
+        let cached = storage::read_scan_cache(query.source, query.cache_ttl_seconds)?;
         cache_state.schema_version = cached.schema_version;
         cache_state.generated_at = cached.generated_at.clone();
         cache_state.reason = cached.reason.clone();
@@ -65,7 +65,7 @@ pub fn list_programs_with_cache(
     dedupe_and_sort(&mut all_programs);
 
     if cache_eligible {
-        storage::save_scan_cache(&all_programs)?;
+        storage::save_scan_cache(query.source, &all_programs)?;
         cache_state.cache_hit = false;
         cache_state.cache_valid = true;
         cache_state.refreshed = true;
@@ -219,7 +219,7 @@ where
 
     if cache_eligible {
         dedupe_and_sort(&mut response.programs);
-        storage::save_scan_cache(&response.programs)?;
+        storage::save_scan_cache(query.source, &response.programs)?;
         summary.cache = ProgramListCacheState {
             cache_hit: false,
             cache_valid: true,
@@ -306,13 +306,32 @@ fn dedupe_and_sort(programs: &mut Vec<InstalledProgram>) {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+    use std::path::PathBuf;
+
     use super::*;
-    use crate::modules::lister::models::InstallSourceSelector;
+    use crate::modules::lister::{models::InstallSourceSelector, storage};
 
     fn sample_program(name: &str, publisher: Option<&str>) -> InstalledProgram {
         let mut program = InstalledProgram::new(name.to_string(), InstallSource::Registry);
         program.publisher = publisher.map(str::to_string);
         program
+    }
+
+    fn with_storage_root(test_name: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "rust-yu-lister-test-{}-{}",
+            test_name,
+            uuid::Uuid::new_v4()
+        ));
+        let _ = fs::create_dir_all(&root);
+        std::env::set_var("RUST_YU_STORAGE_DIR", &root);
+        root
+    }
+
+    fn cleanup_storage_root(root: &PathBuf) {
+        std::env::remove_var("RUST_YU_STORAGE_DIR");
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
@@ -343,7 +362,12 @@ mod tests {
     }
 
     #[test]
-    fn list_programs_with_cache_marks_all_source_as_non_cacheable() {
+    fn list_programs_with_cache_rebuilds_cache_for_all_source() {
+        let _guard = storage::TEST_STORAGE_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let root = with_storage_root("all-source-cache");
+
         let response = list_programs_with_cache(ListProgramsQuery {
             source: InstallSourceSelector::All,
             search: Some("__rust_yu_unmatched_query__".to_string()),
@@ -354,12 +378,24 @@ mod tests {
 
         assert!(response.programs.is_empty());
         assert!(!response.cache.cache_hit);
-        assert!(!response.cache.cache_valid);
-        assert!(!response.cache.refreshed);
-        assert_eq!(
-            response.cache.reason.as_deref(),
-            Some("source_not_cacheable")
-        );
+        assert!(response.cache.cache_valid);
+        assert!(response.cache.refreshed);
+        assert_eq!(response.cache.reason.as_deref(), Some("cache_missing"));
+
+        let cached_response = list_programs_with_cache(ListProgramsQuery {
+            source: InstallSourceSelector::All,
+            search: Some("__rust_yu_unmatched_query__".to_string()),
+            refresh: false,
+            cache_ttl_seconds: 60,
+        })
+        .unwrap_or_else(|error| panic!("unexpected error: {error}"));
+
+        assert!(cached_response.cache.cache_hit);
+        assert!(cached_response.cache.cache_valid);
+        assert!(!cached_response.cache.refreshed);
+        assert!(cached_response.programs.is_empty());
+
+        cleanup_storage_root(&root);
     }
 
     #[test]
@@ -372,7 +408,7 @@ mod tests {
     }
 
     #[test]
-    fn warmup_program_metadata_for_all_source_reports_progress_without_cache() {
+    fn warmup_program_metadata_for_all_source_updates_cache_and_reports_progress() {
         let mut progress_events = Vec::new();
         let summary = warmup_program_metadata(
             MetadataWarmupQuery {
@@ -389,10 +425,7 @@ mod tests {
 
         assert!(summary.total_programs >= summary.matched_programs);
         assert_eq!(summary.matched_programs, 0);
-        assert_eq!(
-            summary.cache.reason.as_deref(),
-            Some("source_not_cacheable")
-        );
+        assert_eq!(summary.cache.reason.as_deref(), Some("metadata_warmup"));
         assert!(summary.icons.is_some());
         assert_eq!(progress_events.len(), 2);
         assert_eq!(progress_events[0].stage, MetadataWarmupStage::Started);

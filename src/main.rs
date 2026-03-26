@@ -62,12 +62,62 @@ async fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::Cli;
-    use clap::CommandFactory;
+    use clap::{error::ErrorKind, CommandFactory, Parser};
 
     #[test]
     fn cli_command_name_is_yu() {
         let command = Cli::command();
 
         assert_eq!(command.get_name(), "yu");
+    }
+
+    #[test]
+    fn all_top_level_commands_support_help_flag() {
+        let help_invocations = [
+            ["yu", "--help"].as_slice(),
+            ["yu", "list", "--help"].as_slice(),
+            ["yu", "prepare", "--help"].as_slice(),
+            ["yu", "search", "--help"].as_slice(),
+            ["yu", "clean", "--help"].as_slice(),
+            ["yu", "report", "--help"].as_slice(),
+            ["yu", "startup", "--help"].as_slice(),
+            ["yu", "uninstall", "--help"].as_slice(),
+        ];
+
+        for invocation in help_invocations {
+            let error =
+                Cli::try_parse_from(invocation).expect_err("`--help` 应触发帮助输出而不是正常解析");
+            assert_eq!(
+                error.kind(),
+                ErrorKind::DisplayHelp,
+                "help invocation should render help: {:?}",
+                invocation
+            );
+        }
+    }
+
+    #[test]
+    fn startup_subcommands_support_help_flag() {
+        let help_invocations = [
+            ["yu", "startup", "list", "--help"].as_slice(),
+            ["yu", "startup", "add", "--help"].as_slice(),
+            ["yu", "startup", "show", "--help"].as_slice(),
+            ["yu", "startup", "sources", "--help"].as_slice(),
+            ["yu", "startup", "enable", "--help"].as_slice(),
+            ["yu", "startup", "disable", "--help"].as_slice(),
+            ["yu", "startup", "delete", "--help"].as_slice(),
+            ["yu", "startup", "rollback", "--help"].as_slice(),
+        ];
+
+        for invocation in help_invocations {
+            let error =
+                Cli::try_parse_from(invocation).expect_err("`--help` 应触发帮助输出而不是正常解析");
+            assert_eq!(
+                error.kind(),
+                ErrorKind::DisplayHelp,
+                "startup help invocation should render help: {:?}",
+                invocation
+            );
+        }
     }
 }

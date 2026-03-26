@@ -198,7 +198,17 @@ impl InstallSourceSelector {
     }
 
     pub fn is_cache_eligible(self) -> bool {
-        matches!(self, Self::Standard | Self::Registry)
+        true
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Standard => "standard",
+            Self::Registry => "registry",
+            Self::Msi => "msi",
+            Self::Store => "store",
+            Self::All => "all",
+        }
     }
 
     pub fn install_sources(self) -> &'static [InstallSource] {
@@ -218,6 +228,12 @@ impl InstallSourceSelector {
             Some(InstallSource::Store) => Self::Store,
             Some(InstallSource::Unknown) | None => Self::Standard,
         }
+    }
+}
+
+impl std::fmt::Display for InstallSourceSelector {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 

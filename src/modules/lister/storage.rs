@@ -13,18 +13,18 @@ use rusqlite::{params, Connection};
 
 use crate::modules::common::error::UninstallerError;
 
-use super::models::InstalledProgram;
+use super::models::{InstallSourceSelector, InstalledProgram};
 
 const STORAGE_DIR_ENV: &str = "RUST_YU_STORAGE_DIR";
 const SNAPSHOT_FILE_NAME: &str = "programs.json";
-const SCAN_CACHE_DB_FILE_NAME: &str = "installed_programs_cache_v4.sqlite3";
+const SCAN_CACHE_DB_FILE_NAME: &str = "installed_programs_cache_v5.sqlite3";
 const ICON_CACHE_DIR_NAME: &str = "icon-cache";
 const CACHE_TABLE_NAME: &str = "installed_programs_cache";
 const CACHE_METADATA_TABLE_NAME: &str = "cache_metadata";
 const META_KEY_SCHEMA_VERSION: &str = "schema_version";
 const META_KEY_GENERATED_AT: &str = "generated_at";
-pub const CACHE_SCHEMA_VERSION: u32 = 4;
-pub const DEFAULT_CACHE_TTL_SECONDS: i64 = 900;
+pub const CACHE_SCHEMA_VERSION: u32 = 5;
+pub const DEFAULT_CACHE_TTL_SECONDS: i64 = 86_400;
 
 #[cfg(test)]
 pub(crate) static TEST_STORAGE_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -108,6 +108,7 @@ fn open_scan_cache_connection() -> Result<Connection, UninstallerError> {
             PRAGMA journal_mode=WAL;
             PRAGMA synchronous=NORMAL;
             CREATE TABLE IF NOT EXISTS {cache_table} (
+                source_selector TEXT NOT NULL,
                 cache_key TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
                 publisher TEXT,
@@ -125,6 +126,8 @@ fn open_scan_cache_connection() -> Result<Connection, UninstallerError> {
                 payload_json TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
+            CREATE INDEX IF NOT EXISTS idx_installed_programs_cache_source_selector
+                ON {cache_table}(source_selector);
             CREATE INDEX IF NOT EXISTS idx_installed_programs_cache_name
                 ON {cache_table}(name);
             CREATE TABLE IF NOT EXISTS {metadata_table} (
@@ -188,6 +191,10 @@ fn write_cache_metadata(
     Ok(())
 }
 
+fn cache_metadata_key(base_key: &str, source: InstallSourceSelector) -> String {
+    format!("{base_key}:{}", source.as_str())
+}
+
 fn build_program_cache_key(program: &InstalledProgram) -> String {
     let mut hasher = DefaultHasher::new();
     program.name.to_lowercase().hash(&mut hasher);
@@ -210,6 +217,16 @@ fn build_program_cache_key(program: &InstalledProgram) -> String {
         .to_lowercase()
         .hash(&mut hasher);
     program.install_source.to_string().hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
+fn build_scoped_program_cache_key(
+    source: InstallSourceSelector,
+    program: &InstalledProgram,
+) -> String {
+    let mut hasher = DefaultHasher::new();
+    source.as_str().hash(&mut hasher);
+    build_program_cache_key(program).hash(&mut hasher);
     format!("{:016x}", hasher.finish())
 }
 
@@ -308,14 +325,20 @@ pub fn search_programs_with_fallback(
 }
 
 /// 保存扫描缓存（SQLite）
-pub fn save_scan_cache(entries: &[InstalledProgram]) -> Result<(), UninstallerError> {
+pub fn save_scan_cache(
+    source: InstallSourceSelector,
+    entries: &[InstalledProgram],
+) -> Result<(), UninstallerError> {
     let mut connection = open_scan_cache_connection()?;
     let transaction = connection
         .transaction()
         .map_err(|error| map_sqlite_error("开启缓存事务失败", error))?;
 
     transaction
-        .execute(&format!("DELETE FROM {}", CACHE_TABLE_NAME), [])
+        .execute(
+            &format!("DELETE FROM {} WHERE source_selector = ?1", CACHE_TABLE_NAME),
+            params![source.as_str()],
+        )
         .map_err(|error| map_sqlite_error("清空旧缓存失败", error))?;
 
     let now = Utc::now().to_rfc3339();
@@ -324,6 +347,7 @@ pub fn save_scan_cache(entries: &[InstalledProgram]) -> Result<(), UninstallerEr
         let mut statement = transaction
             .prepare(&format!(
                 "INSERT INTO {} (
+                    source_selector,
                     cache_key,
                     name,
                     publisher,
@@ -340,7 +364,7 @@ pub fn save_scan_cache(entries: &[InstalledProgram]) -> Result<(), UninstallerEr
                     size_last_updated_at,
                     payload_json,
                     updated_at
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
                 CACHE_TABLE_NAME
             ))
             .map_err(|error| map_sqlite_error("准备写入缓存失败", error))?;
@@ -350,7 +374,8 @@ pub fn save_scan_cache(entries: &[InstalledProgram]) -> Result<(), UninstallerEr
                 .map_err(|error| UninstallerError::Serde(error.to_string()))?;
             statement
                 .execute(params![
-                    build_program_cache_key(program),
+                    source.as_str(),
+                    build_scoped_program_cache_key(source, program),
                     program.name,
                     program.publisher,
                     program.version,
@@ -373,10 +398,14 @@ pub fn save_scan_cache(entries: &[InstalledProgram]) -> Result<(), UninstallerEr
 
     write_cache_metadata(
         &transaction,
-        META_KEY_SCHEMA_VERSION,
+        &cache_metadata_key(META_KEY_SCHEMA_VERSION, source),
         &CACHE_SCHEMA_VERSION.to_string(),
     )?;
-    write_cache_metadata(&transaction, META_KEY_GENERATED_AT, &now)?;
+    write_cache_metadata(
+        &transaction,
+        &cache_metadata_key(META_KEY_GENERATED_AT, source),
+        &now,
+    )?;
 
     transaction
         .commit()
@@ -385,7 +414,10 @@ pub fn save_scan_cache(entries: &[InstalledProgram]) -> Result<(), UninstallerEr
 }
 
 /// 读取扫描缓存（包含有效性校验）
-pub fn read_scan_cache(ttl_seconds: i64) -> Result<ScanCacheReadResult, UninstallerError> {
+pub fn read_scan_cache(
+    source: InstallSourceSelector,
+    ttl_seconds: i64,
+) -> Result<ScanCacheReadResult, UninstallerError> {
     let cache_db_path = get_scan_cache_file()?;
     if !cache_db_path.exists() {
         return Ok(ScanCacheReadResult {
@@ -396,10 +428,12 @@ pub fn read_scan_cache(ttl_seconds: i64) -> Result<ScanCacheReadResult, Uninstal
 
     let connection = open_scan_cache_connection()?;
 
-    let schema_version = read_cache_metadata(&connection, META_KEY_SCHEMA_VERSION)?
+    let schema_version =
+        read_cache_metadata(&connection, &cache_metadata_key(META_KEY_SCHEMA_VERSION, source))?
         .and_then(|value| value.parse::<u32>().ok())
         .unwrap_or_default();
-    let generated_at = read_cache_metadata(&connection, META_KEY_GENERATED_AT)?;
+    let generated_at =
+        read_cache_metadata(&connection, &cache_metadata_key(META_KEY_GENERATED_AT, source))?;
 
     if schema_version != CACHE_SCHEMA_VERSION {
         return Ok(ScanCacheReadResult {
@@ -449,13 +483,13 @@ pub fn read_scan_cache(ttl_seconds: i64) -> Result<ScanCacheReadResult, Uninstal
 
     let mut statement = connection
         .prepare(&format!(
-            "SELECT payload_json FROM {} ORDER BY name COLLATE NOCASE",
+            "SELECT payload_json FROM {} WHERE source_selector = ?1 ORDER BY name COLLATE NOCASE",
             CACHE_TABLE_NAME
         ))
         .map_err(|error| map_sqlite_error("准备读取缓存列表失败", error))?;
 
     let mut rows = statement
-        .query([])
+        .query(params![source.as_str()])
         .map_err(|error| map_sqlite_error("读取缓存列表失败", error))?;
 
     let mut programs = Vec::new();
@@ -509,7 +543,7 @@ mod tests {
     use std::fs;
 
     use super::*;
-    use crate::modules::lister::models::InstallSource;
+    use crate::modules::lister::models::{InstallSource, InstallSourceSelector};
 
     fn with_storage_root(test_name: &str) -> PathBuf {
         let root = std::env::temp_dir().join(format!(
@@ -533,7 +567,8 @@ mod tests {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let root = with_storage_root("miss");
-        let result = read_scan_cache(DEFAULT_CACHE_TTL_SECONDS).unwrap_or_default();
+        let result =
+            read_scan_cache(InstallSourceSelector::All, DEFAULT_CACHE_TTL_SECONDS).unwrap_or_default();
         assert!(!result.cache_hit);
         assert_eq!(result.reason, Some("cache_missing".to_string()));
         cleanup_storage_root(&root);
@@ -548,9 +583,10 @@ mod tests {
 
         let mut program = InstalledProgram::new("Demo".to_string(), InstallSource::Registry);
         program.version = Some("1.0.0".to_string());
-        assert!(save_scan_cache(&[program]).is_ok());
+        assert!(save_scan_cache(InstallSourceSelector::All, &[program]).is_ok());
 
-        let result = read_scan_cache(DEFAULT_CACHE_TTL_SECONDS).unwrap_or_default();
+        let result =
+            read_scan_cache(InstallSourceSelector::All, DEFAULT_CACHE_TTL_SECONDS).unwrap_or_default();
         assert!(result.cache_hit);
         assert!(result.cache_valid);
         assert!(result.entries.unwrap_or_default().len() == 1);
@@ -571,9 +607,10 @@ mod tests {
         program.icon_cache_path_48 = Some(r"C:\cache\icon\48\demo.png".to_string());
         program.size_last_updated_at = Some("2026-02-15T00:00:00Z".to_string());
         program.size = Some(4096);
-        assert!(save_scan_cache(&[program]).is_ok());
+        assert!(save_scan_cache(InstallSourceSelector::All, &[program]).is_ok());
 
-        let result = read_scan_cache(DEFAULT_CACHE_TTL_SECONDS).unwrap_or_default();
+        let result =
+            read_scan_cache(InstallSourceSelector::All, DEFAULT_CACHE_TTL_SECONDS).unwrap_or_default();
         assert!(result.cache_hit);
         let entries = result.entries.unwrap_or_default();
         assert_eq!(entries.len(), 1);
@@ -605,13 +642,25 @@ mod tests {
         let root = with_storage_root("schema");
 
         let connection = open_scan_cache_connection().unwrap_or_else(|_| panic!("open db failed"));
-        assert!(write_cache_metadata(&connection, META_KEY_SCHEMA_VERSION, "999").is_ok());
         assert!(
-            write_cache_metadata(&connection, META_KEY_GENERATED_AT, &Utc::now().to_rfc3339())
-                .is_ok()
+            write_cache_metadata(
+                &connection,
+                &cache_metadata_key(META_KEY_SCHEMA_VERSION, InstallSourceSelector::All),
+                "999",
+            )
+            .is_ok()
+        );
+        assert!(
+            write_cache_metadata(
+                &connection,
+                &cache_metadata_key(META_KEY_GENERATED_AT, InstallSourceSelector::All),
+                &Utc::now().to_rfc3339(),
+            )
+            .is_ok()
         );
 
-        let result = read_scan_cache(DEFAULT_CACHE_TTL_SECONDS).unwrap_or_default();
+        let result =
+            read_scan_cache(InstallSourceSelector::All, DEFAULT_CACHE_TTL_SECONDS).unwrap_or_default();
         assert!(!result.cache_hit);
         assert_eq!(result.reason, Some("schema_mismatch".to_string()));
 
@@ -625,7 +674,7 @@ mod tests {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let root = with_storage_root("invalidate");
         let program = InstalledProgram::new("Demo".to_string(), InstallSource::Registry);
-        assert!(save_scan_cache(&[program]).is_ok());
+        assert!(save_scan_cache(InstallSourceSelector::All, &[program]).is_ok());
         assert!(get_scan_cache_file()
             .map(|path| path.exists())
             .unwrap_or(false));
@@ -634,6 +683,43 @@ mod tests {
         assert!(!get_scan_cache_file()
             .map(|path| path.exists())
             .unwrap_or(true));
+
+        cleanup_storage_root(&root);
+    }
+
+    #[test]
+    fn read_scan_cache_is_scoped_by_source_selector() {
+        let _guard = super::TEST_STORAGE_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let root = with_storage_root("source-scoped");
+
+        let all_program = InstalledProgram::new("AllOnly".to_string(), InstallSource::Store);
+        let standard_program =
+            InstalledProgram::new("StandardOnly".to_string(), InstallSource::Registry);
+        assert!(save_scan_cache(InstallSourceSelector::All, &[all_program]).is_ok());
+        assert!(save_scan_cache(InstallSourceSelector::Standard, &[standard_program]).is_ok());
+
+        let all_result =
+            read_scan_cache(InstallSourceSelector::All, DEFAULT_CACHE_TTL_SECONDS).unwrap_or_default();
+        let standard_result = read_scan_cache(
+            InstallSourceSelector::Standard,
+            DEFAULT_CACHE_TTL_SECONDS,
+        )
+        .unwrap_or_default();
+        let all_entries = all_result.entries.unwrap_or_default();
+        let standard_entries = standard_result.entries.unwrap_or_default();
+
+        assert_eq!(all_entries.len(), 1);
+        assert_eq!(standard_entries.len(), 1);
+        assert_eq!(
+            all_entries.first().map(|program| program.name.clone()),
+            Some("AllOnly".to_string())
+        );
+        assert_eq!(
+            standard_entries.first().map(|program| program.name.clone()),
+            Some("StandardOnly".to_string())
+        );
 
         cleanup_storage_root(&root);
     }
