@@ -336,7 +336,10 @@ pub fn save_scan_cache(
 
     transaction
         .execute(
-            &format!("DELETE FROM {} WHERE source_selector = ?1", CACHE_TABLE_NAME),
+            &format!(
+                "DELETE FROM {} WHERE source_selector = ?1",
+                CACHE_TABLE_NAME
+            ),
             params![source.as_str()],
         )
         .map_err(|error| map_sqlite_error("清空旧缓存失败", error))?;
@@ -428,12 +431,16 @@ pub fn read_scan_cache(
 
     let connection = open_scan_cache_connection()?;
 
-    let schema_version =
-        read_cache_metadata(&connection, &cache_metadata_key(META_KEY_SCHEMA_VERSION, source))?
-        .and_then(|value| value.parse::<u32>().ok())
-        .unwrap_or_default();
-    let generated_at =
-        read_cache_metadata(&connection, &cache_metadata_key(META_KEY_GENERATED_AT, source))?;
+    let schema_version = read_cache_metadata(
+        &connection,
+        &cache_metadata_key(META_KEY_SCHEMA_VERSION, source),
+    )?
+    .and_then(|value| value.parse::<u32>().ok())
+    .unwrap_or_default();
+    let generated_at = read_cache_metadata(
+        &connection,
+        &cache_metadata_key(META_KEY_GENERATED_AT, source),
+    )?;
 
     if schema_version != CACHE_SCHEMA_VERSION {
         return Ok(ScanCacheReadResult {
@@ -567,8 +574,8 @@ mod tests {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let root = with_storage_root("miss");
-        let result =
-            read_scan_cache(InstallSourceSelector::All, DEFAULT_CACHE_TTL_SECONDS).unwrap_or_default();
+        let result = read_scan_cache(InstallSourceSelector::All, DEFAULT_CACHE_TTL_SECONDS)
+            .unwrap_or_default();
         assert!(!result.cache_hit);
         assert_eq!(result.reason, Some("cache_missing".to_string()));
         cleanup_storage_root(&root);
@@ -585,8 +592,8 @@ mod tests {
         program.version = Some("1.0.0".to_string());
         assert!(save_scan_cache(InstallSourceSelector::All, &[program]).is_ok());
 
-        let result =
-            read_scan_cache(InstallSourceSelector::All, DEFAULT_CACHE_TTL_SECONDS).unwrap_or_default();
+        let result = read_scan_cache(InstallSourceSelector::All, DEFAULT_CACHE_TTL_SECONDS)
+            .unwrap_or_default();
         assert!(result.cache_hit);
         assert!(result.cache_valid);
         assert!(result.entries.unwrap_or_default().len() == 1);
@@ -609,8 +616,8 @@ mod tests {
         program.size = Some(4096);
         assert!(save_scan_cache(InstallSourceSelector::All, &[program]).is_ok());
 
-        let result =
-            read_scan_cache(InstallSourceSelector::All, DEFAULT_CACHE_TTL_SECONDS).unwrap_or_default();
+        let result = read_scan_cache(InstallSourceSelector::All, DEFAULT_CACHE_TTL_SECONDS)
+            .unwrap_or_default();
         assert!(result.cache_hit);
         let entries = result.entries.unwrap_or_default();
         assert_eq!(entries.len(), 1);
@@ -642,25 +649,21 @@ mod tests {
         let root = with_storage_root("schema");
 
         let connection = open_scan_cache_connection().unwrap_or_else(|_| panic!("open db failed"));
-        assert!(
-            write_cache_metadata(
-                &connection,
-                &cache_metadata_key(META_KEY_SCHEMA_VERSION, InstallSourceSelector::All),
-                "999",
-            )
-            .is_ok()
-        );
-        assert!(
-            write_cache_metadata(
-                &connection,
-                &cache_metadata_key(META_KEY_GENERATED_AT, InstallSourceSelector::All),
-                &Utc::now().to_rfc3339(),
-            )
-            .is_ok()
-        );
+        assert!(write_cache_metadata(
+            &connection,
+            &cache_metadata_key(META_KEY_SCHEMA_VERSION, InstallSourceSelector::All),
+            "999",
+        )
+        .is_ok());
+        assert!(write_cache_metadata(
+            &connection,
+            &cache_metadata_key(META_KEY_GENERATED_AT, InstallSourceSelector::All),
+            &Utc::now().to_rfc3339(),
+        )
+        .is_ok());
 
-        let result =
-            read_scan_cache(InstallSourceSelector::All, DEFAULT_CACHE_TTL_SECONDS).unwrap_or_default();
+        let result = read_scan_cache(InstallSourceSelector::All, DEFAULT_CACHE_TTL_SECONDS)
+            .unwrap_or_default();
         assert!(!result.cache_hit);
         assert_eq!(result.reason, Some("schema_mismatch".to_string()));
 
@@ -700,13 +703,11 @@ mod tests {
         assert!(save_scan_cache(InstallSourceSelector::All, &[all_program]).is_ok());
         assert!(save_scan_cache(InstallSourceSelector::Standard, &[standard_program]).is_ok());
 
-        let all_result =
-            read_scan_cache(InstallSourceSelector::All, DEFAULT_CACHE_TTL_SECONDS).unwrap_or_default();
-        let standard_result = read_scan_cache(
-            InstallSourceSelector::Standard,
-            DEFAULT_CACHE_TTL_SECONDS,
-        )
-        .unwrap_or_default();
+        let all_result = read_scan_cache(InstallSourceSelector::All, DEFAULT_CACHE_TTL_SECONDS)
+            .unwrap_or_default();
+        let standard_result =
+            read_scan_cache(InstallSourceSelector::Standard, DEFAULT_CACHE_TTL_SECONDS)
+                .unwrap_or_default();
         let all_entries = all_result.entries.unwrap_or_default();
         let standard_entries = standard_result.entries.unwrap_or_default();
 
