@@ -74,14 +74,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\release\publish-releas
 
 脚本会自动完成这些步骤：
 
-- 校验 `Cargo.toml` 与 `src-tauri/tauri.conf.json` 的版本一致性
+- 校验 `Cargo.toml`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json`、`src/main.rs` 的版本一致性
+- 如果当前补丁版本已经发布过，则自动递增到下一个可用补丁版本
 - 构建 `yu.exe`
 - 生成 `dist\scoop\yu-<version>-windows-amd64.zip`
 - 更新 `bucket/yu.json`
-- 如有变更则自动提交 manifest
+- 如有变更则自动提交 release 相关文件
 - 创建或校验 `v<version>` tag
 - 推送当前分支与 tag
 - 创建或更新对应的 GitHub Release，并上传 zip 资产
+- 发布成功后自动把仓库版本推进到下一个补丁版本并提交
 
 演练时可先执行：
 
