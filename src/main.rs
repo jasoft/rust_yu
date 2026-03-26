@@ -8,7 +8,7 @@ mod modules;
 #[derive(Parser, Debug)]
 #[command(name = "yu")]
 #[command(about = "Windows 卸载程序命令行工具", long_about = None)]
-#[command(version = "0.1.0")]
+#[command(version = "0.1.1")]
 struct Cli {
     #[command(subcommand)]
     command: commands::Command,
