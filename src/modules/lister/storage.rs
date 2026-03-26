@@ -82,6 +82,7 @@ fn get_scan_cache_file() -> Result<PathBuf, UninstallerError> {
 }
 
 /// 获取扫描缓存文件路径（逻辑上等价于缓存数据库路径）
+#[cfg(test)]
 pub fn get_scan_cache_database_path() -> Result<PathBuf, UninstallerError> {
     get_scan_cache_file()
 }

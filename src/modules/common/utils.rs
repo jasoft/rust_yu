@@ -191,6 +191,7 @@ fn is_probable_executable(candidate: &str) -> bool {
 ///
 /// 某些 Windows 卸载器通过批处理上下文调用时更稳定，尤其是需要
 /// `cmd.exe` 参与处理引号或内部启动逻辑的旧式卸载程序。
+#[cfg(test)]
 pub fn create_command_wrapper_script(
     command: &str,
 ) -> Result<std::path::PathBuf, crate::modules::common::error::UninstallerError> {
