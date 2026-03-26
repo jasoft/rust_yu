@@ -100,10 +100,27 @@ function Get-RepoRoot {
     return (Get-Location).Path
 }
 
+function Write-TextFileUtf8 {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Content
+    )
+
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($Path, $Content, $utf8NoBom)
+}
+
+function Read-TextFileUtf8 {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $utf8 = New-Object System.Text.UTF8Encoding($false, $true)
+    return [System.IO.File]::ReadAllText($Path, $utf8)
+}
+
 function Get-CargoPackageVersion {
     param([Parameter(Mandatory = $true)][string]$CargoTomlPath)
 
-    $lines = Get-Content -LiteralPath $CargoTomlPath
+    $lines = (Read-TextFileUtf8 -Path $CargoTomlPath) -split "`r?`n"
     $insidePackage = $false
     foreach ($line in $lines) {
         if ($line -match '^\s*\[package\]\s*$') {
@@ -124,7 +141,7 @@ function Get-CargoPackageVersion {
 function Get-TauriConfigVersion {
     param([Parameter(Mandatory = $true)][string]$TauriConfigPath)
 
-    $config = Get-Content -LiteralPath $TauriConfigPath -Raw | ConvertFrom-Json
+    $config = Read-TextFileUtf8 -Path $TauriConfigPath | ConvertFrom-Json
     if (-not $config.version) {
         throw "无法从 tauri.conf.json 读取 version: $TauriConfigPath"
     }
@@ -135,7 +152,7 @@ function Get-TauriConfigVersion {
 function Get-CliCommandVersion {
     param([Parameter(Mandatory = $true)][string]$CliMainPath)
 
-    $content = Get-Content -LiteralPath $CliMainPath -Raw
+    $content = Read-TextFileUtf8 -Path $CliMainPath
     $match = [regex]::Match($content, '#\[command\(version\s*=\s*"([^"]+)"\)\]')
     if (-not $match.Success) {
         throw "无法从 main.rs 读取 clap version: $CliMainPath"
@@ -242,7 +259,8 @@ function Set-CargoPackageVersion {
         [Parameter(Mandatory = $true)][string]$Version
     )
 
-    $lines = Get-Content -LiteralPath $CargoTomlPath
+    $content = Read-TextFileUtf8 -Path $CargoTomlPath
+    $lines = $content -split "`r?`n"
     $insidePackage = $false
     $updated = $false
     for ($index = 0; $index -lt $lines.Count; $index++) {
@@ -265,7 +283,11 @@ function Set-CargoPackageVersion {
         throw "无法更新 Cargo.toml 中的 package.version: $CargoTomlPath"
     }
 
-    Set-Content -LiteralPath $CargoTomlPath -Value $lines
+    $normalizedContent = ($lines -join "`r`n")
+    if ($content.EndsWith("`n")) {
+        $normalizedContent += "`r`n"
+    }
+    Write-TextFileUtf8 -Path $CargoTomlPath -Content $normalizedContent
 }
 
 function Set-TauriConfigVersion {
@@ -274,7 +296,7 @@ function Set-TauriConfigVersion {
         [Parameter(Mandatory = $true)][string]$Version
     )
 
-    $content = Get-Content -LiteralPath $TauriConfigPath -Raw
+    $content = Read-TextFileUtf8 -Path $TauriConfigPath
     $regex = [regex]'(?m)^(\s*"version"\s*:\s*")([^"]+)(")'
     $updatedContent = $regex.Replace(
         $content,
@@ -290,7 +312,7 @@ function Set-TauriConfigVersion {
         throw "无法更新 tauri.conf.json 中的 version: $TauriConfigPath"
     }
 
-    Set-Content -LiteralPath $TauriConfigPath -Value $updatedContent
+    Write-TextFileUtf8 -Path $TauriConfigPath -Content $updatedContent
 }
 
 function Set-CliCommandVersion {
@@ -299,7 +321,7 @@ function Set-CliCommandVersion {
         [Parameter(Mandatory = $true)][string]$Version
     )
 
-    $content = Get-Content -LiteralPath $CliMainPath -Raw
+    $content = Read-TextFileUtf8 -Path $CliMainPath
     $updatedContent = [regex]::Replace(
         $content,
         '#\[command\(version\s*=\s*"[^"]+"\)\]',
@@ -311,7 +333,7 @@ function Set-CliCommandVersion {
         throw "无法更新 main.rs 中的 clap version: $CliMainPath"
     }
 
-    Set-Content -LiteralPath $CliMainPath -Value $updatedContent
+    Write-TextFileUtf8 -Path $CliMainPath -Content $updatedContent
 }
 
 function Set-ProjectVersion {
