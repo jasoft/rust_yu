@@ -12,7 +12,7 @@ pub struct ReportCommand {
     pub list: bool,
 
     /// 输出 HTML 文件
-    #[arg(short, long)]
+    #[arg(short = 'o', long)]
     pub html: Option<String>,
 }
 
@@ -126,4 +126,25 @@ fn get_reports_dir() -> Result<PathBuf> {
         .join("reports");
 
     Ok(dir)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ReportCommand;
+    use clap::Parser;
+
+    #[test]
+    fn report_command_uses_output_short_flag_without_conflicting_with_help() {
+        let parsed =
+            ReportCommand::try_parse_from(["yu", "demo-app", "-o", "report.html", "--list"]);
+
+        assert!(
+            parsed.is_ok(),
+            "expected report command output short flag to parse"
+        );
+        let parsed = parsed.expect("parse should succeed");
+        assert_eq!(parsed.identifier, "demo-app");
+        assert_eq!(parsed.html.as_deref(), Some("report.html"));
+        assert!(parsed.list);
+    }
 }
