@@ -277,6 +277,16 @@ pub async fn execute(cmd: UninstallCommand) -> Result<()> {
     Ok(())
 }
 
+fn build_uninstall_search_query() -> lister::models::ListProgramsQuery {
+    lister::models::ListProgramsQuery {
+        source: lister::models::InstallSourceSelector::All,
+        search: None,
+        // 卸载是破坏性操作，必须查询最新安装状态，不能信任旧缓存。
+        refresh: true,
+        cache_ttl_seconds: lister::storage::DEFAULT_CACHE_TTL_SECONDS,
+    }
+}
+
 /// 查找程序并保存注册表信息
 fn find_and_save_program(
     target: &str,
@@ -295,13 +305,7 @@ fn find_and_save_program(
     }
 
     // 搜索已安装的程序
-    let programs = lister::list_programs_with_cache(lister::models::ListProgramsQuery {
-        source: lister::models::InstallSourceSelector::All,
-        search: None,
-        refresh: false,
-        cache_ttl_seconds: lister::storage::DEFAULT_CACHE_TTL_SECONDS,
-    })?
-    .programs;
+    let programs = lister::list_programs_with_cache(build_uninstall_search_query())?.programs;
 
     let matched = select_matching_program(programs, target)?;
 
@@ -350,8 +354,10 @@ fn select_matching_program(
 
 #[cfg(test)]
 mod tests {
-    use super::{select_matching_program, UninstallCommand};
-    use crate::modules::lister::models::{InstallSource, InstalledProgram, UninstallKind};
+    use super::{build_uninstall_search_query, select_matching_program, UninstallCommand};
+    use crate::modules::lister::models::{
+        InstallSource, InstallSourceSelector, InstalledProgram, UninstallKind,
+    };
     use crate::modules::uninstall;
     use clap::Parser;
 
@@ -442,5 +448,14 @@ mod tests {
         assert_eq!(uninstall::route_name(UninstallKind::Legacy), "legacy");
         assert_eq!(uninstall::route_name(UninstallKind::Msi), "msi");
         assert_eq!(uninstall::route_name(UninstallKind::Store), "store");
+    }
+
+    #[test]
+    fn uninstall_search_query_refreshes_all_sources() {
+        let query = build_uninstall_search_query();
+
+        assert_eq!(query.source, InstallSourceSelector::All);
+        assert!(query.refresh);
+        assert!(query.search.is_none());
     }
 }

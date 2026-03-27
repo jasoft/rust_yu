@@ -8,10 +8,7 @@ use super::ProgramRemovalStatus;
 
 pub fn resolve_uninstall_command(program: &InstalledProgram) -> Result<String, UninstallerError> {
     let package_full_name = package_full_name(program)?;
-    let script = build_powershell_script(&format!(
-        "Remove-AppxPackage -Package '{}' -ErrorAction Stop",
-        package_full_name
-    ));
+    let script = build_powershell_script(&build_remove_package_script(&package_full_name));
 
     Ok(format!(r#"powershell -NoProfile -Command "{}""#, script))
 }
@@ -58,10 +55,7 @@ fn is_package_present(package_full_name: &str) -> Result<bool, UninstallerError>
         .args([
             "-NoProfile",
             "-Command",
-            &build_powershell_script(&format!(
-                "$exists = @(Get-AppxPackage | Where-Object {{ $_.PackageFullName -eq '{}' }}).Count -gt 0\nif ($exists) {{ 'true' }} else {{ 'false' }}",
-                package_full_name
-            )),
+            &build_powershell_script(&build_package_presence_script(package_full_name)),
         ])
         .output()
         .map_err(UninstallerError::FileSystem)?;
@@ -77,9 +71,24 @@ fn is_package_present(package_full_name: &str) -> Result<bool, UninstallerError>
     Ok(stdout.trim().eq_ignore_ascii_case("true"))
 }
 
+fn build_remove_package_script(package_full_name: &str) -> String {
+    format!(
+        "$userSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value\nRemove-AppxPackage -Package '{}' -User $userSid -ErrorAction Stop",
+        package_full_name
+    )
+}
+
+fn build_package_presence_script(package_full_name: &str) -> String {
+    format!(
+        "$userSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value\n$exists = @(Get-AppxPackage -User $userSid | Where-Object {{ $_.PackageFullName -eq '{}' }}).Count -gt 0\nif ($exists) {{ 'true' }} else {{ 'false' }}",
+        package_full_name
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
+        build_package_presence_script, build_remove_package_script,
         extract_package_name_from_uninstall_string, package_full_name, resolve_uninstall_command,
     };
     use crate::modules::lister::models::{InstallSource, InstalledProgram};
@@ -95,6 +104,7 @@ mod tests {
 
         assert!(command.contains("Remove-AppxPackage"));
         assert!(command.contains("OpenAI.ChatGPT-Desktop_1.2026.43.0_x64__2p2nqsd0c76g0"));
+        assert!(command.contains("-User $userSid"));
     }
 
     #[test]
@@ -119,5 +129,22 @@ mod tests {
             package_full_name(&program).unwrap_or_else(|error| panic!("unexpected error: {error}"));
 
         assert_eq!(package_name, "Demo.Store_1.0.0_x64__abc");
+    }
+
+    #[test]
+    fn build_remove_package_script_targets_current_user_sid() {
+        let script = build_remove_package_script("Demo.Store_1.0.0_x64__abc");
+
+        assert!(script.contains("WindowsIdentity"));
+        assert!(script.contains("-User $userSid"));
+        assert!(script.contains("Demo.Store_1.0.0_x64__abc"));
+    }
+
+    #[test]
+    fn build_package_presence_script_checks_current_user_sid() {
+        let script = build_package_presence_script("Demo.Store_1.0.0_x64__abc");
+
+        assert!(script.contains("Get-AppxPackage -User $userSid"));
+        assert!(script.contains("Demo.Store_1.0.0_x64__abc"));
     }
 }
