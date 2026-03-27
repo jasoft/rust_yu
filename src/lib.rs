@@ -8,3 +8,4 @@ pub use modules::lister;
 pub use modules::reporter;
 pub use modules::scanner;
 pub use modules::startup;
+pub use modules::uninstall;

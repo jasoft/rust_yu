@@ -17,13 +17,13 @@ use super::models::{InstallSourceSelector, InstalledProgram};
 
 const STORAGE_DIR_ENV: &str = "RUST_YU_STORAGE_DIR";
 const SNAPSHOT_FILE_NAME: &str = "programs.json";
-const SCAN_CACHE_DB_FILE_NAME: &str = "installed_programs_cache_v5.sqlite3";
+const SCAN_CACHE_DB_FILE_NAME: &str = "installed_programs_cache_v6.sqlite3";
 const ICON_CACHE_DIR_NAME: &str = "icon-cache";
 const CACHE_TABLE_NAME: &str = "installed_programs_cache";
 const CACHE_METADATA_TABLE_NAME: &str = "cache_metadata";
 const META_KEY_SCHEMA_VERSION: &str = "schema_version";
 const META_KEY_GENERATED_AT: &str = "generated_at";
-pub const CACHE_SCHEMA_VERSION: u32 = 5;
+pub const CACHE_SCHEMA_VERSION: u32 = 6;
 pub const DEFAULT_CACHE_TTL_SECONDS: i64 = 86_400;
 
 #[cfg(test)]
@@ -231,13 +231,21 @@ fn build_scoped_program_cache_key(
     format!("{:016x}", hasher.finish())
 }
 
+fn deserialize_programs_with_normalized_kind(content: &str) -> Vec<InstalledProgram> {
+    let mut programs: Vec<InstalledProgram> = serde_json::from_str(content).unwrap_or_default();
+    for program in &mut programs {
+        program.normalize_uninstall_kind();
+    }
+    programs
+}
+
 /// 保存程序快照
 pub fn save_program_snapshot(programs: &[InstalledProgram]) -> Result<(), UninstallerError> {
     let path = get_snapshot_file()?;
 
     let mut all_programs: Vec<InstalledProgram> = if path.exists() {
         let content = std::fs::read_to_string(&path)?;
-        serde_json::from_str(&content).unwrap_or_default()
+        deserialize_programs_with_normalized_kind(&content)
     } else {
         Vec::new()
     };
@@ -265,7 +273,7 @@ pub fn get_saved_programs() -> Result<Vec<InstalledProgram>, UninstallerError> {
     }
 
     let content = std::fs::read_to_string(&path)?;
-    let programs: Vec<InstalledProgram> = serde_json::from_str(&content).unwrap_or_default();
+    let programs = deserialize_programs_with_normalized_kind(&content);
 
     Ok(programs)
 }
@@ -290,7 +298,7 @@ pub fn delete_saved_program(name: &str) -> Result<(), UninstallerError> {
     }
 
     let content = std::fs::read_to_string(&path)?;
-    let mut programs: Vec<InstalledProgram> = serde_json::from_str(&content).unwrap_or_default();
+    let mut programs = deserialize_programs_with_normalized_kind(&content);
 
     let name_lower = name.to_lowercase();
     programs.retain(|program| !program.name.to_lowercase().contains(&name_lower));
@@ -508,7 +516,8 @@ pub fn read_scan_cache(
         let payload_json = row
             .get::<usize, String>(0)
             .map_err(|error| map_sqlite_error("读取缓存负载失败", error))?;
-        if let Ok(program) = serde_json::from_str::<InstalledProgram>(&payload_json) {
+        if let Ok(mut program) = serde_json::from_str::<InstalledProgram>(&payload_json) {
+            program.normalize_uninstall_kind();
             programs.push(program);
         }
     }
@@ -721,6 +730,62 @@ mod tests {
         assert_eq!(
             standard_entries.first().map(|program| program.name.clone()),
             Some("StandardOnly".to_string())
+        );
+
+        cleanup_storage_root(&root);
+    }
+
+    #[test]
+    fn get_saved_programs_backfills_uninstall_kind_from_install_source() {
+        let _guard = super::TEST_STORAGE_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let root = with_storage_root("snapshot-backfill-kind");
+        let snapshot_path = get_snapshot_file().unwrap_or_else(|_| PathBuf::new());
+
+        fs::write(
+            &snapshot_path,
+            r#"[
+                {
+                    "id": "store-id",
+                    "name": "Cached Store App",
+                    "publisher": null,
+                    "version": null,
+                    "install_date": null,
+                    "install_location": null,
+                    "uninstall_string": null,
+                    "quiet_uninstall_string": null,
+                    "install_source": "Store",
+                    "size": null,
+                    "icon_path": null,
+                    "icon_cache_path_32": null,
+                    "icon_cache_path_48": null,
+                    "size_last_updated_at": null,
+                    "icon_data_url": null,
+                    "icon_data_url_32": null,
+                    "icon_data_url_48": null,
+                    "estimated_size": null,
+                    "display_version": null,
+                    "url_info_about": null,
+                    "help_link": null,
+                    "install_date_source": "unknown",
+                    "install_date_confidence": "unknown",
+                    "icon_source": "unknown",
+                    "icon_confidence": "unknown",
+                    "size_source": "unknown",
+                    "size_confidence": "unknown",
+                    "metadata_confidence": "unknown"
+                }
+            ]"#,
+        )
+        .unwrap_or_else(|error| panic!("failed to write snapshot fixture: {error}"));
+
+        let programs = get_saved_programs().unwrap_or_default();
+
+        assert_eq!(programs.len(), 1);
+        assert_eq!(
+            programs[0].uninstall_kind,
+            crate::modules::lister::models::UninstallKind::Store
         );
 
         cleanup_storage_root(&root);

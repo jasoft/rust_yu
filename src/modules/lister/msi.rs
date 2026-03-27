@@ -116,6 +116,7 @@ struct MsiProductJson {
 #[cfg(all(test, windows))]
 mod tests {
     use super::parse_msi_products;
+    use crate::modules::lister::models::UninstallKind;
 
     #[test]
     fn parse_msi_products_supports_array_payloads() {
@@ -139,6 +140,7 @@ mod tests {
             programs[0].uninstall_string.as_deref(),
             Some("msiexec /x{ABC-123}")
         );
+        assert_eq!(programs[0].uninstall_kind, UninstallKind::Msi);
     }
 
     #[test]
@@ -157,5 +159,6 @@ mod tests {
         assert_eq!(programs.len(), 1);
         assert_eq!(programs[0].publisher.as_deref(), Some("Solo Corp"));
         assert_eq!(programs[0].version.as_deref(), Some("2.1.0"));
+        assert_eq!(programs[0].uninstall_kind, UninstallKind::Msi);
     }
 }

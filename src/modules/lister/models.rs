@@ -56,6 +56,8 @@ pub struct InstalledProgram {
     pub quiet_uninstall_string: Option<String>,
     #[serde(default)]
     pub install_source: InstallSource,
+    #[serde(default)]
+    pub uninstall_kind: UninstallKind,
     pub size: Option<u64>,
     pub icon_path: Option<String>,
     #[serde(default)]
@@ -102,6 +104,7 @@ impl InstalledProgram {
             uninstall_string: None,
             quiet_uninstall_string: None,
             install_source: source,
+            uninstall_kind: UninstallKind::from_install_source(source),
             size: None,
             icon_path: None,
             icon_cache_path_32: None,
@@ -129,6 +132,30 @@ impl InstalledProgram {
         self.quiet_uninstall_string
             .as_deref()
             .or(self.uninstall_string.as_deref())
+    }
+
+    pub fn normalize_uninstall_kind(&mut self) {
+        self.uninstall_kind = UninstallKind::from_install_source(self.install_source);
+    }
+}
+
+/// 卸载类型
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum UninstallKind {
+    #[default]
+    Legacy,
+    Msi,
+    Store,
+}
+
+impl UninstallKind {
+    pub fn from_install_source(source: InstallSource) -> Self {
+        match source {
+            InstallSource::Msi => Self::Msi,
+            InstallSource::Store => Self::Store,
+            InstallSource::Registry | InstallSource::Unknown => Self::Legacy,
+        }
     }
 }
 
@@ -387,7 +414,7 @@ pub struct ProgramListResponse {
 
 #[cfg(test)]
 mod tests {
-    use super::{InstallSource, InstalledProgram};
+    use super::{InstallSource, InstalledProgram, UninstallKind};
 
     #[test]
     fn preferred_uninstall_string_prefers_quiet_variant() {
@@ -412,5 +439,51 @@ mod tests {
             program.preferred_uninstall_string(),
             Some(r#""C:\Program Files\FallbackApp\uninstall.exe""#)
         );
+    }
+
+    #[test]
+    fn uninstall_kind_defaults_to_legacy_for_registry_program() {
+        let program = InstalledProgram::new("LegacyApp".to_string(), InstallSource::Registry);
+
+        assert_eq!(program.uninstall_kind, UninstallKind::Legacy);
+    }
+
+    #[test]
+    fn installed_program_deserialization_defaults_missing_uninstall_kind() {
+        let program: InstalledProgram = serde_json::from_str(
+            r#"{
+                "id": "demo-id",
+                "name": "Cached App",
+                "publisher": null,
+                "version": null,
+                "install_date": null,
+                "install_location": null,
+                "uninstall_string": null,
+                "quiet_uninstall_string": null,
+                "install_source": "Registry",
+                "size": null,
+                "icon_path": null,
+                "icon_cache_path_32": null,
+                "icon_cache_path_48": null,
+                "size_last_updated_at": null,
+                "icon_data_url": null,
+                "icon_data_url_32": null,
+                "icon_data_url_48": null,
+                "estimated_size": null,
+                "display_version": null,
+                "url_info_about": null,
+                "help_link": null,
+                "install_date_source": "unknown",
+                "install_date_confidence": "unknown",
+                "icon_source": "unknown",
+                "icon_confidence": "unknown",
+                "size_source": "unknown",
+                "size_confidence": "unknown",
+                "metadata_confidence": "unknown"
+            }"#,
+        )
+        .expect("旧缓存缺少 uninstall_kind 字段时也应成功反序列化");
+
+        assert_eq!(program.uninstall_kind, UninstallKind::Legacy);
     }
 }

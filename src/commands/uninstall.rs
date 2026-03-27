@@ -2,7 +2,7 @@
 
 use crate::modules::common::{process, utils};
 use crate::modules::lister::storage;
-use crate::modules::{cleaner, lister, scanner};
+use crate::modules::{cleaner, lister, scanner, uninstall};
 use anyhow::Result;
 use clap::Parser;
 
@@ -62,14 +62,21 @@ pub async fn execute(cmd: UninstallCommand) -> Result<()> {
     // 2. 执行卸载命令并等待
     println!("\n[2/4] 执行卸载命令并等待完成...");
 
-    let uninstall_str = program
-        .as_ref()
-        .and_then(|p| p.preferred_uninstall_string().map(ToOwned::to_owned))
-        .or(cmd.uninstall_string);
+    let uninstall_str = if let Some(installed_program) = program.as_ref() {
+        Some(uninstall::resolve_uninstall_command(installed_program)?)
+    } else {
+        cmd.uninstall_string
+            .map(|command| utils::normalize_uninstall_command(&command))
+    };
 
     if let Some(uninstall_str) = uninstall_str {
-        let uninstall_str = utils::normalize_uninstall_command(&uninstall_str);
         println!("  - 卸载命令: {}", uninstall_str);
+        if let Some(installed_program) = &program {
+            println!(
+                "  - 卸载类型: {}",
+                uninstall::route_name(installed_program.uninstall_kind)
+            );
+        }
 
         utils::ensure_running_as_administrator()?;
 
@@ -118,9 +125,20 @@ pub async fn execute(cmd: UninstallCommand) -> Result<()> {
         }
 
         if let Some(installed_program) = &program {
-            let removal_status = wait_for_program_removal(installed_program, cmd.timeout).await?;
+            let removal_status =
+                uninstall::wait_for_program_removal(installed_program, cmd.timeout).await?;
             if removal_status.removed {
-                println!("  - 已确认程序条目与安装目录均已移除");
+                match installed_program.uninstall_kind {
+                    lister::models::UninstallKind::Store => {
+                        println!("  - 已确认 Store 包条目已移除");
+                    }
+                    lister::models::UninstallKind::Msi => {
+                        println!("  - 已确认 MSI 产品条目已移除");
+                    }
+                    lister::models::UninstallKind::Legacy => {
+                        println!("  - 已确认程序条目与安装目录均已移除");
+                    }
+                }
             } else {
                 anyhow::bail!(process::build_unsuccessful_uninstall_message(
                     &installed_program.name,
@@ -277,7 +295,13 @@ fn find_and_save_program(
     }
 
     // 搜索已安装的程序
-    let programs = lister::list_all_programs(None, None)?;
+    let programs = lister::list_programs_with_cache(lister::models::ListProgramsQuery {
+        source: lister::models::InstallSourceSelector::All,
+        search: None,
+        refresh: false,
+        cache_ttl_seconds: lister::storage::DEFAULT_CACHE_TTL_SECONDS,
+    })?
+    .programs;
 
     let matched = select_matching_program(programs, target)?;
 
@@ -324,73 +348,11 @@ fn select_matching_program(
     }
 }
 
-async fn wait_for_program_removal(
-    program: &lister::models::InstalledProgram,
-    timeout_secs: u64,
-) -> Result<ProgramRemovalStatus> {
-    use std::time::{Duration, Instant};
-
-    let started_at = Instant::now();
-    let expected_name = program.name.to_lowercase();
-    let install_location = program
-        .install_location
-        .as_deref()
-        .map(str::trim)
-        .filter(|path| !path.is_empty())
-        .map(std::path::PathBuf::from);
-
-    loop {
-        let still_registered = match program.install_source {
-            lister::models::InstallSource::Registry | lister::models::InstallSource::Unknown => {
-                lister::registry::registry_program_exists(&program.name)?
-            }
-            _ => lister::list_all_programs(Some(program.install_source), None)?
-                .into_iter()
-                .any(|candidate| candidate.name.to_lowercase() == expected_name),
-        };
-        let install_dir_exists = install_location
-            .as_ref()
-            .map(|path| path.exists())
-            .unwrap_or(false);
-
-        tracing::info!(
-            "等待卸载完成, name={}, still_registered={}, install_dir_exists={}",
-            program.name,
-            still_registered,
-            install_dir_exists
-        );
-
-        if !still_registered && !install_dir_exists {
-            return Ok(ProgramRemovalStatus {
-                removed: true,
-                still_registered,
-                install_dir_exists,
-            });
-        }
-
-        if started_at.elapsed() >= Duration::from_secs(timeout_secs) {
-            return Ok(ProgramRemovalStatus {
-                removed: false,
-                still_registered,
-                install_dir_exists,
-            });
-        }
-
-        tokio::time::sleep(Duration::from_secs(1)).await;
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-struct ProgramRemovalStatus {
-    removed: bool,
-    still_registered: bool,
-    install_dir_exists: bool,
-}
-
 #[cfg(test)]
 mod tests {
     use super::{select_matching_program, UninstallCommand};
-    use crate::modules::lister::models::{InstallSource, InstalledProgram};
+    use crate::modules::lister::models::{InstallSource, InstalledProgram, UninstallKind};
+    use crate::modules::uninstall;
     use clap::Parser;
 
     #[test]
@@ -449,5 +411,36 @@ mod tests {
             .expect_err("模糊匹配多个程序时应拒绝继续");
 
         assert!(error.to_string().contains("找到多个匹配项"));
+    }
+
+    #[test]
+    fn select_matching_program_can_match_store_application() {
+        let store_program =
+            InstalledProgram::new("OpenAI.ChatGPT-Desktop".to_string(), InstallSource::Store);
+
+        let selected = select_matching_program(vec![store_program.clone()], "chatgpt")
+            .expect("搜索 Store 应用时不应报错");
+
+        assert_eq!(
+            selected.map(|program| program.name),
+            Some(store_program.name)
+        );
+    }
+
+    #[test]
+    fn select_matching_program_can_match_msi_application() {
+        let msi_program = InstalledProgram::new("Demo MSI".to_string(), InstallSource::Msi);
+
+        let selected = select_matching_program(vec![msi_program.clone()], "demo")
+            .expect("搜索 MSI 应用时不应报错");
+
+        assert_eq!(selected.map(|program| program.name), Some(msi_program.name));
+    }
+
+    #[test]
+    fn uninstall_route_name_tracks_uninstall_kind() {
+        assert_eq!(uninstall::route_name(UninstallKind::Legacy), "legacy");
+        assert_eq!(uninstall::route_name(UninstallKind::Msi), "msi");
+        assert_eq!(uninstall::route_name(UninstallKind::Store), "store");
     }
 }

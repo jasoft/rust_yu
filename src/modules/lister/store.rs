@@ -111,6 +111,7 @@ struct StoreAppJson {
 #[cfg(test)]
 mod tests {
     use super::parse_store_apps;
+    use crate::modules::lister::models::UninstallKind;
 
     #[test]
     fn parse_store_apps_supports_array_payloads() {
@@ -130,6 +131,7 @@ mod tests {
         assert_eq!(programs.len(), 1);
         assert_eq!(programs[0].name, "Demo.Store");
         assert_eq!(programs[0].id, "Demo.Store_1.0.0_x64__abc");
+        assert_eq!(programs[0].uninstall_kind, UninstallKind::Store);
         assert!(programs[0]
             .uninstall_string
             .as_deref()
@@ -153,5 +155,6 @@ mod tests {
         assert_eq!(programs.len(), 1);
         assert_eq!(programs[0].name, "Solo.Store");
         assert_eq!(programs[0].version.as_deref(), Some("2.0.0"));
+        assert_eq!(programs[0].uninstall_kind, UninstallKind::Store);
     }
 }

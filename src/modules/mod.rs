@@ -4,3 +4,4 @@ pub mod lister;
 pub mod reporter;
 pub mod scanner;
 pub mod startup;
+pub mod uninstall;

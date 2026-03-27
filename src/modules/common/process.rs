@@ -26,6 +26,10 @@ pub fn is_likely_interactive_uninstall(command: &str) -> bool {
     let lower = command.trim().to_lowercase();
     let tokens = lower.split_whitespace().map(str::trim).collect::<Vec<_>>();
 
+    if lower.contains("remove-appxpackage") {
+        return false;
+    }
+
     if lower.starts_with("msiexec") {
         return !tokens
             .iter()
@@ -486,6 +490,13 @@ mod tests {
     fn detects_silent_exe_uninstall_switches() {
         assert!(!is_likely_interactive_uninstall(
             r#""C:\Program Files\App\uninstall.exe" /S"#
+        ));
+    }
+
+    #[test]
+    fn treats_store_remove_appx_command_as_non_interactive() {
+        assert!(!is_likely_interactive_uninstall(
+            r#"powershell -NoProfile -Command "Remove-AppxPackage -Package 'Demo.Store_1.0.0_x64__abc'""#
         ));
     }
 
