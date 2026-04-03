@@ -1,7 +1,8 @@
 //! uninstall 命令 - 卸载程序并清理残留
 
+use crate::commands::target;
 use crate::modules::common::{process, utils};
-use crate::modules::lister::storage;
+use crate::modules::lister::{models::InstallSource, storage};
 use crate::modules::{cleaner, lister, scanner, uninstall};
 use anyhow::Result;
 use clap::Parser;
@@ -38,23 +39,22 @@ pub struct UninstallCommand {
 }
 
 pub async fn execute(cmd: UninstallCommand) -> Result<()> {
+    let explicit_uninstall_string = cmd.uninstall_string.clone();
     println!("=== 卸载程序: {} ===\n", cmd.target);
 
     // 1. 查找程序并保存注册表信息
     println!("[1/4] 搜索程序并保存注册表信息...");
-    let program = find_and_save_program(&cmd.target, cmd.uninstall_string.as_deref())?;
+    let program = find_and_save_program(&cmd.target, explicit_uninstall_string.as_deref())?;
+    let scan_target_name = program
+        .as_ref()
+        .map(|installed_program| installed_program.name.as_str())
+        .unwrap_or(cmd.target.as_str());
 
-    if let Some(prog) = &program {
-        println!("  - 找到程序: {}", prog.name);
-        if let Some(publisher) = &prog.publisher {
-            println!("  - 发布者: {}", publisher);
-        }
-        if let Some(version) = &prog.version {
-            println!("  - 版本: {}", version);
-        }
-        if let Some(location) = &prog.install_location {
-            println!("  - 安装位置: {}", location);
-        }
+    if explicit_uninstall_string.is_some() {
+        println!("  - 名称: {}", scan_target_name);
+        println!("  - 说明: 已显式传入 --uninstall-string，跳过已安装 App 搜索");
+    } else if let Some(prog) = &program {
+        println!("{}", target::format_selected_target(prog));
     } else {
         println!("  - 未在已安装程序中找到，将尝试直接执行卸载命令");
     }
@@ -62,32 +62,31 @@ pub async fn execute(cmd: UninstallCommand) -> Result<()> {
     // 2. 执行卸载命令并等待
     println!("\n[2/4] 执行卸载命令并等待完成...");
 
-    let uninstall_str = if let Some(installed_program) = program.as_ref() {
+    let uninstall_str = if let Some(command) = explicit_uninstall_string.as_deref() {
+        Some(utils::normalize_uninstall_command(command))
+    } else if let Some(installed_program) = program.as_ref() {
         Some(uninstall::resolve_uninstall_command(installed_program)?)
     } else {
-        cmd.uninstall_string
-            .map(|command| utils::normalize_uninstall_command(&command))
+        None
     };
 
     if let Some(uninstall_str) = uninstall_str {
         println!("  - 卸载命令: {}", uninstall_str);
-        if let Some(installed_program) = &program {
-            println!(
-                "  - 卸载类型: {}",
-                uninstall::route_name(installed_program.uninstall_kind)
-            );
+        if explicit_uninstall_string.is_none() {
+            if let Some(installed_program) = &program {
+                println!(
+                    "  - 卸载类型: {}",
+                    uninstall::route_name(installed_program.uninstall_kind)
+                );
+            }
         }
 
         utils::ensure_running_as_administrator()?;
 
         if process::is_likely_interactive_uninstall(&uninstall_str) {
-            let display_name = program
-                .as_ref()
-                .map(|installed| installed.name.as_str())
-                .unwrap_or(&cmd.target);
             println!(
                 "{}",
-                process::build_interactive_uninstall_message(display_name)
+                process::build_interactive_uninstall_message(scan_target_name)
             );
         }
 
@@ -101,10 +100,7 @@ pub async fn execute(cmd: UninstallCommand) -> Result<()> {
         match run_result.completion_status {
             process::UninstallCompletionStatus::InterruptedByUser => {
                 let message = process::build_unsuccessful_uninstall_message(
-                    program
-                        .as_ref()
-                        .map(|installed| installed.name.as_str())
-                        .unwrap_or(&cmd.target),
+                    scan_target_name,
                     true,
                     false,
                     run_result.exit_code,
@@ -173,7 +169,7 @@ pub async fn execute(cmd: UninstallCommand) -> Result<()> {
         println!("\n[3/4] 搜索残留痕迹...");
 
         // 搜索残留
-        let traces = scanner::scan_all_traces(&cmd.target, None).await?;
+        let traces = scanner::scan_all_traces(scan_target_name, None).await?;
         let existing_traces: Vec<_> = traces.into_iter().filter(|t| t.exists).collect();
 
         println!("  - 找到 {} 个残留痕迹\n", existing_traces.len());
@@ -200,10 +196,7 @@ pub async fn execute(cmd: UninstallCommand) -> Result<()> {
                 // 预览模式，让用户选择
                 println!("=== 预览模式 ===\n");
                 for (i, trace) in existing_traces.iter().enumerate() {
-                    let size = trace
-                        .size
-                        .map(|s| utils::format_size(s))
-                        .unwrap_or_default();
+                    let size = trace.size.map(utils::format_size).unwrap_or_default();
                     println!(
                         "  [{}] {:12} {} {}",
                         i + 1,
@@ -263,28 +256,18 @@ pub async fn execute(cmd: UninstallCommand) -> Result<()> {
     // 4. 清理保存的程序信息
     if !cmd.preserve {
         println!("\n[4/4] 清理保存的程序信息...");
-        storage::delete_saved_program(&cmd.target)?;
+        storage::delete_saved_program(scan_target_name)?;
         println!("  - 已清理");
     } else {
         println!("\n[4/4] 保留程序信息缓存 (可使用 --preserve=false 清理)");
     }
 
     // 卸载流程会改变已安装程序列表，保守起见直接失效列表缓存
-    storage::invalidate_scan_cache_for_program(&cmd.target)?;
+    storage::invalidate_scan_cache_for_program(scan_target_name)?;
     println!("  - 已失效安装列表缓存");
 
     println!("\n=== 卸载完成 ===");
     Ok(())
-}
-
-fn build_uninstall_search_query() -> lister::models::ListProgramsQuery {
-    lister::models::ListProgramsQuery {
-        source: lister::models::InstallSourceSelector::All,
-        search: None,
-        // 卸载是破坏性操作，必须查询最新安装状态，不能信任旧缓存。
-        refresh: true,
-        cache_ttl_seconds: lister::storage::DEFAULT_CACHE_TTL_SECONDS,
-    }
 }
 
 /// 查找程序并保存注册表信息
@@ -294,70 +277,23 @@ fn find_and_save_program(
 ) -> Result<Option<lister::models::InstalledProgram>> {
     // 如果提供了 uninstall_string，直接创建程序信息
     if let Some(uninstall_str) = uninstall_string {
-        let program = lister::models::InstalledProgram::new(
-            target.to_string(),
-            lister::models::InstallSource::Registry,
-        );
+        let program =
+            lister::models::InstalledProgram::new(target.to_string(), InstallSource::Unknown);
         let mut prog = program;
         prog.uninstall_string = Some(uninstall_str.to_string());
         storage::save_program_snapshot(&[prog.clone()])?;
         return Ok(Some(prog));
     }
 
-    // 搜索已安装的程序
-    let programs = lister::list_programs_with_cache(build_uninstall_search_query())?.programs;
-
-    let matched = select_matching_program(programs, target)?;
-
-    if let Some(program) = matched {
-        // 保存到存储
-        storage::save_program_snapshot(&[program.clone()])?;
-        Ok(Some(program))
-    } else {
-        Ok(None)
-    }
-}
-
-fn select_matching_program(
-    programs: Vec<lister::models::InstalledProgram>,
-    target: &str,
-) -> Result<Option<lister::models::InstalledProgram>> {
-    let target_lower = target.to_lowercase();
-
-    let mut exact_matches = programs
-        .iter()
-        .filter(|program| program.name.to_lowercase() == target_lower)
-        .cloned()
-        .collect::<Vec<_>>();
-    if let Some(program) = exact_matches.pop() {
-        return Ok(Some(program));
-    }
-
-    let partial_matches = programs
-        .into_iter()
-        .filter(|program| program.name.to_lowercase().contains(&target_lower))
-        .collect::<Vec<_>>();
-
-    match partial_matches.as_slice() {
-        [] => Ok(None),
-        [program] => Ok(Some(program.clone())),
-        _ => {
-            let candidates = partial_matches
-                .iter()
-                .map(|program| program.name.as_str())
-                .collect::<Vec<_>>()
-                .join(", ");
-            anyhow::bail!("找到多个匹配项，请使用更精确的名称: {}", candidates);
-        }
-    }
+    let program = target::resolve_installed_target(target)?.program;
+    storage::save_program_snapshot(std::slice::from_ref(&program))?;
+    Ok(Some(program))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{build_uninstall_search_query, select_matching_program, UninstallCommand};
-    use crate::modules::lister::models::{
-        InstallSource, InstallSourceSelector, InstalledProgram, UninstallKind,
-    };
+    use super::UninstallCommand;
+    use crate::modules::lister::models::{InstallSource, InstalledProgram, UninstallKind};
     use crate::modules::uninstall;
     use clap::Parser;
 
@@ -392,70 +328,9 @@ mod tests {
     }
 
     #[test]
-    fn select_matching_program_prefers_exact_name_match() {
-        let exact = InstalledProgram::new("7-Zip 24.09 (x64)".to_string(), InstallSource::Registry);
-        let partial = InstalledProgram::new(
-            "7-Zip 24.01 (x64 edition)".to_string(),
-            InstallSource::Registry,
-        );
-
-        let selected = select_matching_program(vec![partial, exact.clone()], "7-Zip 24.09 (x64)")
-            .expect("精确匹配不应报错");
-
-        assert_eq!(selected.map(|program| program.name), Some(exact.name));
-    }
-
-    #[test]
-    fn select_matching_program_rejects_ambiguous_partial_matches() {
-        let first = InstalledProgram::new("7-Zip 24.09 (x64)".to_string(), InstallSource::Registry);
-        let second = InstalledProgram::new(
-            "7-Zip 24.01 (x64 edition)".to_string(),
-            InstallSource::Registry,
-        );
-
-        let error = select_matching_program(vec![first, second], "7-Zip")
-            .expect_err("模糊匹配多个程序时应拒绝继续");
-
-        assert!(error.to_string().contains("找到多个匹配项"));
-    }
-
-    #[test]
-    fn select_matching_program_can_match_store_application() {
-        let store_program =
-            InstalledProgram::new("OpenAI.ChatGPT-Desktop".to_string(), InstallSource::Store);
-
-        let selected = select_matching_program(vec![store_program.clone()], "chatgpt")
-            .expect("搜索 Store 应用时不应报错");
-
-        assert_eq!(
-            selected.map(|program| program.name),
-            Some(store_program.name)
-        );
-    }
-
-    #[test]
-    fn select_matching_program_can_match_msi_application() {
-        let msi_program = InstalledProgram::new("Demo MSI".to_string(), InstallSource::Msi);
-
-        let selected = select_matching_program(vec![msi_program.clone()], "demo")
-            .expect("搜索 MSI 应用时不应报错");
-
-        assert_eq!(selected.map(|program| program.name), Some(msi_program.name));
-    }
-
-    #[test]
     fn uninstall_route_name_tracks_uninstall_kind() {
         assert_eq!(uninstall::route_name(UninstallKind::Legacy), "legacy");
         assert_eq!(uninstall::route_name(UninstallKind::Msi), "msi");
         assert_eq!(uninstall::route_name(UninstallKind::Store), "store");
-    }
-
-    #[test]
-    fn uninstall_search_query_refreshes_all_sources() {
-        let query = build_uninstall_search_query();
-
-        assert_eq!(query.source, InstallSourceSelector::All);
-        assert!(query.refresh);
-        assert!(query.search.is_none());
     }
 }

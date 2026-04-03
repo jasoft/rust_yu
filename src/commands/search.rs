@@ -1,3 +1,4 @@
+use crate::commands::target;
 use crate::modules::scanner;
 use anyhow::Result;
 use clap::Parser;
@@ -21,7 +22,16 @@ pub struct SearchCommand {
 }
 
 pub async fn execute(cmd: SearchCommand) -> Result<()> {
-    println!("正在搜索 \"{}\" 的残留痕迹...\n", cmd.program_name);
+    let resolved_target = target::resolve_installed_target(&cmd.program_name)?;
+    let program_name = resolved_target.program.name.clone();
+
+    println!("已定位目标 App:");
+    println!(
+        "{}",
+        target::format_selected_target(&resolved_target.program)
+    );
+    println!();
+    println!("正在搜索 \"{}\" 的残留痕迹...\n", program_name);
 
     let trace_types = match cmd.trace_type.as_str() {
         "registry" => vec![scanner::models::TraceType::RegistryKey],
@@ -39,7 +49,7 @@ pub async fn execute(cmd: SearchCommand) -> Result<()> {
         ],
     };
 
-    let traces = scanner::scan_all_traces(&cmd.program_name, Some(trace_types)).await?;
+    let traces = scanner::scan_all_traces(&program_name, Some(trace_types)).await?;
 
     // 过滤只显示存在的
     let existing_traces: Vec<_> = traces.into_iter().filter(|t| t.exists).collect();

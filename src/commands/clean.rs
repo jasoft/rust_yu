@@ -1,6 +1,7 @@
+use crate::commands::target;
 use crate::modules::common::text::decode_windows_output;
 use crate::modules::common::utils;
-use crate::modules::{cleaner, lister, reporter, scanner};
+use crate::modules::{cleaner, reporter, scanner};
 use anyhow::Result;
 use chrono::Utc;
 use clap::Parser;
@@ -40,28 +41,40 @@ pub struct CleanCommand {
 }
 
 pub async fn execute(cmd: CleanCommand) -> Result<()> {
+    let resolved_target = if cmd.uninstall_string.is_some() {
+        None
+    } else {
+        Some(target::resolve_installed_target(&cmd.target)?)
+    };
+    let selected_program = resolved_target.as_ref().map(|resolved| &resolved.program);
+    let scan_target_name = selected_program
+        .map(|program| program.name.as_str())
+        .unwrap_or(&cmd.target);
+
+    println!("当前操作目标:");
+    if let Some(program) = selected_program {
+        println!("{}", target::format_selected_target(program));
+    } else {
+        println!("  - 名称: {}", cmd.target);
+        println!("  - 说明: 已显式传入 --uninstall-string，跳过已安装 App 搜索");
+    }
+    println!();
+
     // 1. 如果指定了 --uninstall，先尝试卸载程序
     if cmd.uninstall {
-        println!("正在尝试卸载程序: {}\n", cmd.target);
+        println!("正在尝试卸载程序: {}\n", scan_target_name);
 
         let uninstall_result = if let Some(uninstall_str) = &cmd.uninstall_string {
             // 使用指定的卸载命令
             run_uninstall_command(uninstall_str).await
-        } else {
-            // 搜索已安装的程序并获取卸载命令
-            let programs = lister::list_all_programs(None, Some(&cmd.target))?;
-            if let Some(program) = programs
-                .iter()
-                .find(|p| p.name.to_lowercase().contains(&cmd.target.to_lowercase()))
-            {
-                if let Some(uninstall_str) = program.preferred_uninstall_string() {
-                    run_uninstall_command(uninstall_str).await
-                } else {
-                    anyhow::bail!("程序没有卸载命令")
-                }
+        } else if let Some(program) = selected_program {
+            if let Some(uninstall_str) = program.preferred_uninstall_string() {
+                run_uninstall_command(uninstall_str).await
             } else {
-                anyhow::bail!("未找到程序: {}", cmd.target)
+                anyhow::bail!("程序没有卸载命令")
             }
+        } else {
+            anyhow::bail!("未找到程序: {}", cmd.target)
         };
 
         match uninstall_result {
@@ -85,7 +98,7 @@ pub async fn execute(cmd: CleanCommand) -> Result<()> {
         ],
     };
 
-    let all_traces = scanner::scan_all_traces(&cmd.target, Some(trace_types)).await?;
+    let all_traces = scanner::scan_all_traces(scan_target_name, Some(trace_types)).await?;
 
     // 过滤存在的和排除的
     let traces_to_clean: Vec<_> = all_traces
@@ -101,7 +114,7 @@ pub async fn execute(cmd: CleanCommand) -> Result<()> {
         println!("使用 --confirm 确认删除\n");
 
         for trace in &traces_to_clean {
-            let size = trace.size.map(|s| format_size(s)).unwrap_or_default();
+            let size = trace.size.map(format_size).unwrap_or_default();
             println!(
                 "  [{:12}] {} {}",
                 format!("{:?}", trace.trace_type),
@@ -137,7 +150,7 @@ pub async fn execute(cmd: CleanCommand) -> Result<()> {
     if cmd.report {
         let report = reporter::models::UninstallerReport {
             id: uuid::Uuid::new_v4().to_string(),
-            program_name: cmd.target.clone(),
+            program_name: scan_target_name.to_string(),
             generated_at: Utc::now(),
             traces_found: vec![],
             traces_removed: clean_results,
@@ -148,7 +161,7 @@ pub async fn execute(cmd: CleanCommand) -> Result<()> {
 
         let report_path = cmd
             .report_path
-            .unwrap_or_else(|| format!("uninstall_report_{}.html", cmd.target));
+            .unwrap_or_else(|| format!("uninstall_report_{}.html", scan_target_name));
         let html = reporter::html::generate_html_report(&report)?;
         std::fs::write(&report_path, html)?;
         println!("\n报告已生成: {}", report_path);

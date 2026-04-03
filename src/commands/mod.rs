@@ -4,6 +4,7 @@ pub mod prepare;
 pub mod report;
 pub mod search;
 pub mod startup;
+pub mod target;
 pub mod uninstall;
 
 use clap::Subcommand;
