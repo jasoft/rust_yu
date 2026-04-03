@@ -28,7 +28,7 @@ pub fn list_registry_programs() -> Result<Vec<InstalledProgram>, UninstallerErro
             Ok(key) => {
                 for name in key.enum_keys().filter_map(|k| k.ok()) {
                     if let Ok(subkey) = key.open_subkey(&name) {
-                        if let Some(program) = parse_registry_entry(&subkey) {
+                        if let Some(program) = parse_registry_entry(*hkey, path, &name, &subkey) {
                             // 跳过系统组件和更新
                             if !is_system_component(&program) {
                                 programs.push(program);
@@ -83,7 +83,12 @@ pub fn registry_program_exists(name: &str) -> Result<bool, UninstallerError> {
 }
 
 /// 解析注册表项
-fn parse_registry_entry(subkey: &RegKey) -> Option<InstalledProgram> {
+fn parse_registry_entry(
+    hkey: winreg::HKEY,
+    parent_path: &str,
+    subkey_name: &str,
+    subkey: &RegKey,
+) -> Option<InstalledProgram> {
     // 必须有 DisplayName
     let name: String = subkey.get_value("DisplayName").ok()?;
 
@@ -101,6 +106,12 @@ fn parse_registry_entry(subkey: &RegKey) -> Option<InstalledProgram> {
     program.install_location = subkey.get_value("InstallLocation").ok();
     program.uninstall_string = subkey.get_value("UninstallString").ok();
     program.quiet_uninstall_string = subkey.get_value("QuietUninstallString").ok();
+    program.uninstall_registry_key_path = Some(format!(
+        "{}\\{}\\{}",
+        format_hkey(hkey),
+        parent_path,
+        subkey_name
+    ));
     program.icon_path = subkey.get_value("DisplayIcon").ok();
     program.url_info_about = subkey.get_value("URLInfoAbout").ok();
     program.help_link = subkey.get_value("HelpLink").ok();
@@ -124,6 +135,17 @@ fn parse_registry_entry(subkey: &RegKey) -> Option<InstalledProgram> {
     }
 
     Some(program)
+}
+
+fn format_hkey(hkey: winreg::HKEY) -> &'static str {
+    match hkey {
+        HKEY_LOCAL_MACHINE => "HKLM",
+        HKEY_CURRENT_USER => "HKCU",
+        HKEY_CLASSES_ROOT => "HKCR",
+        HKEY_USERS => "HKU",
+        HKEY_CURRENT_CONFIG => "HKCC",
+        _ => "UNKNOWN",
+    }
 }
 
 /// 检查是否为系统组件

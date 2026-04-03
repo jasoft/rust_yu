@@ -55,6 +55,8 @@ pub struct InstalledProgram {
     #[serde(default)]
     pub quiet_uninstall_string: Option<String>,
     #[serde(default)]
+    pub uninstall_registry_key_path: Option<String>,
+    #[serde(default)]
     pub install_source: InstallSource,
     #[serde(default)]
     pub uninstall_kind: UninstallKind,
@@ -103,6 +105,7 @@ impl InstalledProgram {
             install_location: None,
             uninstall_string: None,
             quiet_uninstall_string: None,
+            uninstall_registry_key_path: None,
             install_source: source,
             uninstall_kind: UninstallKind::from_install_source(source),
             size: None,

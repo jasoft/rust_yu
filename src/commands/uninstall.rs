@@ -3,9 +3,12 @@
 use crate::commands::target;
 use crate::modules::common::{process, utils};
 use crate::modules::lister::{models::InstallSource, storage};
+use crate::modules::scanner::models::{Confidence, Trace, TraceType};
 use crate::modules::{cleaner, lister, scanner, uninstall};
 use anyhow::Result;
 use clap::Parser;
+use std::collections::HashSet;
+use winreg::RegKey;
 
 #[derive(Parser, Debug)]
 pub struct UninstallCommand {
@@ -169,8 +172,13 @@ pub async fn execute(cmd: UninstallCommand) -> Result<()> {
         println!("\n[3/4] 搜索残留痕迹...");
 
         // 搜索残留
-        let traces = scanner::scan_all_traces(scan_target_name, None).await?;
-        let existing_traces: Vec<_> = traces.into_iter().filter(|t| t.exists).collect();
+        let mut traces = scanner::scan_all_traces(scan_target_name, None).await?;
+        if let Some(installed_program) = &program {
+            // 卸载完成后，部分安装目录或 Uninstall 项可能已经被删除。
+            // 这里把卸载前快照里的关键路径重新参与候选集合，避免后续清理只依赖名称扫描。
+            traces.extend(build_snapshot_residue_traces(installed_program)?);
+        }
+        let existing_traces = dedupe_traces(traces.into_iter().filter(|t| t.exists).collect());
 
         println!("  - 找到 {} 个残留痕迹\n", existing_traces.len());
 
@@ -270,6 +278,67 @@ pub async fn execute(cmd: UninstallCommand) -> Result<()> {
     Ok(())
 }
 
+fn build_snapshot_residue_traces(program: &lister::models::InstalledProgram) -> Result<Vec<Trace>> {
+    let mut traces = Vec::new();
+
+    if let Some(install_location) = program.install_location.as_deref() {
+        let path = std::path::Path::new(install_location);
+        if path.exists() {
+            let mut trace = Trace::new(
+                program.name.clone(),
+                TraceType::File,
+                install_location.to_string(),
+            )
+            .with_description("卸载前快照记录的安装目录".to_string())
+            .with_confidence(Confidence::High);
+
+            if let Ok(metadata) = path.metadata() {
+                if metadata.is_file() {
+                    trace.size = Some(metadata.len());
+                }
+            }
+
+            traces.push(trace);
+        }
+    }
+
+    if let Some(registry_path) = program.uninstall_registry_key_path.as_deref() {
+        if registry_key_exists(registry_path) {
+            traces.push(
+                Trace::new(
+                    program.name.clone(),
+                    TraceType::RegistryKey,
+                    registry_path.to_string(),
+                )
+                .with_description("卸载前快照记录的 Uninstall 注册表项".to_string())
+                .with_confidence(Confidence::High),
+            );
+        }
+    }
+
+    Ok(traces)
+}
+
+fn registry_key_exists(path: &str) -> bool {
+    utils::parse_registry_path(path)
+        .and_then(|(hive, subpath)| RegKey::predef(hive).open_subkey(subpath).ok())
+        .is_some()
+}
+
+fn dedupe_traces(traces: Vec<Trace>) -> Vec<Trace> {
+    let mut seen = HashSet::new();
+    let mut deduped = Vec::with_capacity(traces.len());
+
+    for trace in traces {
+        let key = (trace.trace_type.to_string(), trace.path.to_lowercase());
+        if seen.insert(key) {
+            deduped.push(trace);
+        }
+    }
+
+    deduped
+}
+
 /// 查找程序并保存注册表信息
 fn find_and_save_program(
     target: &str,
@@ -292,10 +361,14 @@ fn find_and_save_program(
 
 #[cfg(test)]
 mod tests {
-    use super::UninstallCommand;
+    use super::{build_snapshot_residue_traces, UninstallCommand};
     use crate::modules::lister::models::{InstallSource, InstalledProgram, UninstallKind};
+    use crate::modules::scanner::models::TraceType;
     use crate::modules::uninstall;
     use clap::Parser;
+    use std::path::PathBuf;
+    use winreg::enums::HKEY_CURRENT_USER;
+    use winreg::RegKey;
 
     #[test]
     fn preserve_defaults_to_true() {
@@ -332,5 +405,36 @@ mod tests {
         assert_eq!(uninstall::route_name(UninstallKind::Legacy), "legacy");
         assert_eq!(uninstall::route_name(UninstallKind::Msi), "msi");
         assert_eq!(uninstall::route_name(UninstallKind::Store), "store");
+    }
+
+    #[test]
+    fn build_snapshot_residue_traces_uses_saved_install_location_and_uninstall_key() {
+        let suffix = uuid::Uuid::new_v4().to_string();
+        let install_root =
+            std::env::temp_dir().join(format!("rust-yu-uninstall-snapshot-{suffix}"));
+        let registry_path = format!(r"Software\rust-yu-test\{suffix}");
+        let hive = RegKey::predef(HKEY_CURRENT_USER);
+
+        std::fs::create_dir_all(&install_root).expect("应能创建测试安装目录");
+        hive.create_subkey(&registry_path)
+            .expect("应能创建测试注册表项");
+
+        let mut program = InstalledProgram::new("Demo App".to_string(), InstallSource::Registry);
+        program.install_location = Some(install_root.to_string_lossy().to_string());
+        program.uninstall_registry_key_path = Some(format!(r"HKCU\{registry_path}"));
+
+        let traces =
+            build_snapshot_residue_traces(&program).expect("应能基于卸载前快照生成残余候选");
+
+        assert!(traces.iter().any(|trace| {
+            trace.trace_type == TraceType::File && trace.path == install_root.to_string_lossy()
+        }));
+        assert!(traces.iter().any(|trace| {
+            trace.trace_type == TraceType::RegistryKey
+                && trace.path == format!(r"HKCU\{registry_path}")
+        }));
+
+        let _ = hive.delete_subkey_all(&registry_path);
+        let _ = std::fs::remove_dir_all(PathBuf::from(&install_root));
     }
 }
