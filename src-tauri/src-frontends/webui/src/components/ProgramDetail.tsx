@@ -1,0 +1,139 @@
+import {
+  Trash2,
+  SearchCode,
+  FolderOpen,
+    ArrowLeft,
+  Package,
+} from "lucide-react";
+import { useProgramsStore } from "../stores/programs";
+import { Button } from "./ui/button";
+import { Card, CardContent, CardHeader } from "./ui/card";
+import { Badge } from "./ui/badge";
+import { formatBytes, formatSource } from "../lib/utils";
+
+export function ProgramDetail() {
+  const { selectedProgram, setViewMode, scanTraces, selectProgram } =
+    useProgramsStore();
+
+  if (!selectedProgram) return null;
+  const p = selectedProgram;
+
+  return (
+    <div className="flex flex-col h-full overflow-auto">
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-700">
+        <button
+          onClick={() => selectProgram(null)}
+          className="text-slate-400 hover:text-white transition-colors"
+        >
+          <ArrowLeft className="h-4 w-4" />
+        </button>
+        <h2 className="text-lg font-semibold text-white">{p.name}</h2>
+        <Badge
+          variant={
+            p.install_source === "store"
+              ? "success"
+              : p.install_source === "msi"
+                ? "warning"
+                : "default"
+          }
+        >
+          {formatSource(p.install_source)}
+        </Badge>
+      </div>
+
+      <div className="flex-1 p-4 space-y-4">
+        {/* 图标与基本信息 */}
+        <Card>
+          <CardContent className="flex items-center gap-4 py-4">
+            {p.icon_data_url_48 || p.icon_data_url_32 || p.icon_data_url ? (
+              <img
+                src={p.icon_data_url_48 || p.icon_data_url_32 || p.icon_data_url!}
+                alt=""
+                className="h-12 w-12 rounded"
+              />
+            ) : (
+              <div className="flex h-12 w-12 items-center justify-center rounded bg-slate-700">
+                <Package className="h-6 w-6 text-slate-400" />
+              </div>
+            )}
+            <div>
+              <h3 className="text-base font-semibold text-white">{p.name}</h3>
+              <p className="text-sm text-slate-400">
+                {p.publisher ?? "未知发布者"} {p.version && `· v${p.version}`}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* 详细信息 */}
+        <Card>
+          <CardHeader>
+            <span className="text-sm font-medium text-slate-300">详细信息</span>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <InfoRow label="程序 ID" value={p.id} />
+            <InfoRow label="安装来源" value={formatSource(p.install_source)} />
+            <InfoRow label="卸载类型" value={p.uninstall_kind} />
+            <InfoRow label="安装位置" value={p.install_location} />
+            <InfoRow label="安装日期" value={p.install_date} />
+            <InfoRow label="大小" value={p.size ? formatBytes(p.size) : null} />
+            <InfoRow label="估算大小" value={p.estimated_size ? formatBytes(p.estimated_size) : null} />
+            <InfoRow label="卸载命令" value={p.uninstall_string} mono />
+            <InfoRow label="静默卸载" value={p.quiet_uninstall_string} mono />
+            <InfoRow label="注册表路径" value={p.uninstall_registry_key_path} mono />
+          </CardContent>
+        </Card>
+
+        {/* 操作按钮 */}
+        <div className="flex gap-3">
+          <Button
+            variant="destructive"
+            onClick={() => setViewMode("uninstall")}
+          >
+            <Trash2 className="h-4 w-4" />
+            卸载程序
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => scanTraces(p.name)}
+          >
+            <SearchCode className="h-4 w-4" />
+            扫描残留
+          </Button>
+          {p.install_location && (
+            <a
+              href={`file:///${p.install_location}`}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-700 hover:text-white transition-colors"
+            >
+              <FolderOpen className="h-4 w-4" />
+              打开目录
+            </a>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function InfoRow({
+  label,
+  value,
+  mono,
+}: {
+  label: string;
+  value: string | null | undefined;
+  mono?: boolean;
+}) {
+  if (!value) return null;
+  return (
+    <div className="flex gap-2">
+      <span className="w-24 shrink-0 text-slate-500">{label}</span>
+      <span className={mono ? "font-mono text-xs break-all text-slate-300" : "text-slate-300"}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
