@@ -7,34 +7,48 @@ use walkdir::WalkDir;
 /// 扫描 AppData 痕迹
 pub fn scan_appdata_traces(program_name: &str) -> Result<Vec<Trace>, UninstallerError> {
     let mut traces = Vec::new();
-    let search_pattern = program_name.to_lowercase();
+    let search_patterns = build_search_patterns(program_name);
 
     // 扫描用户 AppData 目录
     if let Some(home) = dirs::home_dir() {
         // Roaming
         let roaming = home.join("AppData").join("Roaming");
         if roaming.exists() {
-            scan_appdata_dir(&roaming, &search_pattern, &mut traces);
+            scan_appdata_dir(&roaming, program_name, &search_patterns, &mut traces);
         }
 
         // Local
         let local = home.join("AppData").join("Local");
         if local.exists() {
-            scan_appdata_dir(&local, &search_pattern, &mut traces);
+            scan_appdata_dir(&local, program_name, &search_patterns, &mut traces);
         }
 
         // LocalLow
         let local_low = home.join("AppData").join("LocalLow");
         if local_low.exists() {
-            scan_appdata_dir(&local_low, &search_pattern, &mut traces);
+            scan_appdata_dir(&local_low, program_name, &search_patterns, &mut traces);
         }
     }
 
     Ok(traces)
 }
 
+fn build_search_patterns(program_name: &str) -> Vec<String> {
+    let lower_name = program_name.to_lowercase();
+    let compact_name = compact_identifier(program_name);
+    let mut patterns = vec![lower_name];
+
+    // 老程序经常省略空格和通用后缀（例如 App）命名 AppData 目录。
+    // 设置长度门槛，避免把短词误匹配到无关目录。
+    if compact_name.len() >= 8 {
+        patterns.push(compact_name);
+    }
+
+    patterns
+}
+
 /// 扫描 AppData 目录
-fn scan_appdata_dir(dir: &Path, pattern: &str, traces: &mut Vec<Trace>) {
+fn scan_appdata_dir(dir: &Path, program_name: &str, patterns: &[String], traces: &mut Vec<Trace>) {
     let walker = WalkDir::new(dir)
         .max_depth(4) // AppData 目录可能比较深
         .follow_links(false);
@@ -47,7 +61,7 @@ fn scan_appdata_dir(dir: &Path, pattern: &str, traces: &mut Vec<Trace>) {
             .unwrap_or_default();
 
         // 检查名称是否包含搜索模式
-        if name.contains(pattern) {
+        if matches_appdata_name(&name, patterns) {
             // 跳过某些系统目录
             if is_system_appdata_dir(path) {
                 continue;
@@ -74,15 +88,14 @@ fn scan_appdata_dir(dir: &Path, pattern: &str, traces: &mut Vec<Trace>) {
                     .unwrap_or_else(|| "用户数据文件".to_string())
             };
 
-            let confidence =
-                if name.starts_with(pattern) || name.to_lowercase() == pattern.to_lowercase() {
-                    Confidence::High
-                } else {
-                    Confidence::Medium
-                };
+            let confidence = if patterns.iter().any(|pattern| name.starts_with(pattern)) {
+                Confidence::High
+            } else {
+                Confidence::Medium
+            };
 
             let mut trace = Trace::new(
-                pattern.to_string(),
+                program_name.to_string(),
                 trace_type,
                 path.to_string_lossy().to_string(),
             )
@@ -96,6 +109,25 @@ fn scan_appdata_dir(dir: &Path, pattern: &str, traces: &mut Vec<Trace>) {
             traces.push(trace);
         }
     }
+}
+
+fn matches_appdata_name(name: &str, patterns: &[String]) -> bool {
+    patterns.iter().enumerate().any(|(index, pattern)| {
+        if index == 0 {
+            return name.contains(pattern);
+        }
+
+        let compact_name = compact_identifier(name);
+        compact_name == *pattern || (compact_name.len() >= 8 && pattern.starts_with(&compact_name))
+    })
+}
+
+fn compact_identifier(value: &str) -> String {
+    value
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 
 /// 检查是否为系统 AppData 目录
@@ -133,4 +165,17 @@ fn calculate_size(path: &Path) -> Option<u64> {
     }
 
     Some(size)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_search_patterns, matches_appdata_name};
+
+    #[test]
+    fn appdata_matching_accepts_compact_legacy_directory_name() {
+        let patterns = build_search_patterns("RustYu Legacy Test App");
+
+        assert!(matches_appdata_name("rustyulegacytest", &patterns));
+        assert!(!matches_appdata_name("rusty", &patterns));
+    }
 }

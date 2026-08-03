@@ -14,14 +14,20 @@ export function useTauriEvent<T>(
 
   useEffect(() => {
     let unlisten: UnlistenFn | undefined;
+    let active = true;
 
     listen<T>(eventName, (event) => {
       handlerRef.current(event.payload);
     }).then((fn) => {
-      unlisten = fn;
+      if (active) {
+        unlisten = fn;
+      } else {
+        fn();
+      }
     });
 
     return () => {
+      active = false;
       unlisten?.();
     };
   }, [eventName]);

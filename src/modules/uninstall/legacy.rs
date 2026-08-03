@@ -26,8 +26,10 @@ pub fn check_removal(program: &InstalledProgram) -> Result<ProgramRemovalStatus,
         .map(|path| path.exists())
         .unwrap_or(false);
 
+    // Legacy 卸载器经常会主动保留日志、配置等残留文件；注册表卸载项消失
+    // 后即可进入残留扫描，不能把整个安装目录仍存在误判为卸载失败。
     Ok(ProgramRemovalStatus {
-        removed: !still_registered && !install_dir_exists,
+        removed: !still_registered,
         still_registered,
         install_dir_exists,
         store_package_present: false,

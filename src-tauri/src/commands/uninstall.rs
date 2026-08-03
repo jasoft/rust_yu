@@ -6,6 +6,7 @@ use rust_yu_lib::modules::scanner::models::Trace;
 use rust_yu_lib::modules::{cleaner, scanner, uninstall};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
+use tokio::process::Command as AsyncCommand;
 
 use super::CommandError;
 
@@ -59,10 +60,7 @@ pub enum UninstallProgress {
         bytes_freed: u64,
     },
     /// 整体完成
-    Finished {
-        success: bool,
-        message: String,
-    },
+    Finished { success: bool, message: String },
 }
 
 const UNINSTALL_PROGRESS_EVENT: &str = "uninstall-progress";
@@ -131,7 +129,11 @@ pub async fn uninstall_program(
 
         return Ok(UninstallResult {
             success: true,
-            message: format!("已扫描 {} 的残留痕迹，共 {} 项", scan_target_name, existing.len()),
+            message: format!(
+                "已扫描 {} 的残留痕迹，共 {} 项",
+                scan_target_name,
+                existing.len()
+            ),
             exit_code: None,
             reboot_required: false,
             traces_found: existing.len(),
@@ -141,7 +143,69 @@ pub async fn uninstall_program(
     }
 
     // 2. 检查管理员权限
-    utils::ensure_running_as_administrator().map_err(|e| CommandError::new(e.to_string()))?;
+    if let Err(error) = utils::ensure_running_as_administrator() {
+        let _ = app.emit(
+            UNINSTALL_PROGRESS_EVENT,
+            UninstallProgress::UninstallStarted {
+                command: "请求管理员辅助进程执行卸载与残留清理".to_string(),
+            },
+        );
+
+        let exit_code = run_elevated_cli_uninstall(&scan_target_name, options.timeout_secs)
+            .await
+            .map_err(|worker_error| {
+                CommandError::new(format!(
+                    "{}；管理员辅助进程启动失败: {}",
+                    error, worker_error
+                ))
+            })?;
+
+        if exit_code != Some(0) {
+            let message = format!(
+                "管理员辅助进程卸载失败，退出码: {}",
+                exit_code
+                    .map(|code| code.to_string())
+                    .unwrap_or_else(|| "unknown".to_string())
+            );
+            let _ = app.emit(
+                UNINSTALL_PROGRESS_EVENT,
+                UninstallProgress::Finished {
+                    success: false,
+                    message: message.clone(),
+                },
+            );
+            return Err(CommandError::new(message));
+        }
+
+        let _ = app.emit(
+            UNINSTALL_PROGRESS_EVENT,
+            UninstallProgress::UninstallCompleted {
+                exit_code,
+                reboot_required: false,
+                used_job_object: true,
+            },
+        );
+        let message = format!(
+            "卸载完成，管理员辅助进程已执行卸载并清理残留: {}",
+            scan_target_name
+        );
+        let _ = app.emit(
+            UNINSTALL_PROGRESS_EVENT,
+            UninstallProgress::Finished {
+                success: true,
+                message: message.clone(),
+            },
+        );
+        return Ok(UninstallResult {
+            success: true,
+            message,
+            exit_code,
+            reboot_required: false,
+            traces_found: 0,
+            traces_cleaned: 0,
+            bytes_freed: 0,
+        });
+    }
 
     // 3. 执行卸载命令
     let cmd_str = uninstall_command
@@ -313,10 +377,63 @@ pub async fn uninstall_program(
     })
 }
 
+/// 通过 UAC 启动同一仓库的 CLI 辅助进程，避免让普通权限 GUI 直接执行删除操作。
+async fn run_elevated_cli_uninstall(
+    program_name: &str,
+    timeout_secs: u64,
+) -> Result<Option<u32>, String> {
+    let current_exe = std::env::current_exe().map_err(|error| error.to_string())?;
+    let cli_exe = current_exe
+        .parent()
+        .ok_or_else(|| "无法确定 CLI 辅助程序目录".to_string())?
+        .join("yu.exe");
+    if !cli_exe.is_file() {
+        return Err(format!(
+            "未找到管理员辅助程序: {}，请先构建 yu.exe",
+            cli_exe.display()
+        ));
+    }
+
+    let cli_path = quote_powershell_string(&cli_exe.to_string_lossy());
+    let target = program_name.replace('"', "\\\"");
+    let timeout = timeout_secs.to_string();
+    let argument_list = quote_powershell_string(&format!(
+        "uninstall \"{target}\" --confirm --clean --timeout {timeout}"
+    ));
+    let script = format!(
+        "$process = Start-Process -FilePath '{cli_path}' -ArgumentList '{argument_list}' -Verb RunAs -WindowStyle Hidden -Wait -PassThru; exit $process.ExitCode"
+    );
+
+    let output = AsyncCommand::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            &script,
+        ])
+        .output()
+        .await
+        .map_err(|error| error.to_string())?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        if stderr.is_empty() {
+            return Ok(output.status.code().map(|code| code as u32));
+        }
+        return Err(stderr);
+    }
+
+    Ok(output.status.code().map(|code| code as u32))
+}
+
+fn quote_powershell_string(value: &str) -> String {
+    value.replace(char::from(39), "''")
+}
+
 /// 基于卸载前快照构造残余候选痕迹
-fn build_snapshot_residue_traces(
-    program: &InstalledProgram,
-) -> Result<Vec<Trace>, CommandError> {
+fn build_snapshot_residue_traces(program: &InstalledProgram) -> Result<Vec<Trace>, CommandError> {
     let mut traces = Vec::new();
 
     if let Some(install_location) = program.install_location.as_deref() {
@@ -342,11 +459,7 @@ fn build_snapshot_residue_traces(
 
     if let Some(registry_path) = program.uninstall_registry_key_path.as_deref() {
         if utils::parse_registry_path(registry_path)
-            .and_then(|(hive, subpath)| {
-                winreg::RegKey::predef(hive)
-                    .open_subkey(subpath)
-                    .ok()
-            })
+            .and_then(|(hive, subpath)| winreg::RegKey::predef(hive).open_subkey(subpath).ok())
             .is_some()
         {
             traces.push(

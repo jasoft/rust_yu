@@ -37,6 +37,7 @@ tokio = { version = "1", features = [
     "fs",
     "sync",
     "time",
+    "process",
 ] }
 
 # 其他工具
@@ -47,5 +48,4 @@ winreg = "0.55.0"
 
 # HTTP 服务器 (用于开发模式)
 warp = "0.3"
-
 
