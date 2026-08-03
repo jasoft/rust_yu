@@ -13,7 +13,16 @@ pub fn init_logging(verbose: bool) {
         .join("rust-yu")
         .join("logs");
 
-    let _ = std::fs::create_dir_all(&log_dir);
+    // 尝试创建日志目录，如果失败则使用临时目录
+    let log_dir = match std::fs::create_dir_all(&log_dir) {
+        Ok(_) => log_dir,
+        Err(_) => {
+            // 如果无法在默认位置创建日志目录，使用临时目录
+            let temp_dir = std::env::temp_dir().join("rust-yu").join("logs");
+            let _ = std::fs::create_dir_all(&temp_dir);
+            temp_dir
+        }
+    };
 
     // 设置文件输出
     let file_appender = tracing_appender::rolling::daily(&log_dir, "rust-yu.log");
