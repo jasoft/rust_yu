@@ -8,6 +8,7 @@ import {
   FolderOpen,
   Link2,
 } from "lucide-react";
+import { useState } from "react";
 import { useProgramsStore } from "../stores/programs";
 import { Button } from "./ui/button";
 import { Card, CardContent } from "./ui/card";
@@ -24,6 +25,7 @@ const traceTypeLabels: Record<string, { label: string; icon: typeof FileCode; va
 };
 
 export function TracePanel() {
+  const [cleanConfirmOpen, setCleanConfirmOpen] = useState(false);
   const {
     traces,
     tracesLoading,
@@ -49,7 +51,7 @@ export function TracePanel() {
   const hasCleaned = cleanResults.length > 0;
 
   return (
-    <div className="flex flex-col h-full overflow-auto">
+    <div className="flex min-w-0 flex-col h-full overflow-y-auto overflow-x-hidden">
       <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-700">
         <button onClick={resetTraces} className="text-slate-400 hover:text-white">
           <ArrowLeft className="h-4 w-4" />
@@ -58,7 +60,7 @@ export function TracePanel() {
         <span className="text-sm text-slate-400">{selectedProgram?.name}</span>
       </div>
 
-      <div className="flex-1 p-4 space-y-4">
+      <div className="min-w-0 flex-1 space-y-4 p-4">
         {/* 操作栏 */}
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="sm" onClick={toggleAllTraces}>
@@ -73,13 +75,43 @@ export function TracePanel() {
               variant="destructive"
               size="sm"
               disabled={selectedTraces.size === 0}
-              onClick={() => cleanTraces(true)}
+              onClick={() => setCleanConfirmOpen(true)}
             >
               <Trash2 className="h-4 w-4" />
               清理选中项 ({selectedTraces.size})
             </Button>
           )}
         </div>
+
+        {cleanConfirmOpen && !hasCleaned && (
+          <Card className="border-amber-500/50">
+            <CardContent className="space-y-3 py-4">
+              <p className="text-sm font-medium text-amber-300">确认清理选中的残留项？</p>
+              <p className="text-xs text-slate-400">
+                将删除 {selectedTraces.size} 个已选文件或注册表项。此操作不可自动撤销，请确认每一项都属于该程序。
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => {
+                    setCleanConfirmOpen(false);
+                    void cleanTraces(true);
+                  }}
+                >
+                  确认清理
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setCleanConfirmOpen(false)}
+                >
+                  取消
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* 清理结果 */}
         {hasCleaned && (
@@ -140,7 +172,7 @@ function TraceItem({
     <button
       onClick={onToggle}
       disabled={cleaned}
-      className={`flex w-full items-start gap-3 rounded-md border p-3 text-left transition-colors ${
+      className={`flex min-w-0 w-full items-start gap-3 rounded-md border p-3 text-left transition-colors ${
         selected
           ? "border-blue-500/50 bg-blue-900/10"
           : "border-slate-700 bg-slate-800 hover:bg-slate-700/50"
@@ -149,9 +181,10 @@ function TraceItem({
       <input
         type="checkbox"
         checked={selected}
-        onChange={onToggle}
+        readOnly
         disabled={cleaned}
-        className="mt-1"
+        tabIndex={-1}
+        className="pointer-events-none mt-1"
       />
       <Icon className="h-4 w-4 mt-0.5 text-slate-400 shrink-0" />
       <div className="flex-1 min-w-0">

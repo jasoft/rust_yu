@@ -16,7 +16,7 @@ tauri-build = { version = "2.0", features = [] }
 [dependencies]
 
 # Tauri
-tauri = { version = "2.0", features = [] }
+tauri = { version = "2.0", features = ["protocol-asset"] }
 tauri-plugin-shell = "2.0"
 
 # 主项目库
@@ -47,6 +47,5 @@ winreg = "0.55.0"
 
 # HTTP 服务器 (用于开发模式)
 warp = "0.3"
-
 
 

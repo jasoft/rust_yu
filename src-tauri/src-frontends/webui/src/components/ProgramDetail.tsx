@@ -10,6 +10,7 @@ import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { formatBytes, formatSource } from "../lib/utils";
+import { getProgramIconSrc } from "../lib/icon";
 
 export function ProgramDetail() {
   const { selectedProgram, setViewMode, scanTraces, selectProgram } =
@@ -17,9 +18,10 @@ export function ProgramDetail() {
 
   if (!selectedProgram) return null;
   const p = selectedProgram;
+  const iconSrc = getProgramIconSrc(p);
 
   return (
-    <div className="flex flex-col h-full overflow-auto">
+    <div className="flex min-w-0 flex-col h-full overflow-y-auto overflow-x-hidden">
       <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-700">
         <button
           onClick={() => selectProgram(null)}
@@ -41,13 +43,13 @@ export function ProgramDetail() {
         </Badge>
       </div>
 
-      <div className="flex-1 p-4 space-y-4">
+      <div className="flex-1 min-w-0 p-4 space-y-4">
         {/* 图标与基本信息 */}
-        <Card>
+        <Card className="min-w-0">
           <CardContent className="flex items-center gap-4 py-4">
-            {p.icon_data_url_48 || p.icon_data_url_32 || p.icon_data_url ? (
+            {iconSrc ? (
               <img
-                src={p.icon_data_url_48 || p.icon_data_url_32 || p.icon_data_url!}
+                src={iconSrc}
                 alt=""
                 className="h-12 w-12 rounded"
               />
@@ -70,7 +72,7 @@ export function ProgramDetail() {
           <CardHeader>
             <span className="text-sm font-medium text-slate-300">详细信息</span>
           </CardHeader>
-          <CardContent className="space-y-2 text-sm">
+          <CardContent className="min-w-0 space-y-2 text-sm">
             <InfoRow label="程序 ID" value={p.id} />
             <InfoRow label="安装来源" value={formatSource(p.install_source)} />
             <InfoRow label="卸载类型" value={p.uninstall_kind} />
@@ -128,9 +130,15 @@ function InfoRow({
 }) {
   if (!value) return null;
   return (
-    <div className="flex gap-2">
+    <div className="flex min-w-0 gap-2">
       <span className="w-24 shrink-0 text-slate-500">{label}</span>
-      <span className={mono ? "font-mono text-xs break-all text-slate-300" : "text-slate-300"}>
+      <span
+        className={
+          mono
+            ? "min-w-0 whitespace-pre-wrap break-all font-mono text-xs text-slate-300"
+            : "min-w-0 whitespace-pre-wrap break-words text-slate-300"
+        }
+      >
         {value}
       </span>
     </div>

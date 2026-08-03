@@ -97,7 +97,12 @@ fn parse_registry_entry(
         return None;
     }
 
-    let mut program = InstalledProgram::new(name, InstallSource::Registry);
+    let install_source = if is_msi_entry(subkey) {
+        InstallSource::Msi
+    } else {
+        InstallSource::Registry
+    };
+    let mut program = InstalledProgram::new(name, install_source);
 
     // 提取可选字段
     program.publisher = subkey.get_value("Publisher").ok();
@@ -135,6 +140,18 @@ fn parse_registry_entry(
     }
 
     Some(program)
+}
+
+fn is_msi_entry(subkey: &RegKey) -> bool {
+    subkey
+        .get_value::<u32, _>("WindowsInstaller")
+        .map(|value| value == 1)
+        .unwrap_or_else(|_| {
+            subkey
+                .get_value::<String, _>("WindowsInstaller")
+                .map(|value| value == "1")
+                .unwrap_or(false)
+        })
 }
 
 fn format_hkey(hkey: winreg::HKEY) -> &'static str {

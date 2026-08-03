@@ -21,12 +21,14 @@ interface ProgramsState {
   viewMode: ViewMode;
   traces: Trace[];
   tracesLoading: boolean;
+  metadataLoading: boolean;
   selectedTraces: Set<string>;
   cleanResults: CleanResult[];
   uninstallResult: UninstallResult | null;
   uninstalling: boolean;
 
   loadPrograms: (options?: { source?: string; search?: string; refresh?: boolean }) => Promise<void>;
+  warmupIcons: () => Promise<void>;
   setSearchQuery: (query: string) => void;
   setSourceFilter: (source: string) => void;
   selectProgram: (program: InstalledProgram | null) => void;
@@ -64,6 +66,7 @@ export const useProgramsStore = create<ProgramsState>((set, get) => ({
   viewMode: "list",
   traces: [],
   tracesLoading: false,
+  metadataLoading: false,
   selectedTraces: new Set(),
   cleanResults: [],
   uninstallResult: null,
@@ -82,6 +85,25 @@ export const useProgramsStore = create<ProgramsState>((set, get) => ({
       set({ programs: response.programs, loading: false });
     } catch (e) {
       set({ error: extractErrorMessage(e), loading: false });
+    }
+  },
+
+  warmupIcons: async () => {
+    set({ metadataLoading: true, error: null });
+    try {
+      await invoke("warmup_program_metadata", {
+        options: {
+          source: "all",
+          refresh: false,
+          icons: true,
+          sizes: false,
+          progress_event: "installed-program-metadata-progress",
+        },
+      });
+    } catch (e) {
+      set({ error: extractErrorMessage(e) });
+    } finally {
+      set({ metadataLoading: false });
     }
   },
 
@@ -107,7 +129,8 @@ export const useProgramsStore = create<ProgramsState>((set, get) => ({
       set({
         traces: existing,
         tracesLoading: false,
-        selectedTraces: new Set(existing.map((t) => t.id)),
+        // 残留项默认不勾选，避免用户在未逐项确认前误触发删除。
+        selectedTraces: new Set(),
         viewMode: "traces",
       });
     } catch (e) {

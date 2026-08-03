@@ -4,6 +4,7 @@ import { useProgramsStore } from "../stores/programs";
 import { Input } from "./ui/input";
 import { Badge } from "./ui/badge";
 import { cn, formatBytes, formatSource } from "../lib/utils";
+import { getProgramIconSrc } from "../lib/icon";
 import type { InstalledProgram } from "../types";
 
 const sourceOptions = [
@@ -17,19 +18,32 @@ export function ProgramList() {
   const {
     programs,
     loading,
+    metadataLoading,
     error,
     searchQuery,
     sourceFilter,
     selectedProgram,
     loadPrograms,
+    warmupIcons,
     setSearchQuery,
     setSourceFilter,
     selectProgram,
   } = useProgramsStore();
 
   useEffect(() => {
-    loadPrograms();
-  }, []);
+    let cancelled = false;
+    const initialize = async () => {
+      await loadPrograms();
+      if (cancelled) return;
+      await warmupIcons();
+      if (!cancelled) await loadPrograms();
+    };
+
+    void initialize();
+    return () => {
+      cancelled = true;
+    };
+  }, [loadPrograms, warmupIcons]);
 
   const handleSearch = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -56,11 +70,11 @@ export function ProgramList() {
         </div>
         <button
           onClick={handleRefresh}
-          disabled={loading}
+          disabled={loading || metadataLoading}
           className="inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-sm text-slate-300 hover:bg-slate-700 transition-colors"
         >
           <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
-          刷新
+          {metadataLoading ? "图标缓存中..." : "刷新"}
         </button>
       </div>
 
@@ -124,7 +138,7 @@ function ProgramItem({
   selected: boolean;
   onClick: () => void;
 }) {
-  const iconSrc = program.icon_data_url_32 || program.icon_data_url_48 || program.icon_data_url;
+  const iconSrc = getProgramIconSrc(program);
 
   return (
     <button

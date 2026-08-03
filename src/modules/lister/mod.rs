@@ -110,6 +110,14 @@ where
     }
 
     let cache_eligible = is_cache_eligible(query.source);
+    tracing::info!(
+        source = query.source.as_str(),
+        refresh = query.refresh,
+        icons = query.icons,
+        sizes = query.sizes,
+        search = ?query.search,
+        "开始预热已安装程序元数据"
+    );
     let base_query = ListProgramsQuery {
         source: query.source,
         search: None,
@@ -220,6 +228,10 @@ where
     if cache_eligible {
         dedupe_and_sort(&mut response.programs);
         storage::save_scan_cache(query.source, &response.programs)?;
+        tracing::info!(
+            program_count = response.programs.len(),
+            "已保存元数据预热结果"
+        );
         summary.cache = ProgramListCacheState {
             cache_hit: false,
             cache_valid: true,
