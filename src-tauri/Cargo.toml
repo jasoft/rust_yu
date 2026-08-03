@@ -42,6 +42,9 @@ tokio = { version = "1", features = [
 # 其他工具
 dirs = "5.0"
 
+# 注册表操作
+winreg = "0.55.0"
+
 # HTTP 服务器 (用于开发模式)
 warp = "0.3"
 

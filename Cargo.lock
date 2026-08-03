@@ -3212,6 +3212,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "warp 0.3.7",
+ "winreg",
 ]
 
 [[package]]
