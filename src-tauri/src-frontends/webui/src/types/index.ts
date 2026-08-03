@@ -91,6 +91,7 @@ export interface UninstallProgressUninstallCompleted {
   stage: "uninstall_completed";
   exit_code: number | null;
   reboot_required: boolean;
+  used_job_object: boolean;
 }
 
 export interface UninstallProgressScanCompleted {

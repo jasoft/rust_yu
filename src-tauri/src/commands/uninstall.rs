@@ -48,6 +48,7 @@ pub enum UninstallProgress {
     UninstallCompleted {
         exit_code: Option<u32>,
         reboot_required: bool,
+        used_job_object: bool,
     },
     /// 残留扫描完成
     ScanCompleted { traces: Vec<Trace> },
@@ -181,6 +182,7 @@ pub async fn uninstall_program(
         UninstallProgress::UninstallCompleted {
             exit_code: run_result.exit_code,
             reboot_required,
+            used_job_object: run_result.used_job_object,
         },
     );
 

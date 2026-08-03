@@ -112,7 +112,7 @@ function formatProgressLog(event: UninstallProgress): string | null {
     case "uninstall_started":
       return "[卸载] 执行命令: " + event.command;
     case "uninstall_completed":
-      return "[卸载] 完成, exit_code=" + (event.exit_code ?? "unknown") + ", 需重启=" + event.reboot_required;
+      return "[卸载] 完成, exit_code=" + (event.exit_code ?? "unknown") + ", 需重启=" + event.reboot_required + ", Job Object=" + (event.used_job_object ? "已启用" : "未启用");
     case "scan_completed":
       return "[扫描] 发现 " + event.traces.length + " 个残留痕迹";
     case "clean_completed":
