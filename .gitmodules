@@ -1,0 +1,3 @@
+[submodule "legacy-delphi"]
+	path = legacy-delphi
+	url = https://github.com/jasoft/Uninstaller.git
