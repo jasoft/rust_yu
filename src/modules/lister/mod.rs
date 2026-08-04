@@ -1,3 +1,4 @@
+pub mod analyzer;
 pub mod enrichment;
 pub mod models;
 pub mod msi;
@@ -437,6 +438,9 @@ mod tests {
 
     #[test]
     fn warmup_program_metadata_for_all_source_updates_cache_and_reports_progress() {
+        let _guard = storage::TEST_STORAGE_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let mut progress_events = Vec::new();
         let summary = warmup_program_metadata(
             MetadataWarmupQuery {

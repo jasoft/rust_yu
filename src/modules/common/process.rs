@@ -155,7 +155,7 @@ pub async fn run_uninstall_command(
         };
 
         result.likely_interactive = likely_interactive;
-        return Ok(result);
+        Ok(result)
     }
 
     #[cfg(not(windows))]
@@ -189,18 +189,23 @@ fn run_uninstall_command_windows(
         mem::size_of,
         os::windows::ffi::OsStrExt,
         path::PathBuf,
+        ptr::null_mut,
         time::{Duration, Instant},
     };
     use windows::{
         core::{PCWSTR, PWSTR},
         Win32::{
-            Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0, WAIT_TIMEOUT},
+            Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE, WAIT_OBJECT_0, WAIT_TIMEOUT},
+            System::IO::{CreateIoCompletionPort, GetQueuedCompletionStatus, OVERLAPPED},
             System::{
                 JobObjects::{
                     AssignProcessToJobObject, CreateJobObjectW,
+                    JobObjectAssociateCompletionPortInformation,
                     JobObjectBasicAccountingInformation, QueryInformationJobObject,
+                    SetInformationJobObject, JOBOBJECT_ASSOCIATE_COMPLETION_PORT,
                     JOBOBJECT_BASIC_ACCOUNTING_INFORMATION,
                 },
+                SystemServices::JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO,
                 Threading::{
                     CreateProcessW, GetExitCodeProcess, ResumeThread, WaitForSingleObject,
                     CREATE_BREAKAWAY_FROM_JOB, CREATE_SUSPENDED, PROCESS_CREATION_FLAGS,
@@ -227,6 +232,78 @@ fn run_uninstall_command_windows(
             if !self.0.is_invalid() {
                 unsafe {
                     let _ = CloseHandle(self.0);
+                }
+            }
+        }
+    }
+
+    fn attach_job_completion_port(job_handle: HANDLE) -> Result<HandleGuard, windows::core::Error> {
+        let completion_port = unsafe {
+            CreateIoCompletionPort(INVALID_HANDLE_VALUE, None, job_handle.0 as usize, 1)?
+        };
+        let completion_port_guard = HandleGuard::new(completion_port);
+        let association = JOBOBJECT_ASSOCIATE_COMPLETION_PORT {
+            CompletionKey: job_handle.0,
+            CompletionPort: completion_port,
+        };
+        unsafe {
+            SetInformationJobObject(
+                job_handle,
+                JobObjectAssociateCompletionPortInformation,
+                (&association as *const JOBOBJECT_ASSOCIATE_COMPLETION_PORT).cast(),
+                size_of::<JOBOBJECT_ASSOCIATE_COMPLETION_PORT>() as u32,
+            )?;
+        }
+        Ok(completion_port_guard)
+    }
+
+    /// 等待 Job completion port 的 ACTIVE_PROCESS_ZERO 通知。
+    ///
+    /// Delphi 版 `ProcessManager` 正是通过这个通知判断整个子进程树结束，
+    /// 而不是只等待卸载器的首个进程。每 250ms 返回一次以响应取消和超时。
+    fn wait_for_job_completion_port(
+        completion_port: HANDLE,
+        timeout_secs: u64,
+        cancel_requested: &std::sync::atomic::AtomicBool,
+    ) -> Result<bool, UninstallerError> {
+        let started_at = Instant::now();
+        loop {
+            if cancel_requested.load(std::sync::atomic::Ordering::SeqCst) {
+                return Ok(true);
+            }
+            if started_at.elapsed() >= Duration::from_secs(timeout_secs) {
+                return Err(UninstallerError::Timeout(format!(
+                    "等待卸载 Job 进程链结束超时（{} 秒）",
+                    timeout_secs
+                )));
+            }
+
+            let mut bytes_transferred = 0u32;
+            let mut completion_key = 0usize;
+            let mut overlapped: *mut OVERLAPPED = null_mut();
+            match unsafe {
+                GetQueuedCompletionStatus(
+                    completion_port,
+                    &mut bytes_transferred,
+                    &mut completion_key,
+                    &mut overlapped,
+                    250,
+                )
+            } {
+                Ok(()) if bytes_transferred == JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO => {
+                    return Ok(false);
+                }
+                Ok(()) => {}
+                // windows-rs 将 WAIT_TIMEOUT 包装为 HRESULT_FROM_WIN32(258)，
+                // 因此这里同时兼容原始 Win32 错误码和 HRESULT 表示。
+                Err(error)
+                    if matches!(error.code().0, 258)
+                        || error.code().0
+                            == windows::core::HRESULT::from_win32(WAIT_TIMEOUT.0).0 => {}
+                Err(error) => {
+                    return Err(UninstallerError::Other(format!(
+                        "读取 Job completion port 失败: {error}"
+                    )));
                 }
             }
         }
@@ -300,8 +377,10 @@ fn run_uninstall_command_windows(
             .as_ref()
             .map(|dir| PCWSTR(dir.as_ptr()))
             .unwrap_or(PCWSTR::null());
-        let mut startup_info = STARTUPINFOW::default();
-        startup_info.cb = size_of::<STARTUPINFOW>() as u32;
+        let startup_info = STARTUPINFOW {
+            cb: size_of::<STARTUPINFOW>() as u32,
+            ..Default::default()
+        };
         let mut process_info = PROCESS_INFORMATION::default();
 
         if let Err(primary_error) = create_process(
@@ -360,15 +439,29 @@ fn run_uninstall_command_windows(
 
     let mut used_job_object = false;
     let mut job_handle = None;
+    let mut completion_port = None;
 
     // 先挂起创建进程，再尝试加入 Job，避免父进程过早退出后子进程逃逸。
     match unsafe { CreateJobObjectW(None, None) } {
         Ok(handle) => {
             let guard = HandleGuard::new(handle);
+            // 与 Delphi 版一致，先关联 completion port，再把挂起的主进程加入 Job，
+            // 确保不会漏掉 ACTIVE_PROCESS_ZERO 通知。
+            let candidate_completion_port = match attach_job_completion_port(guard.raw()) {
+                Ok(port) => Some(port),
+                Err(error) => {
+                    tracing::warn!(
+                        "设置 Job completion port 失败，回退为 Job 状态轮询: {}",
+                        error
+                    );
+                    None
+                }
+            };
             let assigned =
                 unsafe { AssignProcessToJobObject(guard.raw(), process_handle.raw()) }.is_ok();
             if assigned {
                 used_job_object = true;
+                completion_port = candidate_completion_port;
                 job_handle = Some(guard);
             } else {
                 tracing::warn!("AssignProcessToJobObject 失败，回退为等待直接进程");
@@ -403,6 +496,19 @@ fn run_uninstall_command_windows(
                 "等待卸载进程链结束超时（{} 秒）",
                 timeout_secs
             )));
+        }
+
+        if let Some(port) = &completion_port {
+            if wait_for_job_completion_port(port.raw(), timeout_secs, cancel_requested)? {
+                return Ok(UninstallRunResult {
+                    completion_status: UninstallCompletionStatus::InterruptedByUser,
+                    exit_code: None,
+                    classification: classify_uninstall_exit_code(command, None),
+                    likely_interactive: false,
+                    used_job_object,
+                });
+            }
+            break;
         }
 
         if let Some(job) = &job_handle {
@@ -484,6 +590,10 @@ mod tests {
             UninstallCompletionStatus::Completed
         );
         assert_eq!(result.exit_code, Some(0));
+        assert!(
+            result.used_job_object,
+            "Windows 卸载等待应优先使用 Job Object"
+        );
     }
 
     #[test]

@@ -8,9 +8,10 @@ use chrono::NaiveDate;
 use chrono::Utc;
 use walkdir::WalkDir;
 
+use super::analyzer;
 use super::models::{
     InstalledProgram, MetadataConfidence, MetadataSource, MetadataWarmupItemStatus,
-    MetadataWarmupKind,
+    MetadataWarmupKind, SlowAppInfo,
 };
 use super::storage;
 use crate::modules::common::text::{build_powershell_script, decode_windows_output};
@@ -52,6 +53,29 @@ pub fn sanitize_icon_path(raw: &str) -> Option<String> {
 
 /// 对程序元数据做增强和保守降级
 pub fn enrich_program(program: &mut InstalledProgram) {
+    // Delphi 版会在 LoadAdditionalInfo 中用卸载器命令反推真实安装目录；
+    // 列表阶段只做轻量分析，不执行目录大小扫描，避免阻塞主线程。
+    if let Some(analysis) = analyzer::analyze_program(program) {
+        let location_missing = program
+            .install_location
+            .as_deref()
+            .map(Path::new)
+            .map(|path| !path.is_dir())
+            .unwrap_or(true);
+        if location_missing {
+            program.install_location = analysis
+                .install_location
+                .as_ref()
+                .map(|path| path.to_string_lossy().to_string());
+        }
+        if program.icon_path.is_none() {
+            program.icon_path = analysis
+                .executable_path
+                .as_ref()
+                .map(|path| path.to_string_lossy().to_string());
+        }
+    }
+
     // 安装日期：无效日期必须返回空并降级置信度
     if let Some(raw_date) = program.install_date.clone() {
         if let Some(normalized) = normalize_install_date(&raw_date) {
@@ -88,6 +112,274 @@ pub fn enrich_programs(programs: &mut [InstalledProgram]) {
     for program in programs {
         enrich_program(program);
     }
+}
+
+/// 延迟加载程序的慢速元数据，语义对应 Delphi 的 `GetSlowAppInfo`。
+///
+/// 先读取旧版 ARPCache/YUCache 中的结果，再使用 Rust 分析器补全安装目录、图标、
+/// 安装时间和目录大小。调用方应在后台线程中执行此函数。
+pub fn load_slow_app_info(program: &InstalledProgram) -> SlowAppInfo {
+    let mut info = read_legacy_slow_app_info(program).unwrap_or_default();
+    let analysis = analyzer::analyze_program(program);
+
+    let location = info
+        .location
+        .as_deref()
+        .map(Path::new)
+        .filter(|path| path.is_dir())
+        .map(Path::to_path_buf)
+        .or_else(|| {
+            program
+                .install_location
+                .as_deref()
+                .map(PathBuf::from)
+                .filter(|path| path.is_dir())
+        })
+        .or_else(|| {
+            analysis
+                .as_ref()
+                .and_then(|item| item.install_location.clone())
+        });
+
+    if info.image.is_none() {
+        info.image = program
+            .icon_path
+            .as_deref()
+            .and_then(sanitize_icon_path)
+            .or_else(|| {
+                analysis
+                    .as_ref()
+                    .and_then(|item| item.executable_path.as_ref())
+                    .map(|path| path.to_string_lossy().to_string())
+            })
+            .or_else(|| {
+                location
+                    .as_deref()
+                    .and_then(|path| find_icon_from_install_location(path.to_str()))
+            });
+    }
+
+    if info.size.is_none() {
+        info.size = program.estimated_size;
+    }
+    if info.installed.is_none() {
+        info.installed = program
+            .install_date
+            .as_deref()
+            .and_then(normalize_install_date);
+    }
+
+    if let Some(path) = location.as_deref() {
+        info.location = Some(path.to_string_lossy().to_string());
+        if info.installed.is_none() {
+            info.installed = directory_created_at(path);
+        }
+        if info.last_used.is_none() {
+            info.last_used = info
+                .image
+                .as_deref()
+                .and_then(|image| Path::new(image).metadata().ok())
+                .and_then(|metadata| metadata.accessed().ok())
+                .and_then(system_time_to_rfc3339);
+        }
+    }
+
+    info
+}
+
+/// 将慢速元数据写回统一的 Rust 应用模型。
+pub fn apply_slow_app_info(program: &mut InstalledProgram, info: &SlowAppInfo) {
+    if program.install_location.is_none() {
+        program.install_location = info.location.clone();
+    }
+    if program.icon_path.is_none() {
+        program.icon_path = info.image.clone();
+    }
+    if program.install_date.is_none() {
+        program.install_date = info.installed.clone();
+    }
+    if program.size.is_none() {
+        program.size = info.size;
+    }
+}
+
+fn directory_created_at(path: &Path) -> Option<String> {
+    path.metadata()
+        .ok()
+        .and_then(|metadata| metadata.created().ok())
+        .and_then(system_time_to_rfc3339)
+}
+
+fn system_time_to_rfc3339(value: std::time::SystemTime) -> Option<String> {
+    Some(chrono::DateTime::<Utc>::from(value).to_rfc3339())
+}
+
+#[cfg(windows)]
+fn read_legacy_slow_app_info(program: &InstalledProgram) -> Option<SlowAppInfo> {
+    use winreg::RegKey;
+
+    let (_, uninstall_path) = crate::modules::common::utils::parse_registry_path(
+        program.uninstall_registry_key_path.as_deref()?,
+    )?;
+    let key_name = uninstall_path.rsplit('\\').next()?;
+    let (hive, _) = crate::modules::common::utils::parse_registry_path(
+        program.uninstall_registry_key_path.as_deref()?,
+    )?;
+    let mut result = SlowAppInfo::default();
+
+    for cache_name in ["ARPCache", "YUCache"] {
+        let path = format!(
+            r"Software\Microsoft\Windows\CurrentVersion\App Management\{cache_name}\{key_name}"
+        );
+        let Ok(cache_key) = RegKey::predef(hive).open_subkey(path) else {
+            continue;
+        };
+        let Ok(raw) = cache_key.get_raw_value("SlowInfoCache") else {
+            continue;
+        };
+        let parsed = if cache_name == "ARPCache" {
+            parse_arpcache_slow_info(&raw.bytes)
+        } else {
+            parse_yucache_slow_info(&raw.bytes)
+        };
+        if let Some(parsed) = parsed {
+            merge_slow_app_info(&mut result, parsed);
+        }
+    }
+
+    result.cache_hit.then_some(result)
+}
+
+#[cfg(not(windows))]
+fn read_legacy_slow_app_info(_program: &InstalledProgram) -> Option<SlowAppInfo> {
+    None
+}
+
+#[cfg(windows)]
+fn parse_arpcache_slow_info(bytes: &[u8]) -> Option<SlowAppInfo> {
+    if bytes.len() < 28 {
+        return None;
+    }
+
+    Some(SlowAppInfo {
+        size: read_u64(bytes, 8),
+        last_used: read_filetime(bytes, 16),
+        installed: None,
+        times_used: read_i32(bytes, 24).map(|value| value.max(0) as u32),
+        image: decode_legacy_text(&bytes[28..]),
+        location: None,
+        cache_hit: true,
+    })
+}
+
+#[cfg(windows)]
+fn parse_yucache_slow_info(bytes: &[u8]) -> Option<SlowAppInfo> {
+    if bytes.len() < 28 {
+        return None;
+    }
+
+    Some(SlowAppInfo {
+        size: read_u64(bytes, 0),
+        last_used: read_f64(bytes, 8).and_then(delphi_datetime_to_rfc3339),
+        installed: read_f64(bytes, 16).and_then(delphi_datetime_to_rfc3339),
+        times_used: read_i32(bytes, 24).map(|value| value.max(0) as u32),
+        image: decode_fixed_legacy_text(bytes, 28, 261),
+        location: decode_fixed_legacy_text(bytes, 28 + 261, 261),
+        cache_hit: true,
+    })
+}
+
+#[cfg(windows)]
+fn merge_slow_app_info(target: &mut SlowAppInfo, source: SlowAppInfo) {
+    target.size = target.size.or(source.size);
+    target.last_used = target.last_used.take().or(source.last_used);
+    target.installed = target.installed.take().or(source.installed);
+    target.times_used = target.times_used.or(source.times_used);
+    target.image = target.image.take().or(source.image);
+    target.location = target.location.take().or(source.location);
+    target.cache_hit |= source.cache_hit;
+}
+
+#[cfg(windows)]
+fn read_u64(bytes: &[u8], offset: usize) -> Option<u64> {
+    let end = offset.checked_add(8)?;
+    let value = bytes.get(offset..end)?;
+    Some(u64::from_le_bytes(value.try_into().ok()?))
+}
+
+#[cfg(windows)]
+fn read_i32(bytes: &[u8], offset: usize) -> Option<i32> {
+    let end = offset.checked_add(4)?;
+    let value = bytes.get(offset..end)?;
+    Some(i32::from_le_bytes(value.try_into().ok()?))
+}
+
+#[cfg(windows)]
+fn read_f64(bytes: &[u8], offset: usize) -> Option<f64> {
+    Some(f64::from_le_bytes(read_u64(bytes, offset)?.to_le_bytes()))
+}
+
+#[cfg(windows)]
+fn read_filetime(bytes: &[u8], offset: usize) -> Option<String> {
+    const WINDOWS_TO_UNIX_EPOCH_100NS: u64 = 116_444_736_000_000_000;
+    let ticks = read_u64(bytes, offset)?;
+    let unix_ticks = ticks.checked_sub(WINDOWS_TO_UNIX_EPOCH_100NS)?;
+    let seconds = i64::try_from(unix_ticks / 10_000_000).ok()?;
+    let nanoseconds = (unix_ticks % 10_000_000) as u32 * 100;
+    chrono::DateTime::<Utc>::from_timestamp(seconds, nanoseconds).map(|date| date.to_rfc3339())
+}
+
+#[cfg(windows)]
+fn delphi_datetime_to_rfc3339(value: f64) -> Option<String> {
+    if !value.is_finite() || value <= 25_569.0 {
+        return None;
+    }
+    let seconds = ((value - 25_569.0) * 86_400.0) as i64;
+    chrono::DateTime::<Utc>::from_timestamp(seconds, 0).map(|date| date.to_rfc3339())
+}
+
+#[cfg(windows)]
+fn decode_legacy_text(bytes: &[u8]) -> Option<String> {
+    if bytes.is_empty() {
+        return None;
+    }
+
+    let value = if bytes.len() >= 4 {
+        let utf16_bytes = bytes
+            .chunks_exact(2)
+            .take_while(|chunk| *chunk != [0, 0])
+            .flatten()
+            .copied()
+            .collect::<Vec<_>>();
+        let utf16_units = utf16_bytes
+            .chunks_exact(2)
+            .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+            .collect::<Vec<_>>();
+        let zero_high_bytes = utf16_bytes
+            .chunks_exact(2)
+            .filter(|chunk| chunk[1] == 0)
+            .count();
+        if !utf16_units.is_empty() && zero_high_bytes * 2 >= utf16_bytes.len().saturating_sub(2) {
+            String::from_utf16(&utf16_units).ok()
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+    .unwrap_or_else(|| {
+        let bytes = bytes.split(|byte| *byte == 0).next().unwrap_or_default();
+        String::from_utf8_lossy(bytes).to_string()
+    });
+
+    let value = value.trim().to_string();
+    (!value.is_empty()).then_some(value)
+}
+
+#[cfg(windows)]
+fn decode_fixed_legacy_text(bytes: &[u8], offset: usize, length: usize) -> Option<String> {
+    let end = offset.checked_add(length)?;
+    decode_legacy_text(bytes.get(offset..end)?)
 }
 
 fn resolve_program_icon_path(program: &mut InstalledProgram) {
@@ -679,6 +971,8 @@ fn has_ready_icon_cache(program: &InstalledProgram) -> bool {
 fn warmup_program_icon_assets(
     program: &mut InstalledProgram,
 ) -> (MetadataWarmupItemStatus, Option<String>) {
+    let slow_info = load_slow_app_info(program);
+    apply_slow_app_info(program, &slow_info);
     let Some(icon_extract_source) = program.icon_path.as_deref() else {
         program.icon_cache_path_32 = None;
         program.icon_cache_path_48 = None;
@@ -720,6 +1014,8 @@ fn warmup_program_icon_assets(
 fn warmup_program_size(
     program: &mut InstalledProgram,
 ) -> (MetadataWarmupItemStatus, Option<String>) {
+    let slow_info = load_slow_app_info(program);
+    apply_slow_app_info(program, &slow_info);
     let candidate_dirs = collect_size_scan_locations(program);
     if candidate_dirs.is_empty() {
         if let Some(estimated) = program.estimated_size {

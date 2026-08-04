@@ -142,6 +142,18 @@ impl InstalledProgram {
     }
 }
 
+/// 复刻 Delphi `SLOWAPPINFO` 的延迟加载结果。
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SlowAppInfo {
+    pub size: Option<u64>,
+    pub last_used: Option<String>,
+    pub installed: Option<String>,
+    pub times_used: Option<u32>,
+    pub image: Option<String>,
+    pub location: Option<String>,
+    pub cache_hit: bool,
+}
+
 /// 卸载类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
