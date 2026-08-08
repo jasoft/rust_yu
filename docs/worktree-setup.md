@@ -43,4 +43,4 @@ cargo check --workspace
 .\tools\dev\Initialize-Worktree.ps1 -SkipFrontend -SkipCheck -InitSubmodules
 ```
 
-不要把 `target/` 或 `node_modules/` 强行复制到其他 worktree；它们包含路径相关的缓存，可能让 Cargo/Vite 使用错误 checkout 的产物。创建 worktree 后应以当前 worktree 的绝对路径重新执行初始化。 
+不要把 `target/` 或 `node_modules/` 强行复制到其他 worktree；它们包含路径相关的缓存，可能让 Cargo/Vite 使用错误 checkout 的产物。创建 worktree 后应以当前 worktree 的绝对路径重新执行初始化。
