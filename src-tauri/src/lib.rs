@@ -1,5 +1,7 @@
+pub mod bootstrap;
 pub mod commands;
 pub mod elevation;
+pub mod single_instance;
 pub mod state;
 
 use commands::*;
