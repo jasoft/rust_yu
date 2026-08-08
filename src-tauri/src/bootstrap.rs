@@ -10,6 +10,7 @@ use std::path::PathBuf;
 pub enum InternalArgs {
     Normal,
     ElevatedEntry { repair_launch_task: bool },
+    RemoveLaunchTasks,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,10 +32,12 @@ pub enum BootstrapAction {
 pub fn parse_internal_args(args: &[String]) -> Result<InternalArgs, ElevationError> {
     let mut elevated = false;
     let mut repair = false;
+    let mut remove_tasks = false;
     for arg in args.iter().skip(1) {
         match arg.as_str() {
             "--elevated-entry" => elevated = true,
             "--repair-launch-task" if elevated => repair = true,
+            "--remove-launch-tasks" => remove_tasks = true,
             _ => {
                 return Err(ElevationError::new(
                     ElevationErrorCode::ElevationLaunchFailed,
@@ -43,7 +46,15 @@ pub fn parse_internal_args(args: &[String]) -> Result<InternalArgs, ElevationErr
             }
         }
     }
-    Ok(if elevated {
+    if remove_tasks && elevated {
+        return Err(ElevationError::new(
+            ElevationErrorCode::ElevationLaunchFailed,
+            "维护模式参数不能与管理员入口参数同时使用",
+        ));
+    }
+    Ok(if remove_tasks {
+        InternalArgs::RemoveLaunchTasks
+    } else if elevated {
         InternalArgs::ElevatedEntry {
             repair_launch_task: repair,
         }
@@ -95,6 +106,18 @@ pub fn run_startup_bootstrap() -> bool {
             ))
         }
     };
+    if matches!(parsed, InternalArgs::RemoveLaunchTasks) {
+        if !token.is_elevated {
+            return show_startup_error(ElevationError::new(
+                ElevationErrorCode::UnsupportedStandardUser,
+                "删除 Rust Yu 计划任务需要管理员权限",
+            ));
+        }
+        return match crate::elevation::remove_all_product_tasks() {
+            Ok(()) => false,
+            Err(error) => show_startup_error(error),
+        };
+    }
     let debug_build = cfg!(debug_assertions);
     if debug_build && !token.is_elevated {
         return true;
