@@ -3,15 +3,16 @@ use chrono::Utc;
 use crate::modules::common::utils::ensure_running_as_administrator;
 
 use super::models::{
-    StartupAction, StartupActionPlan, StartupActionResult, StartupAddPlan, StartupAddResult,
-    StartupCapabilities, StartupChangeLog, StartupError, StartupErrorCode, StartupItem,
-    StartupListQuery, StartupListResponse, StartupSnapshot, StartupSource, StartupSourceDescriptor,
-    StartupState,
+    hex_decode, StartupAction, StartupActionPlan, StartupActionResult, StartupAddPlan,
+    StartupAddResult, StartupCapabilities, StartupChangeLog, StartupError, StartupErrorCode,
+    StartupItem, StartupListQuery, StartupListResponse, StartupSnapshot, StartupSource,
+    StartupSourceDescriptor, StartupState,
 };
 use super::{registry_run, rollback, scheduled_tasks, services, startup_folder};
 
 pub fn list_startup_items(query: StartupListQuery) -> Result<StartupListResponse, StartupError> {
-    let mut items = collect_all_items(query.include_raw)?;
+    // 按用户选择的来源扫描，避免仅查看 Run 项时仍启动计划任务和服务的 PowerShell 查询。
+    let mut items = collect_items_for_source(query.source, query.include_raw)?;
     items = filter_items(items, &query);
     sort_items(&mut items, query.sort_by.as_deref(), query.descending);
 
@@ -36,7 +37,8 @@ pub fn list_startup_items(query: StartupListQuery) -> Result<StartupListResponse
 }
 
 pub fn get_startup_item(id: &str, include_raw: bool) -> Result<StartupItem, StartupError> {
-    collect_all_items(include_raw)?
+    let source = source_from_item_id(id)?;
+    collect_items_for_source(Some(source), include_raw)?
         .into_iter()
         .find(|item| item.id == id)
         .ok_or_else(|| {
@@ -287,12 +289,49 @@ pub fn rollback_action(
     })
 }
 
-fn collect_all_items(include_raw: bool) -> Result<Vec<StartupItem>, StartupError> {
+fn source_from_item_id(id: &str) -> Result<StartupSource, StartupError> {
+    let encoded = id.strip_prefix("startup:").ok_or_else(|| {
+        StartupError::new(StartupErrorCode::InvalidSelector, "自启动项目 ID 格式无效")
+    })?;
+    let decoded = String::from_utf8(hex_decode(encoded)?).map_err(|_| {
+        StartupError::new(StartupErrorCode::InvalidSelector, "自启动项目 ID 编码无效")
+    })?;
+    match decoded.split(':').next() {
+        Some("registry_run") => Ok(StartupSource::RegistryRun),
+        Some("registry_run_once") => Ok(StartupSource::RegistryRunOnce),
+        Some("registry_policy_run") => Ok(StartupSource::RegistryPolicyRun),
+        Some("startup_folder") => Ok(StartupSource::StartupFolder),
+        Some("scheduled_task") => Ok(StartupSource::ScheduledTask),
+        Some("service") => Ok(StartupSource::Service),
+        _ => Err(StartupError::new(
+            StartupErrorCode::InvalidSelector,
+            "自启动项目 ID 包含未知来源",
+        )),
+    }
+}
+
+fn collect_items_for_source(
+    source: Option<StartupSource>,
+    include_raw: bool,
+) -> Result<Vec<StartupItem>, StartupError> {
     let mut items = Vec::new();
-    items.extend(registry_run::collect_items(include_raw)?);
-    items.extend(startup_folder::collect_items(include_raw)?);
-    items.extend(scheduled_tasks::collect_items(include_raw)?);
-    items.extend(services::collect_items(include_raw)?);
+    if matches!(
+        source,
+        None | Some(StartupSource::RegistryRun)
+            | Some(StartupSource::RegistryRunOnce)
+            | Some(StartupSource::RegistryPolicyRun)
+    ) {
+        items.extend(registry_run::collect_items(include_raw)?);
+    }
+    if matches!(source, None | Some(StartupSource::StartupFolder)) {
+        items.extend(startup_folder::collect_items(include_raw)?);
+    }
+    if matches!(source, None | Some(StartupSource::ScheduledTask)) {
+        items.extend(scheduled_tasks::collect_items(include_raw)?);
+    }
+    if matches!(source, None | Some(StartupSource::Service)) {
+        items.extend(services::collect_items(include_raw)?);
+    }
     Ok(items)
 }
 
@@ -417,8 +456,12 @@ mod tests {
     use winreg::enums::HKEY_CURRENT_USER;
     use winreg::RegKey;
 
-    use super::{add_registry_run_item, apply_action, get_startup_item, list_sources};
-    use crate::modules::startup::models::{StartupAction, StartupScope, StartupState};
+    use super::{
+        add_registry_run_item, apply_action, get_startup_item, list_sources, source_from_item_id,
+    };
+    use crate::modules::startup::models::{
+        StartupAction, StartupItem, StartupLocator, StartupScope, StartupSource, StartupState,
+    };
     use crate::modules::startup::TEST_STARTUP_ENV_LOCK;
 
     #[test]
@@ -426,6 +469,25 @@ mod tests {
         let descriptors = list_sources();
         assert_eq!(descriptors.len(), 6);
         assert!(descriptors.iter().any(|value| value.label == "计划任务"));
+    }
+
+    #[test]
+    fn item_id_routes_lookup_to_its_own_source() {
+        let item = StartupItem::new(
+            "Demo",
+            StartupSource::ScheduledTask,
+            StartupScope::Machine,
+            StartupLocator {
+                location: r"\Demo\Task".to_string(),
+                bucket: Some("scheduled_task".to_string()),
+            },
+        );
+
+        assert_eq!(
+            source_from_item_id(&item.id).ok(),
+            Some(StartupSource::ScheduledTask)
+        );
+        assert!(source_from_item_id("startup:not-hex").is_err());
     }
 
     #[test]

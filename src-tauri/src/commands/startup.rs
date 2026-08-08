@@ -105,7 +105,8 @@ pub async fn plan_startup_action(
 ) -> Result<StartupEnvelope<StartupActionPlan>, CommandError> {
     let action = parse_action(&action)?;
     let result = tauri::async_runtime::spawn_blocking(move || {
-        manager::plan_action(&options.id, action, options.reason, true)
+        // 预演只生成操作清单，不修改系统，也不应要求当前进程已经提权。
+        manager::plan_action(&options.id, action, options.reason, false)
     })
     .await
     .map_err(|error| CommandError::new(format!("startup plan 任务执行失败: {error}")))?;
