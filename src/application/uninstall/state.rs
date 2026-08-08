@@ -57,8 +57,10 @@ impl<'a> UninstallStateMachine<'a> {
 fn is_valid_transition(current: UninstallPhase, next: UninstallPhase) -> bool {
     matches!(
         (current, next),
-        (UninstallPhase::Planned, UninstallPhase::RunningUninstaller)
+        (UninstallPhase::Planned, UninstallPhase::Planned)
+            | (UninstallPhase::Planned, UninstallPhase::RunningUninstaller)
             | (UninstallPhase::Planned, UninstallPhase::Cancelled)
+            | (UninstallPhase::Planned, UninstallPhase::Failed)
             | (
                 UninstallPhase::RunningUninstaller,
                 UninstallPhase::VerifyingRemoval
