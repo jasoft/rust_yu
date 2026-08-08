@@ -1374,3 +1374,9 @@ Expected: 工作树干净，提交序列与本计划一致。
 - 安装、更新、卸载、任务修复、7-Zip、MSI、Store、Inno fixture 均验证通过；
 - 全量 Rust、前端、安装器和发布脚本验证通过；
 - 最终 Git 工作树干净且每个 Task 有独立约定式提交。
+
+## 本轮实施状态（2026-08-09）
+
+代码与文档已按 Task 0–13 的架构顺序落地，并保留独立约定式提交。核心 Rust workflow、Tauri coordinator、管理员启动器、per-machine NSIS 配置、CLI 退役、WebView 安全边界和 GUI 发布脚本均已完成；对应命令与结果记录在 `docs/testing-summary-2026-08-09-admin-gui.md`。
+
+本机为 Windows 11 ARM 环境，Tauri 的 `tauri-winres` 在生成原生资源时被 `windres: Can't detect target endianness and architecture` 阻断，因此 NSIS bundle、Task Scheduler COM 集成和 7-Zip/MSI/Store/Inno 实机矩阵必须在可用的 Windows GNU/LLVM 构建环境中补跑。该环境限制不改变已提交的安全设计，也不应被记录为“已通过”。

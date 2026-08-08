@@ -1,5 +1,7 @@
 # Rust + Tauri 专业级 Windows 卸载工具 核心设计建议
 
+> 架构更新（2026-08-09）：本文件早期内容包含“低权限 Tauri + CLI helper”的建议，已被管理员 GUI 方案取代。当前实现以 [管理员 GUI 运维说明](docs/elevated-gui-operations.md)、[架构规格](docs/superpowers/specs/2026-08-09-admin-gui-architecture-design.md) 和 [实施计划](docs/superpowers/plans/2026-08-09-admin-gui-implementation.md) 为准：正式发行物只有 Program Files 下的 Tauri GUI，首次启动通过一次 UAC 创建固定的每用户 Task Scheduler 入口，后续由任务启动提升 GUI；`yu.exe` 不再是产品入口。
+
 针对资深开发者，以下内容完全聚焦Windows卸载工具的专业级核心能力、Rust/Tauri架构最佳实践、系统深度适配与安全合规，避开入门级demo思路，直接覆盖工业级工具的核心痛点与实现方案。
 
 ## 一、核心架构设计（专业级分层，彻底解耦）
