@@ -3,8 +3,8 @@ use std::process::Command;
 use crate::modules::common::text::{build_powershell_script, decode_windows_output};
 
 use super::models::{
-    StartupError, StartupErrorCode, StartupItem, StartupLocator, StartupScope, StartupSnapshot,
-    StartupSource, StartupState,
+    StartupCapabilities, StartupError, StartupErrorCode, StartupItem, StartupLocator, StartupScope,
+    StartupSnapshot, StartupSource, StartupState,
 };
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -83,6 +83,18 @@ $tasks | ConvertTo-Json -Depth 4 -Compress
         item.requires_admin = matches!(scope, StartupScope::Machine);
         item.description = record.description.clone();
 
+        if is_windows_system_task_path(&record.task_path) {
+            // Windows 自带任务关系到更新、登录与系统维护，默认只读，避免普通管理操作误伤系统。
+            item.capabilities = StartupCapabilities {
+                can_enable: false,
+                can_disable: false,
+                can_delete: false,
+                can_rollback: false,
+            };
+            item.warnings
+                .push("Windows 系统计划任务受保护，仅供查看".to_string());
+        }
+
         if item.state != StartupState::Disabled && item.target_exists == Some(false) {
             item.state = StartupState::Broken;
         }
@@ -99,6 +111,13 @@ $tasks | ConvertTo-Json -Depth 4 -Compress
     }
 
     Ok(items)
+}
+
+fn is_windows_system_task_path(task_path: &str) -> bool {
+    task_path
+        .replace('/', "\\")
+        .to_ascii_lowercase()
+        .starts_with(r"\microsoft\windows\")
 }
 
 pub fn capture_snapshot(item: &StartupItem) -> Result<StartupSnapshot, StartupError> {
@@ -292,4 +311,19 @@ fn split_task_locator(locator: &str) -> Result<(String, String), StartupError> {
 
 fn ps_escape(value: &str) -> String {
     value.replace('\'', "''")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_windows_system_task_path;
+
+    #[test]
+    fn protects_only_windows_system_task_tree() {
+        assert!(is_windows_system_task_path(
+            r"\Microsoft\Windows\UpdateOrchestrator\"
+        ));
+        assert!(is_windows_system_task_path(r"/Microsoft/Windows/Defrag/"));
+        assert!(!is_windows_system_task_path(r"\Vendor\Updater\"));
+        assert!(!is_windows_system_task_path(r"\Microsoft\Office\"));
+    }
 }

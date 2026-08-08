@@ -4,9 +4,9 @@ import { ProgramList } from "./components/ProgramList";
 import { ProgramDetail } from "./components/ProgramDetail";
 import { UninstallDialog } from "./components/UninstallDialog";
 import { TracePanel } from "./components/TracePanel";
+import { StartupManager } from "./components/StartupManager";
 import { useProgramsStore } from "./stores/programs";
-
-type NavItem = "programs" | "reports" | "settings";
+import type { NavItem } from "./components/Sidebar";
 
 export default function App() {
   const [nav, setNav] = useState<NavItem>("programs");
@@ -18,9 +18,11 @@ export default function App() {
       <Sidebar active={nav} onNavigate={setNav} />
 
       <main className="flex flex-1 min-w-0">
-        <div className="w-80 shrink-0 border-r border-slate-700">
-          <ProgramList />
-        </div>
+        {nav === "programs" && (
+          <div className="w-80 shrink-0 border-r border-slate-700">
+            <ProgramList />
+          </div>
+        )}
 
         <div className="flex-1 min-w-0 bg-slate-900">
           {nav === "programs" ? (
@@ -33,6 +35,8 @@ export default function App() {
             ) : (
               <EmptyState />
             )
+          ) : nav === "startup" ? (
+            <StartupManager />
           ) : nav === "reports" ? (
             <div className="flex items-center justify-center h-full text-slate-500">
               <span>卸载记录功能开发中...</span>

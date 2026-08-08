@@ -41,6 +41,10 @@ pub fn collect_items(include_raw: bool) -> Result<Vec<StartupItem>, StartupError
             else {
                 continue;
             };
+            // desktop.ini 是启动文件夹自身的 Shell 元数据，不是可执行的自启动程序。
+            if file_name.eq_ignore_ascii_case("desktop.ini") {
+                continue;
+            }
             let mut item = StartupItem::new(
                 path.file_stem()
                     .map(|value| value.to_string_lossy().to_string())
@@ -259,6 +263,8 @@ mod tests {
         std::fs::create_dir_all(&root).expect("应能创建测试启动目录");
         let entry_path = root.join("DemoStartup.cmd");
         std::fs::write(&entry_path, "@echo off\r\n").expect("应能写入测试启动文件");
+        std::fs::write(root.join("desktop.ini"), "[.ShellClassInfo]\r\n")
+            .expect("应能写入测试目录元数据");
         std::env::set_var("RUST_YU_STARTUP_FOLDER_USER_DIR", &root);
         std::env::set_var(
             "RUST_YU_STARTUP_APPROVED_HKCU_BASE",
@@ -279,6 +285,7 @@ mod tests {
             .cloned()
             .unwrap_or_else(|| panic!("expected startup folder item"));
         assert_eq!(item.state, StartupState::Disabled);
+        assert!(!items.iter().any(|value| value.name == "desktop"));
 
         std::fs::remove_dir_all(&root).ok();
         std::env::remove_var("RUST_YU_STARTUP_FOLDER_USER_DIR");

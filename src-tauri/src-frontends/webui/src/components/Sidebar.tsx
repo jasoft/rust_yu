@@ -1,7 +1,7 @@
-import { Package, FileText, Settings, Trash2 } from "lucide-react";
+import { Package, FileText, Settings, Trash2, Zap } from "lucide-react";
 import { cn } from "../lib/utils";
 
-type NavItem = "programs" | "reports" | "settings";
+export type NavItem = "programs" | "startup" | "reports" | "settings";
 
 interface SidebarProps {
   active: NavItem;
@@ -10,6 +10,7 @@ interface SidebarProps {
 
 const navItems = [
   { id: "programs" as NavItem, label: "软件列表", icon: Package },
+  { id: "startup" as NavItem, label: "自启动管理", icon: Zap },
   { id: "reports" as NavItem, label: "卸载记录", icon: FileText },
   { id: "settings" as NavItem, label: "设置", icon: Settings },
 ];

@@ -4,8 +4,8 @@ use crate::modules::common::text::{build_powershell_script, decode_windows_outpu
 use crate::modules::common::utils::split_command_for_spawn;
 
 use super::models::{
-    StartupError, StartupErrorCode, StartupItem, StartupLocator, StartupScope, StartupSnapshot,
-    StartupSource, StartupState,
+    StartupCapabilities, StartupError, StartupErrorCode, StartupItem, StartupLocator, StartupScope,
+    StartupSnapshot, StartupSource, StartupState,
 };
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -85,6 +85,21 @@ $services | ConvertTo-Json -Depth 4 -Compress
         }
         item.requires_admin = true;
         item.description = record.description.clone();
+        if item
+            .executable_path
+            .as_deref()
+            .is_some_and(is_windows_system_executable)
+        {
+            // Windows 目录内的服务通常是系统组件；没有可靠归属信息时宁可只读，也不允许误禁用。
+            item.capabilities = StartupCapabilities {
+                can_enable: false,
+                can_disable: false,
+                can_delete: false,
+                can_rollback: false,
+            };
+            item.warnings
+                .push("Windows 系统服务受保护，仅供查看".to_string());
+        }
         if item.state != StartupState::Disabled && item.target_exists == Some(false) {
             item.state = StartupState::Broken;
         }
@@ -101,6 +116,15 @@ $services | ConvertTo-Json -Depth 4 -Compress
     }
 
     Ok(items)
+}
+
+fn is_windows_system_executable(executable: &str) -> bool {
+    let executable = executable.replace('/', "\\").to_ascii_lowercase();
+    [std::env::var("WINDIR"), std::env::var("SystemRoot")]
+        .into_iter()
+        .flatten()
+        .map(|root| root.replace('/', "\\").to_ascii_lowercase())
+        .any(|root| executable == root || executable.starts_with(&format!(r"{root}\")))
 }
 
 pub fn capture_snapshot(item: &StartupItem) -> Result<StartupSnapshot, StartupError> {
@@ -254,5 +278,27 @@ where
                     format!("解析服务单项失败: {error}"),
                 )
             }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_windows_system_executable;
+
+    #[test]
+    fn protects_executables_inside_windows_directory() {
+        if let Some(windows_dir) =
+            std::env::var_os("WINDIR").or_else(|| std::env::var_os("SystemRoot"))
+        {
+            let system_executable = std::path::Path::new(&windows_dir)
+                .join("System32")
+                .join("svchost.exe")
+                .to_string_lossy()
+                .to_string();
+            assert!(is_windows_system_executable(&system_executable));
+        }
+        assert!(!is_windows_system_executable(
+            r"C:\Program Files\Vendor\service.exe"
+        ));
     }
 }

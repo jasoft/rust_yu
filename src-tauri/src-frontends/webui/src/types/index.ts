@@ -136,3 +136,86 @@ export interface MetadataWarmupProgress {
   message?: string;
   program?: InstalledProgram;
 }
+
+export type StartupSource =
+  | "registry_run"
+  | "registry_run_once"
+  | "registry_policy_run"
+  | "startup_folder"
+  | "scheduled_task"
+  | "service";
+
+export type StartupScope = "user" | "machine";
+export type StartupState = "enabled" | "disabled" | "broken";
+export type StartupAction = "enable" | "disable" | "delete" | "rollback";
+
+export interface StartupCapabilities {
+  can_enable: boolean;
+  can_disable: boolean;
+  can_delete: boolean;
+  can_rollback: boolean;
+}
+
+export interface StartupLocator {
+  location: string;
+  bucket: string | null;
+}
+
+export interface StartupItem {
+  id: string;
+  name: string;
+  source: StartupSource;
+  scope: StartupScope;
+  state: StartupState;
+  command: string | null;
+  executable_path: string | null;
+  arguments: string[];
+  working_dir: string | null;
+  target_exists: boolean | null;
+  requires_admin: boolean;
+  capabilities: StartupCapabilities;
+  locator: StartupLocator;
+  warnings: string[];
+  description: string | null;
+  raw: unknown | null;
+}
+
+export interface StartupListResponse {
+  items: StartupItem[];
+  total: number;
+  applied_limit: number | null;
+  applied_offset: number;
+}
+
+export interface StartupErrorDetail {
+  code: string;
+  message: string;
+}
+
+export interface StartupEnvelope<T> {
+  ok: boolean;
+  data: T | null;
+  warnings: string[];
+  error: StartupErrorDetail | null;
+}
+
+export interface StartupActionPlan {
+  item_id: string;
+  action: StartupAction;
+  apply_requested: boolean;
+  will_apply: boolean;
+  requires_admin: boolean;
+  change_id: string | null;
+  warnings: string[];
+  operations: string[];
+  snapshot_available: boolean;
+}
+
+export interface StartupActionResult {
+  item_id: string | null;
+  action: StartupAction;
+  applied: boolean;
+  change_id: string | null;
+  warnings: string[];
+  operations: string[];
+}
