@@ -537,7 +537,8 @@ function AppsStage(props: {
 
 function AppIcon({ program, large = false }: { program: UiProgram; large?: boolean }) {
   const iconSrc = program.source ? getProgramIconSrc(program.source) : null;
-  if (iconSrc) return <img className={`app-icon ${large ? "large" : ""}`} src={iconSrc} alt="" />;
+  const storeIconClass = program.source?.install_source === "store" ? " store-icon" : "";
+  if (iconSrc) return <img className={`app-icon${large ? " large" : ""}${storeIconClass}`} src={iconSrc} alt="" />;
   return <span className={`app-icon ${large ? "large" : ""} ${program.iconClass}`}>{program.icon}</span>;
 }
 
