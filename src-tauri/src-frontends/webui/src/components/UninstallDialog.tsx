@@ -9,7 +9,7 @@ import type { UninstallProgress } from "../types";
 export function UninstallDialog() {
   const {
     selectedProgram, uninstalling, uninstallResult,
-    uninstallProgram, setViewMode, resetUninstall, loadPrograms,
+    uninstallProgram, setViewMode, resetUninstall, reloadPrograms,
   } = useProgramsStore();
   const [logs, setLogs] = useState<string[]>([]);
   const [confirmed, setConfirmed] = useState(false);
@@ -38,7 +38,7 @@ export function UninstallDialog() {
 
   const handleClose = () => {
     resetUninstall();
-    loadPrograms({ refresh: true });
+    void reloadPrograms({ refresh: true });
     setViewMode("detail");
   };
 

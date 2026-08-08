@@ -17,8 +17,7 @@ export function ProgramList() {
     searchQuery,
     sourceFilter,
     selectedProgram,
-    loadPrograms,
-    warmupIcons,
+    reloadPrograms,
     setSearchQuery,
     setSourceFilter,
     selectProgram,
@@ -29,17 +28,15 @@ export function ProgramList() {
   useEffect(() => {
     let cancelled = false;
     const initialize = async () => {
-      await loadPrograms();
+      await reloadPrograms();
       if (cancelled) return;
-      const iconsUpdated = await warmupIcons();
-      if (!cancelled && iconsUpdated) await loadPrograms();
     };
 
     void initialize();
     return () => {
       cancelled = true;
     };
-  }, [loadPrograms, warmupIcons]);
+  }, [reloadPrograms]);
 
   const handleSearch = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -49,7 +46,7 @@ export function ProgramList() {
     [setSearchQuery],
   );
 
-  const handleRefresh = () => loadPrograms({ refresh: true });
+  const handleRefresh = () => void reloadPrograms({ refresh: true });
 
   return (
     <div className="flex flex-col h-full">

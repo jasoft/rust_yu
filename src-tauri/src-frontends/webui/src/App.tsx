@@ -158,8 +158,7 @@ export default function App() {
   const sourceFilter = useProgramsStore((state) => state.sourceFilter);
   const scannedTraces = useProgramsStore((state) => state.traces);
   const tracesLoading = useProgramsStore((state) => state.tracesLoading);
-  const loadPrograms = useProgramsStore((state) => state.loadPrograms);
-  const warmupIcons = useProgramsStore((state) => state.warmupIcons);
+  const reloadPrograms = useProgramsStore((state) => state.reloadPrograms);
   const setSearchQuery = useProgramsStore((state) => state.setSearchQuery);
   const setSourceFilter = useProgramsStore((state) => state.setSourceFilter);
   const scanTraces = useProgramsStore((state) => state.scanTraces);
@@ -170,16 +169,14 @@ export default function App() {
     if (!isTauriRuntime()) return;
     let cancelled = false;
     const initialize = async () => {
-      await loadPrograms();
+      await reloadPrograms();
       if (cancelled) return;
-      const iconsUpdated = await warmupIcons();
-      if (!cancelled && iconsUpdated) await loadPrograms();
     };
     void initialize();
     return () => {
       cancelled = true;
     };
-  }, [loadPrograms, warmupIcons]);
+  }, [reloadPrograms]);
 
   useEffect(() => {
     if (!manualScanPending || tracesLoading) return;
@@ -366,7 +363,7 @@ export default function App() {
               onUninstall={() => setStage("confirm")}
               onScan={handleManualScan}
               onDetails={() => setDetailsOpen(true)}
-              onRefresh={() => isTauriRuntime() && void loadPrograms({ refresh: true })}
+              onRefresh={() => isTauriRuntime() && void reloadPrograms({ refresh: true })}
             />
           ) : stage === "confirm" ? (
             <ConfirmStage
@@ -496,7 +493,7 @@ function AppsStage(props: {
 }) {
   return (
     <div className="page apps-page">
-      <SectionHeader title="已安装应用" action={<button className="icon-button" title={props.metadataLoading ? "正在生成图标缓存" : "刷新"} onClick={props.onRefresh}><RefreshCw className={props.loading || props.metadataLoading ? "spinning" : ""} size={17} /></button>} />
+      <SectionHeader title="已安装应用" action={<button className="icon-button" disabled={props.loading || props.metadataLoading} title={props.metadataLoading ? "正在生成图标缓存" : "刷新"} onClick={props.onRefresh}><RefreshCw className={props.loading || props.metadataLoading ? "spinning" : ""} size={17} /></button>} />
       <div className="toolbar">
         <label className="search-box"><Search size={16} /><input value={props.query} onChange={(event) => props.onQuery(event.target.value)} placeholder="搜索应用、发布者或关键词…" /></label>
         <div className="filter-pills">

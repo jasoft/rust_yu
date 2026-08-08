@@ -30,6 +30,7 @@ interface ProgramsState {
   uninstalling: boolean;
 
   loadPrograms: (options?: { refresh?: boolean }) => Promise<void>;
+  reloadPrograms: (options?: { refresh?: boolean }) => Promise<void>;
   warmupIcons: () => Promise<boolean>;
   setSearchQuery: (query: string) => void;
   setSourceFilter: (source: ProgramSourceFilter) => void;
@@ -90,6 +91,16 @@ export const useProgramsStore = create<ProgramsState>((set, get) => ({
     } catch (e) {
       set({ error: extractErrorMessage(e), loading: false });
     }
+  },
+
+  reloadPrograms: async (options) => {
+    await get().loadPrograms(options);
+    if (get().error) return;
+
+    // 刷新基础列表不会同步生成图标文件；必须等待图标预热完成后再读一次列表，
+    // 否则前端会先拿到没有 icon_cache_path 的程序记录，导致所有图标暂时消失。
+    const iconsUpdated = await get().warmupIcons();
+    if (iconsUpdated && !get().error) await get().loadPrograms();
   },
 
   warmupIcons: async () => {
@@ -183,7 +194,7 @@ export const useProgramsStore = create<ProgramsState>((set, get) => ({
         options,
       });
       set({ uninstallResult: result, uninstalling: false });
-      get().loadPrograms({ refresh: true });
+      void get().reloadPrograms({ refresh: true });
     } catch (e) {
       set({ error: extractErrorMessage(e), uninstalling: false });
     }
