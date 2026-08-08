@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-scan-browser-data"
+description = "Enables the scan_browser_data command without any pre-configured scope."
+commands.allow = ["scan_browser_data"]
+
+[[permission]]
+identifier = "deny-scan-browser-data"
+description = "Denies the scan_browser_data command without any pre-configured scope."
+commands.deny = ["scan_browser_data"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-clean-cleaner-entries"
+description = "Enables the clean_cleaner_entries command without any pre-configured scope."
+commands.allow = ["clean_cleaner_entries"]
+
+[[permission]]
+identifier = "deny-clean-cleaner-entries"
+description = "Denies the clean_cleaner_entries command without any pre-configured scope."
+commands.deny = ["clean_cleaner_entries"]

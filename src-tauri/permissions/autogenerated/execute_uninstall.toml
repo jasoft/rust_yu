@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-execute-uninstall"
+description = "Enables the execute_uninstall command without any pre-configured scope."
+commands.allow = ["execute_uninstall"]
+
+[[permission]]
+identifier = "deny-execute-uninstall"
+description = "Denies the execute_uninstall command without any pre-configured scope."
+commands.deny = ["execute_uninstall"]

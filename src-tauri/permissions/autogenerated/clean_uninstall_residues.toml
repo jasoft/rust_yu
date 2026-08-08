@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-clean-uninstall-residues"
+description = "Enables the clean_uninstall_residues command without any pre-configured scope."
+commands.allow = ["clean_uninstall_residues"]
+
+[[permission]]
+identifier = "deny-clean-uninstall-residues"
+description = "Denies the clean_uninstall_residues command without any pre-configured scope."
+commands.deny = ["clean_uninstall_residues"]

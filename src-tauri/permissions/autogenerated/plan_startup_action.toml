@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-plan-startup-action"
+description = "Enables the plan_startup_action command without any pre-configured scope."
+commands.allow = ["plan_startup_action"]
+
+[[permission]]
+identifier = "deny-plan-startup-action"
+description = "Denies the plan_startup_action command without any pre-configured scope."
+commands.deny = ["plan_startup_action"]

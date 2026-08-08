@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-scan-traces"
+description = "Enables the scan_traces command without any pre-configured scope."
+commands.allow = ["scan_traces"]
+
+[[permission]]
+identifier = "deny-scan-traces"
+description = "Denies the scan_traces command without any pre-configured scope."
+commands.deny = ["scan_traces"]

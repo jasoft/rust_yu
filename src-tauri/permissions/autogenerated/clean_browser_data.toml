@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-clean-browser-data"
+description = "Enables the clean_browser_data command without any pre-configured scope."
+commands.allow = ["clean_browser_data"]
+
+[[permission]]
+identifier = "deny-clean-browser-data"
+description = "Denies the clean_browser_data command without any pre-configured scope."
+commands.deny = ["clean_browser_data"]
