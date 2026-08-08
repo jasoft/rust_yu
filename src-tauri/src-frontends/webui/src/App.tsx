@@ -31,7 +31,6 @@ import {
   Zap,
 } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { invoke } from "@tauri-apps/api/core";
 import { getProgramIconSrc } from "./lib/icon";
 import { useProgramsStore } from "./stores/programs";
 import { StartupManager } from "./components/StartupManager";
@@ -41,7 +40,7 @@ import type {
   CleanResult,
   InstalledProgram,
   Trace,
-  UninstallProgress,
+  UninstallJobEvent,
 } from "./types";
 
 type Stage = "apps" | "confirm" | "progress" | "scan" | "review" | "complete";
@@ -157,8 +156,12 @@ export default function App() {
   const setSearchQuery = useProgramsStore((state) => state.setSearchQuery);
   const setSourceFilter = useProgramsStore((state) => state.setSourceFilter);
   const scanTraces = useProgramsStore((state) => state.scanTraces);
-  const uninstallProgram = useProgramsStore((state) => state.uninstallProgram);
+  const planUninstall = useProgramsStore((state) => state.planUninstall);
+  const executeUninstall = useProgramsStore((state) => state.executeUninstall);
+  const cleanUninstallResidues = useProgramsStore((state) => state.cleanUninstallResidues);
+  const finishUninstall = useProgramsStore((state) => state.finishUninstall);
   const uninstallResult = useProgramsStore((state) => state.uninstallResult);
+  const uninstallJob = useProgramsStore((state) => state.uninstallJob);
 
   useEffect(() => {
     if (!isTauriRuntime()) return;
@@ -209,23 +212,19 @@ export default function App() {
     if (!isTauriRuntime()) return;
     let unlisten: (() => void) | undefined;
     void import("@tauri-apps/api/event").then(({ listen }) =>
-      listen<UninstallProgress>("uninstall-progress", (event) => {
+      listen<UninstallJobEvent>("uninstall-job-progress", (event) => {
         const payload = event.payload;
-        if (payload.stage === "target_resolved") {
-          setProgress(14);
-          setLogs((current) => [...current, `[定位] ${payload.program.name} · ${payload.route}`]);
-        } else if (payload.stage === "uninstall_started") {
+        if (uninstallJob && payload.job_id !== uninstallJob.snapshot.job_id) return;
+        if (payload.phase === "running_uninstaller") {
           setProgress(38);
-          setLogs((current) => [...current, `[卸载] 执行命令：${payload.command}`]);
-        } else if (payload.stage === "uninstall_completed") {
+          setLogs((current) => [...current, `[卸载] 已启动受控卸载器`]);
+        } else if (payload.phase === "verifying_removal") {
           setProgress(72);
-          setLogs((current) => [...current, `[卸载] 已完成，退出码 ${payload.exit_code ?? "unknown"}`]);
-          if (scanAfter) setStage("scan");
-        } else if (payload.stage === "scan_completed") {
-          setTraces(payload.traces);
-          setSelectedTraceIds(new Set(payload.traces.filter((item) => item.confidence === "high").map((item) => item.id)));
-          setStage("review");
-        } else if (payload.stage === "finished" && !scanAfter) {
+          setLogs((current) => [...current, `[验证] 正在确认程序是否已移除`]);
+        } else if (payload.phase === "scanning_residues") {
+          setProgress(86);
+          setLogs((current) => [...current, `[扫描] 正在查找残留`]);
+        } else if (payload.phase === "completed") {
           setProgress(100);
           setStage("complete");
         }
@@ -234,7 +233,7 @@ export default function App() {
       }),
     );
     return () => unlisten?.();
-  }, [scanAfter]);
+  }, [scanAfter, uninstallJob]);
 
   useEffect(() => {
     if (!isTauriRuntime() && stage === "progress") {
@@ -278,12 +277,17 @@ export default function App() {
     setProgress(8);
     setLogs(["[10:24:31] 正在准备卸载任务…"]);
     if (isTauriRuntime() && selectedProgram.source) {
-      void uninstallProgram({
-        program_name: selectedProgram.source.name,
-        clean_after: false,
-        confirm: true,
-        timeout_secs: 120,
-      });
+      void (async () => {
+        const planned = await planUninstall(selectedProgram.source!.id);
+        if (!planned) return;
+        const executed = await executeUninstall(planned.snapshot.job_id, 120);
+        if (!executed) return;
+        const residueItems = executed.residue_review.traces;
+        setTraces(residueItems);
+        setSelectedTraceIds(new Set());
+        if (executed.phase === "awaiting_cleanup_confirmation") setStage("review");
+        else if (executed.phase === "completed") setStage("complete");
+      })();
     } else {
       window.setTimeout(() => {
         setProgress(42);
@@ -300,14 +304,13 @@ export default function App() {
   const cleanSelected = async () => {
     const chosen = traces.filter((trace) => selectedTraceIds.has(trace.id));
     if (isTauriRuntime()) {
-      try {
-        const result = await invoke<CleanResult[]>("clean_traces", {
-          options: { traces: chosen, confirm: true, preview: false },
-        });
-        setCleanResults(result);
-      } catch {
-        return;
-      }
+      const jobId = useProgramsStore.getState().uninstallJob?.snapshot.job_id;
+      if (!jobId) return;
+      const result = await cleanUninstallResidues(jobId, {
+        trace_ids: chosen.map((trace) => trace.id),
+        confirm: true,
+      });
+      if (!result) return;
     } else {
       setCleanResults(chosen.map((trace) => ({ trace_id: trace.id, path: trace.path, success: true, error: null, bytes_freed: trace.size ?? 0 })));
     }
@@ -370,7 +373,12 @@ export default function App() {
                 if (next.has(id)) next.delete(id); else next.add(id);
                 return next;
               })}
+              allowBack={!uninstallJob}
               onBack={() => setStage("apps")}
+              onSkip={() => {
+                const jobId = useProgramsStore.getState().uninstallJob?.snapshot.job_id;
+                if (jobId) void finishUninstall(jobId).then(() => setStage("complete"));
+              }}
               onRescan={handleManualScan}
               onClean={() => setCleanConfirm(true)}
               confirmOpen={cleanConfirm}
@@ -548,6 +556,7 @@ function CheckOption({ checked, onChange, title, hint }: { checked: boolean; onC
 }
 
 function ProgressStage({ program, progress, logs, onContinue }: { program: UiProgram; progress: number; logs: string[]; onContinue: () => void }) {
+  const nativeWorkflow = isTauriRuntime();
   const steps = [
     ["创建系统还原点", "done"], ["分析卸载程序", "done"], ["运行内置卸载程序", "active"], ["删除程序文件", "todo"], ["清理注册表项", "todo"], ["卸载完成", "todo"],
   ];
@@ -555,7 +564,7 @@ function ProgressStage({ program, progress, logs, onContinue }: { program: UiPro
     <div className="page progress-page">
       <SectionHeader title={`正在卸载 ${program.name}`} subtitle="请保持应用开启，我们会在任务完成后通知你" />
       <div className="progress-top">
-        <div className="progress-ring" style={{ "--progress": `${progress * 3.6}deg` } as React.CSSProperties}><div><strong>{progress}%</strong><span>正在删除文件…</span><small>00:00:28</small></div></div>
+        <div className="progress-ring" style={{ "--progress": `${nativeWorkflow ? 90 : progress * 3.6}deg` } as React.CSSProperties}><div><strong>{nativeWorkflow ? "…" : `${progress}%`}</strong><span>{nativeWorkflow ? "等待真实卸载状态…" : "正在删除文件…"}</span><small>{nativeWorkflow ? "请保持窗口开启" : "00:00:28"}</small></div></div>
         <div className="steps-list">{steps.map(([label, state]) => <div key={label} className={`step ${state}`}><span>{state === "done" ? <Check size={12} /> : ""}</span><strong>{label}</strong><em>{state === "done" ? "完成" : state === "active" ? "进行中" : ""}</em></div>)}</div>
       </div>
       <div className="log-panel card-surface"><div className="panel-title"><span>实时日志</span><button>清空</button></div><div className="log-content">{logs.map((log, index) => <div key={`${log}-${index}`}>{log}</div>)}</div></div>
@@ -585,7 +594,7 @@ function ScanStage({ onContinue }: { onContinue: () => void }) {
 
 function ReviewStage(props: {
   traces: Trace[]; selectedIds: Set<string>; onToggle: (id: string) => void; onBack: () => void; onClean: () => void;
-  onRescan: () => void; confirmOpen: boolean; onConfirmClose: () => void; onConfirm: () => void;
+  allowBack: boolean; onSkip: () => void; onRescan: () => void; confirmOpen: boolean; onConfirmClose: () => void; onConfirm: () => void;
 }) {
   const fileTraces = props.traces.filter((trace) => trace.trace_type !== "registry_key" && trace.trace_type !== "registry_value");
   const registryTraces = props.traces.filter((trace) => trace.trace_type === "registry_key" || trace.trace_type === "registry_value");
@@ -598,7 +607,7 @@ function ReviewStage(props: {
         <TraceGroup title={`文件系统 (${fileTraces.length} 项)`} traces={fileTraces} selectedIds={props.selectedIds} onToggle={props.onToggle} />
         <TraceGroup title={`注册表 (${registryTraces.length} 项)`} traces={registryTraces} selectedIds={props.selectedIds} onToggle={props.onToggle} />
       </div>
-      <div className="review-footer"><span>可回收空间：<strong>{formatBytes(selectedSize)}</strong></span><div><button className="secondary-button" onClick={props.onBack}>返回</button><button className="primary-button" disabled={props.selectedIds.size === 0} onClick={props.onClean}><Trash2 size={16} />清理所选</button></div></div>
+      <div className="review-footer"><span>可回收空间：<strong>{formatBytes(selectedSize)}</strong></span><div><button className="secondary-button" onClick={props.onSkip}>跳过清理</button>{props.allowBack && <button className="secondary-button" onClick={props.onBack}>返回</button>}<button className="primary-button" disabled={props.selectedIds.size === 0} onClick={props.onClean}><Trash2 size={16} />清理所选</button></div></div>
       {props.confirmOpen && <div className="modal-backdrop"><div className="safety-modal"><span className="modal-icon"><TriangleAlert size={24} /></span><h2>确认清理所选残留？</h2><p>将永久删除 {props.selectedIds.size} 个已确认项目。低置信度项目不会被自动选择，此操作无法自动撤销。</p><div><button className="secondary-button" onClick={props.onConfirmClose}>取消</button><button className="danger-button" onClick={props.onConfirm}>确认清理</button></div></div></div>}
     </div>
   );

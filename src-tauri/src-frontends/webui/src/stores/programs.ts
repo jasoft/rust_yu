@@ -7,6 +7,9 @@ import type {
   CleanResult,
   UninstallResult,
   CommandError,
+  CleanupSelection,
+  UninstallJob,
+  UninstallJobResponse,
 } from "../types";
 
 type ViewMode = "list" | "detail" | "uninstall" | "traces";
@@ -26,6 +29,7 @@ interface ProgramsState {
   cleanResults: CleanResult[];
   uninstallResult: UninstallResult | null;
   uninstalling: boolean;
+  uninstallJob: UninstallJob | null;
 
   loadPrograms: (options?: { source?: string; search?: string; refresh?: boolean }) => Promise<void>;
   warmupIcons: () => Promise<void>;
@@ -37,13 +41,11 @@ interface ProgramsState {
   toggleTrace: (traceId: string) => void;
   toggleAllTraces: () => void;
   cleanTraces: (confirm: boolean) => Promise<void>;
-  uninstallProgram: (options: {
-    program_name: string;
-    scan_only?: boolean;
-    clean_after?: boolean;
-    timeout_secs?: number;
-    confirm?: boolean;
-  }) => Promise<void>;
+  planUninstall: (programId: string) => Promise<UninstallJob | null>;
+  executeUninstall: (jobId: string, timeoutSecs?: number) => Promise<UninstallJob | null>;
+  cleanUninstallResidues: (jobId: string, selection: CleanupSelection) => Promise<UninstallJob | null>;
+  finishUninstall: (jobId: string) => Promise<UninstallJob | null>;
+  getUninstallJob: (jobId: string) => Promise<UninstallJob | null>;
   resetUninstall: () => void;
   resetTraces: () => void;
 }
@@ -71,6 +73,7 @@ export const useProgramsStore = create<ProgramsState>((set, get) => ({
   cleanResults: [],
   uninstallResult: null,
   uninstalling: false,
+  uninstallJob: null,
 
   loadPrograms: async (options) => {
     set({ loading: true, error: null });
@@ -170,20 +173,73 @@ export const useProgramsStore = create<ProgramsState>((set, get) => ({
     }
   },
 
-  uninstallProgram: async (options) => {
-    set({ uninstalling: true, uninstallResult: null });
+  planUninstall: async (programId) => {
+    set({ uninstalling: true, uninstallResult: null, error: null });
     try {
-      const result = await invoke<UninstallResult>("uninstall_program", {
-        options,
+      const response = await invoke<UninstallJobResponse>("plan_uninstall", {
+        request: { program_id: programId },
       });
-      set({ uninstallResult: result, uninstalling: false });
-      get().loadPrograms({ refresh: true });
+      set({ uninstallJob: response.job, uninstalling: false });
+      return response.job;
     } catch (e) {
       set({ error: extractErrorMessage(e), uninstalling: false });
+      return null;
     }
   },
 
-  resetUninstall: () => set({ uninstallResult: null, uninstalling: false }),
+  executeUninstall: async (jobId, timeoutSecs = 120) => {
+    set({ uninstalling: true, error: null });
+    try {
+      const response = await invoke<UninstallJobResponse>("execute_uninstall", {
+        request: { job_id: jobId, timeout_secs: timeoutSecs },
+      });
+      set({
+        uninstallJob: response.job,
+        uninstallResult: response.job.outcome,
+        uninstalling: false,
+      });
+      if (response.job.phase === "completed") void get().loadPrograms({ refresh: true });
+      return response.job;
+    } catch (e) {
+      set({ error: extractErrorMessage(e), uninstalling: false });
+      return null;
+    }
+  },
+
+  cleanUninstallResidues: async (jobId, selection) => {
+    set({ uninstalling: true, error: null });
+    try {
+      const response = await invoke<UninstallJobResponse>("clean_uninstall_residues", {
+        request: { job_id: jobId, selection },
+      });
+      set({
+        uninstallJob: response.job,
+        uninstallResult: response.job.outcome,
+        uninstalling: false,
+      });
+      if (response.job.phase === "completed") void get().loadPrograms({ refresh: true });
+      return response.job;
+    } catch (e) {
+      set({ error: extractErrorMessage(e), uninstalling: false });
+      return null;
+    }
+  },
+
+  finishUninstall: async (jobId) =>
+    get().cleanUninstallResidues(jobId, { trace_ids: [], confirm: true }),
+
+  getUninstallJob: async (jobId) => {
+    try {
+      const response = await invoke<UninstallJobResponse>("get_uninstall_job", { jobId });
+      set({ uninstallJob: response.job, uninstallResult: response.job.outcome });
+      return response.job;
+    } catch (e) {
+      set({ error: extractErrorMessage(e) });
+      return null;
+    }
+  },
+
+  resetUninstall: () => set({ uninstallResult: null, uninstalling: false, uninstallJob: null }),
   resetTraces: () =>
     set({ traces: [], selectedTraces: new Set(), cleanResults: [], viewMode: "detail" }),
 }));

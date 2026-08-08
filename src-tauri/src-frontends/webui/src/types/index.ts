@@ -75,50 +75,75 @@ export interface UninstallResult {
   bytes_freed: number;
 }
 
-export interface UninstallProgressTargetResolved {
-  stage: "target_resolved";
+export type UninstallPhase =
+  | "planned"
+  | "running_uninstaller"
+  | "verifying_removal"
+  | "scanning_residues"
+  | "awaiting_cleanup_confirmation"
+  | "cleaning_residues"
+  | "completed"
+  | "cancelled"
+  | "failed";
+
+export interface UninstallJobSnapshot {
+  job_id: string;
   program: InstalledProgram;
-  uninstall_command: string | null;
+  fingerprint: string;
   route: string;
+  traces: Trace[];
+  selected_trace_ids: string[];
 }
 
-export interface UninstallProgressUninstallStarted {
-  stage: "uninstall_started";
-  command: string;
+export interface UninstallResidueReview {
+  traces: Trace[];
+  default_selected_ids: string[];
 }
 
-export interface UninstallProgressUninstallCompleted {
-  stage: "uninstall_completed";
+export type UninstallEventPayload =
+  | { kind: "planned" }
+  | { kind: "uninstaller_started"; command_summary: string }
+  | { kind: "uninstaller_completed"; exit_code: number | null; reboot_required: boolean }
+  | { kind: "removal_verified"; removed: boolean }
+  | { kind: "residues_scanned"; count: number }
+  | { kind: "cleanup_started"; count: number }
+  | { kind: "cleanup_completed"; success_count: number; failed_count: number }
+  | { kind: "finished"; success: boolean; message: string };
+
+export interface UninstallJobEvent {
+  job_id: string;
+  sequence: number;
+  phase: UninstallPhase;
+  payload: UninstallEventPayload;
+}
+
+export interface UninstallOutcome {
+  success: boolean;
+  message: string;
   exit_code: number | null;
   reboot_required: boolean;
-  used_job_object: boolean;
-}
-
-export interface UninstallProgressScanCompleted {
-  stage: "scan_completed";
-  traces: Trace[];
-}
-
-export interface UninstallProgressCleanCompleted {
-  stage: "clean_completed";
-  success_count: number;
-  failed_count: number;
+  traces_found: number;
+  traces_cleaned: number;
   bytes_freed: number;
 }
 
-export interface UninstallProgressFinished {
-  stage: "finished";
-  success: boolean;
-  message: string;
+export interface UninstallJob {
+  snapshot: UninstallJobSnapshot;
+  phase: UninstallPhase;
+  next_sequence: number;
+  events: UninstallJobEvent[];
+  residue_review: UninstallResidueReview;
+  outcome: UninstallOutcome | null;
 }
 
-export type UninstallProgress =
-  | UninstallProgressTargetResolved
-  | UninstallProgressUninstallStarted
-  | UninstallProgressUninstallCompleted
-  | UninstallProgressScanCompleted
-  | UninstallProgressCleanCompleted
-  | UninstallProgressFinished;
+export interface UninstallJobResponse {
+  job: UninstallJob;
+}
+
+export interface CleanupSelection {
+  trace_ids: string[];
+  confirm: boolean;
+}
 
 export interface CommandError {
   code?: string;
