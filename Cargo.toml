@@ -7,16 +7,10 @@ name = "rust-yu"
 version = "0.1.3"
 edition = "2021"
 authors = ["John Anders"]
-description = "Windows Uninstaller CLI Tool - 列出已安装程序、搜索残留痕迹、清理并生成报告"
+description = "Rust Yu core uninstall and cleanup engine"
 license = "MIT"
 
 [dependencies]
-
-# HTTP 服务器 (用于开发模式下的前端 API)
-warp = "0.4.2"
-
-# CLI 框架
-clap = { version = "4.5", features = ["derive", "env"] }
 
 # Windows API
 windows = { version = "0.62.2", features = [
@@ -73,17 +67,12 @@ regex = "1.10"
 fuzzy-matcher = "0.3"
 uuid = { version = "1.0", features = ["v4"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
-unicode-width = "0.2"
 sysinfo = "0.33"
 
 [lib]
 name = "rust_yu_lib"
 path = "src/lib.rs"
 crate-type = ["lib"]
-
-[[bin]]
-name = "yu"
-path = "src/main.rs"
 
 [profile.release]
 panic = "abort"

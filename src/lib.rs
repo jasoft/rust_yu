@@ -1,5 +1,4 @@
 pub mod application;
-pub mod commands;
 pub mod modules;
 
 pub use modules::browser_cleaner;

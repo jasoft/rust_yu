@@ -1,5 +1,7 @@
 # List Sort Direction Implementation Plan
 
+> 历史文档：CLI 产品已退役，以下命令仅保留作历史记录。
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** 让 `list` 命令默认按名称 `A-Z` 输出，并保留 `--ascending` 同时新增互斥的 `--descending`。

@@ -47,51 +47,12 @@ if ($RunLifecycle) {
     $installPath = 'C:\Program Files\RustYu Legacy Test App'
     $leftoverFile = Join-Path $installPath 'logs\leftover.log'
     $appDataFile = Join-Path $env:LOCALAPPDATA 'RustYuLegacyTest\Data\leftover-user-profile.json'
-    $yuExe = Join-Path $repoRoot 'target\debug\yu.exe'
-    $yuStdoutLog = Join-Path $repoRoot 'tools\test\yu-uninstall-stdout.log'
-    $yuStderrLog = Join-Path $repoRoot 'tools\test\yu-uninstall-stderr.log'
-
-    Start-Process -FilePath $outputPath -ArgumentList '/VERYSILENT', '/NORESTART' -Wait
-
-    if (-not (Test-Path $registryPath)) {
-        throw "Missing uninstall registry key after install: $registryPath"
-    }
-
-    $registryValue = Get-ItemProperty -Path $registryPath
-    if ($registryValue.UninstallString -notmatch 'SpawnUninstallHelper\.exe') {
-        throw "UninstallString does not point to SpawnUninstallHelper.exe: $($registryValue.UninstallString)"
-    }
-
-    if ($registryValue.QuietUninstallString -notmatch 'SpawnUninstallHelper\.exe') {
-        throw "QuietUninstallString does not point to SpawnUninstallHelper.exe: $($registryValue.QuietUninstallString)"
-    }
-
-    if (-not (Test-Path $yuExe)) {
-        throw "Missing yu executable: $yuExe"
-    }
-
-    Remove-Item -Force $yuStdoutLog, $yuStderrLog -ErrorAction SilentlyContinue
-    $yuProcess = Start-Process -FilePath $yuExe `
-        -ArgumentList 'uninstall', '"RustYu Legacy Test App"', '--timeout', '15' `
-        -Wait `
-        -PassThru `
-        -RedirectStandardOutput $yuStdoutLog `
-        -RedirectStandardError $yuStderrLog
-    $yuText = ''
-    if (Test-Path $yuStdoutLog) {
-        $yuText += Get-Content -Raw $yuStdoutLog
-    }
-    if (Test-Path $yuStderrLog) {
-        $yuText += Get-Content -Raw $yuStderrLog
-    }
-
-    $expectedLeftoverFailure = $yuText -match 'install_dir_exists=true'
-    if ($yuProcess.ExitCode -ne 0 -and -not $expectedLeftoverFailure) {
-        throw "yu uninstall failed:`n$yuText"
-    }
-
-    if ($yuText -notmatch 'Job Object') {
-        throw "yu output did not hit the waitforjobs path:`n$yuText"
+    Push-Location $repoRoot
+    try {
+        cargo test --test windows_uninstall_lifecycle -- --ignored --nocapture
+        if ($LASTEXITCODE -ne 0) { throw 'application workflow lifecycle test failed' }
+    } finally {
+        Pop-Location
     }
 
     if (-not (Test-Path $leftoverFile)) {

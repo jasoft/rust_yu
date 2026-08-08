@@ -78,9 +78,9 @@
 - winget install --id JRSoftware.InnoSetup --silent --accept-package-agreements --accept-source-agreements 可以安装 Inno Setup 6 编译器
 - .resources\inno-legacy-test\Build-InnoLegacyFixture.ps1 会先用 rustc 编译 `tools\SpawnUninstallHelper.rs` 为 `payload\app\SpawnUninstallHelper.exe`，再调用 Inno Setup 编译安装包
 - .resources\inno-legacy-test\output\RustYuLegacyTestSetup.exe 是编译产物，支持 GUI 安装和 `/VERYSILENT /NORESTART` 静默安装
-- 这个 legacy 测试夹具会把 `UninstallString` 和 `QuietUninstallString` 都包装为 `SpawnUninstallHelper.exe -> UninstallWorker.ps1 -> unins000.exe` 的进程链，用来验证 `yu.exe uninstall` 的 `waitforjobs` 路径
+- 这个 legacy 测试夹具会把 `UninstallString` 和 `QuietUninstallString` 都包装为 `SpawnUninstallHelper.exe -> UninstallWorker.ps1 -> unins000.exe` 的进程链，用来验证 application workflow 的 Job Object 等待路径
 - 这个 legacy 测试夹具卸载后应保留 `C:\Program Files\RustYu Legacy Test App\logs\leftover.log` 和 `%LocalAppData%\RustYuLegacyTest\Data\leftover-user-profile.json`，便于验证安装目录与 AppData 残留扫描
-- tools\test\Verify-InnoLegacyFixture.ps1 默认验证夹具结构和安装包；传入 `-RunLifecycle` 时需要管理员 PowerShell，会安装夹具、检查卸载命令是否走 spawn wrapper，并调用 `yu uninstall` 验证 `waitforjobs`
+- tools\test\Verify-InnoLegacyFixture.ps1 默认验证夹具结构和安装包；传入 `-RunLifecycle` 时需要管理员 PowerShell，会安装夹具、检查卸载命令是否走 spawn wrapper，并调用 application workflow 集成测试验证 `waitforjobs`
 
 ---
 

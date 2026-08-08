@@ -4,7 +4,7 @@
 
 - 标准 Win32 卸载项枚举
 - `QuietUninstallString` 优先使用
-- 卸载命令先派生子进程再退出，便于验证 `yu.exe` 的 `waitforjobs`
+- 卸载命令先派生子进程再退出，便于验证 application workflow 的 Job Object 等待
 - 卸载后的安装目录残留
 - 卸载后的 `LocalAppData` 残留
 
@@ -23,7 +23,7 @@
 - `SpawnUninstallHelper.exe` 会再派生 `UninstallWorker.ps1` 并立即退出
 - `UninstallWorker.ps1` 会延迟启动真正的 `unins000.exe`，然后等待卸载结束
 
-这个链式模型用于验证 `yu.exe uninstall` 在父进程已退出时，仍能依赖 Job Object 等待整条卸载进程链结束
+这个链式模型由 `tests/windows_uninstall_lifecycle.rs` 验证：父进程已退出时，application workflow 仍依赖 Job Object 等待整条卸载进程链结束
 
 ## 编译
 
@@ -73,10 +73,10 @@ Start-Process 'C:\Program Files\RustYu Legacy Test App\unins000.exe' -ArgumentLi
 
 也可以直接读取卸载注册表中的 `QuietUninstallString`。
 
-推荐用 `target\debug\yu.exe` 走完整 waitforjobs 验证：
+推荐用 application workflow 的 Windows 集成测试走完整 waitforjobs 验证：
 
 ```powershell
-.\target\debug\yu.exe uninstall "RustYu Legacy Test App" --timeout 180
+cargo test --test windows_uninstall_lifecycle -- --ignored --nocapture
 ```
 
 ## 预期残留

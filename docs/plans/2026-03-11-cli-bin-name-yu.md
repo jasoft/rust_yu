@@ -1,5 +1,7 @@
 # CLI Bin Name Yu Implementation Plan
 
+> 历史文档：CLI 产品已由管理员 Tauri GUI 方案退役，仅保留作背景记录。
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** 将 CLI 构建产物名从 `rust-yu.exe` 改为 `yu.exe`，不修改应用名或 Tauri 标识。

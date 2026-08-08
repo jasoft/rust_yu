@@ -1,5 +1,7 @@
 # List Refresh Flag Implementation Plan
 
+> 历史文档：CLI 产品已退役，以下命令仅保留作历史记录。
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** 为 `list` 命令增加 `--refresh` 参数，允许跳过读取缓存并立即重扫后回写缓存。
