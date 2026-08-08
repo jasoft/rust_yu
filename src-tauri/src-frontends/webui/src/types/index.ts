@@ -219,3 +219,95 @@ export interface StartupActionResult {
   warnings: string[];
   operations: string[];
 }
+
+export interface CleanerEntrySummary {
+  id: string;
+  name: string;
+  category: string;
+  warning: string | null;
+  default_enabled: boolean;
+  file_rule_count: number;
+  registry_rule_count: number;
+}
+
+export interface CleanerCatalog {
+  entries: CleanerEntrySummary[];
+  database_version: string;
+  total_rule_count: number;
+  detected_rule_count: number;
+}
+
+export type CleanerTargetKind = "file" | "registry_key" | "registry_value";
+
+export interface CleanerTarget {
+  id: string;
+  entry_id: string;
+  entry_name: string;
+  kind: CleanerTargetKind;
+  path: string;
+  value_name: string | null;
+  size: number;
+  requires_admin: boolean;
+  blocked_reason: string | null;
+}
+
+export interface CleanerScanResult {
+  targets: CleanerTarget[];
+  total_bytes: number;
+  truncated: boolean;
+}
+
+export interface CleanerCleanItemResult {
+  target_id: string;
+  path: string;
+  success: boolean;
+  error: string | null;
+  bytes_freed: number;
+  dry_run: boolean;
+}
+
+export interface CleanerCleanResult {
+  items: CleanerCleanItemResult[];
+  bytes_freed: number;
+}
+
+export type BrowserCleanupKind = "cache" | "extension";
+
+export interface BrowserInfo {
+  id: string;
+  name: string;
+  profile_count: number;
+  running: boolean;
+}
+
+export interface BrowserCleanupItem {
+  id: string;
+  browser_id: string;
+  browser_name: string;
+  profile: string;
+  kind: BrowserCleanupKind;
+  name: string;
+  description: string;
+  path: string;
+  size: number;
+  selected_by_default: boolean;
+  confidence: "high" | "medium" | "low";
+}
+
+export interface BrowserScanResult {
+  browsers: BrowserInfo[];
+  items: BrowserCleanupItem[];
+  total_size: number;
+}
+
+export interface BrowserCleanupResult {
+  dry_run: boolean;
+  outcomes: Array<{
+    item_id: string;
+    name: string;
+    success: boolean;
+    bytes_freed: number;
+    error: string | null;
+  }>;
+  bytes_freed: number;
+}

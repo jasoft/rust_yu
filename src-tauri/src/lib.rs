@@ -170,11 +170,16 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            scan_browser_data,
+            clean_browser_data,
             list_programs,
             warmup_program_metadata,
             search_programs,
             scan_traces,
             clean_traces,
+            list_cleaner_entries,
+            scan_cleaner_entries,
+            clean_cleaner_entries,
             uninstall_program,
             get_reports,
             delete_report,

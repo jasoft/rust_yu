@@ -1,5 +1,7 @@
+pub mod browser_cleaner;
 pub mod clean;
 pub mod error;
+pub mod fluent_cleaner;
 pub mod list;
 pub mod report;
 pub mod scan;
@@ -7,8 +9,10 @@ pub mod search;
 pub mod startup;
 pub mod uninstall;
 
+pub use browser_cleaner::*;
 pub use clean::*;
 pub use error::*;
+pub use fluent_cleaner::*;
 pub use list::*;
 pub use report::*;
 pub use scan::*;
