@@ -167,7 +167,6 @@ pub fn run() {
     }
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_shell::init())
         .manage(state::UninstallCoordinator::new())
         .setup(|app| {
             tracing::info!("Rust Yu Tauri 应用启动");

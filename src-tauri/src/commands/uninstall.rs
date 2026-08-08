@@ -6,7 +6,7 @@ use rust_yu_lib::application::uninstall::{
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
-use super::CommandError;
+use super::{require_administrator, CommandError};
 use crate::state::UninstallCoordinator;
 
 pub const UNINSTALL_JOB_PROGRESS_EVENT: &str = "uninstall-job-progress";
@@ -49,6 +49,7 @@ pub async fn plan_uninstall(
     coordinator: State<'_, UninstallCoordinator>,
     request: PlanUninstallRequest,
 ) -> Result<UninstallJobResponse, CommandError> {
+    require_administrator()?;
     coordinator.begin_plan().map_err(CommandError::from)?;
     let port = ProductionUninstallPort;
     let result = run_plan_uninstall(&port, &request.program_id).await;
@@ -72,6 +73,7 @@ pub async fn execute_uninstall(
     coordinator: State<'_, UninstallCoordinator>,
     request: ExecuteUninstallRequest,
 ) -> Result<UninstallJobResponse, CommandError> {
+    require_administrator()?;
     let mut job = coordinator
         .begin_operation(&request.job_id, UninstallPhase::Planned)
         .map_err(CommandError::from)?;
@@ -91,6 +93,7 @@ pub async fn clean_uninstall_residues(
     coordinator: State<'_, UninstallCoordinator>,
     request: CleanUninstallResiduesRequest,
 ) -> Result<UninstallJobResponse, CommandError> {
+    require_administrator()?;
     let mut job = coordinator
         .begin_operation(&request.job_id, UninstallPhase::AwaitingCleanupConfirmation)
         .map_err(CommandError::from)?;
@@ -110,6 +113,7 @@ pub async fn finish_uninstall(
     coordinator: State<'_, UninstallCoordinator>,
     request: FinishUninstallRequest,
 ) -> Result<UninstallJobResponse, CommandError> {
+    require_administrator()?;
     let mut job = coordinator
         .begin_operation(&request.job_id, UninstallPhase::AwaitingCleanupConfirmation)
         .map_err(CommandError::from)?;

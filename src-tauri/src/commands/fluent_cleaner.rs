@@ -3,7 +3,7 @@ use rust_yu_lib::fluent_cleaner::{
 };
 use tauri::{AppHandle, Emitter};
 
-use super::CommandError;
+use super::{require_administrator, CommandError};
 
 #[tauri::command]
 pub async fn list_cleaner_entries() -> Result<CleanerCatalog, CommandError> {
@@ -39,6 +39,7 @@ pub async fn clean_cleaner_entries(
     app: AppHandle,
     selection: CleanSelection,
 ) -> Result<CleanerCleanResult, CommandError> {
+    require_administrator()?;
     let _ = app.emit(
         "fluent-cleaner-log",
         if selection.dry_run {

@@ -2,7 +2,7 @@ use rust_yu_lib::browser_cleaner::{
     BrowserCleanupRequest, BrowserCleanupResult, BrowserScanResult,
 };
 
-use super::CommandError;
+use super::{require_administrator, CommandError};
 
 #[tauri::command]
 pub async fn scan_browser_data() -> Result<BrowserScanResult, CommandError> {
@@ -17,6 +17,7 @@ pub async fn scan_browser_data() -> Result<BrowserScanResult, CommandError> {
 pub async fn clean_browser_data(
     request: BrowserCleanupRequest,
 ) -> Result<BrowserCleanupResult, CommandError> {
+    require_administrator()?;
     // 核心层会重新扫描并验证目标 ID，不信任前端传入的路径。
     tauri::async_runtime::spawn_blocking(move || {
         rust_yu_lib::browser_cleaner::clean_browser_data(&request)

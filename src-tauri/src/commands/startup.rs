@@ -6,7 +6,7 @@ use rust_yu_lib::startup::models::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::CommandError;
+use super::{require_administrator, CommandError};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StartupListOptions {
@@ -122,6 +122,7 @@ pub async fn apply_startup_action(
     action: String,
     options: StartupActionOptions,
 ) -> Result<StartupEnvelope<StartupActionResult>, CommandError> {
+    require_administrator()?;
     let action = parse_action(&action)?;
     let result = tauri::async_runtime::spawn_blocking(move || {
         manager::apply_action(&options.id, action, options.reason)
@@ -139,6 +140,7 @@ pub async fn apply_startup_action(
 pub async fn rollback_startup_action(
     options: StartupRollbackOptions,
 ) -> Result<StartupEnvelope<StartupActionResult>, CommandError> {
+    require_administrator()?;
     let result = tauri::async_runtime::spawn_blocking(move || {
         manager::rollback_action(&options.change_id, options.reason)
     })
@@ -171,6 +173,7 @@ pub async fn plan_add_startup_item(
 pub async fn add_startup_item(
     options: StartupAddOptions,
 ) -> Result<StartupEnvelope<StartupAddResult>, CommandError> {
+    require_administrator()?;
     let result = tauri::async_runtime::spawn_blocking(move || {
         manager::add_registry_run_item(&options.name, &options.command, options.reason)
     })

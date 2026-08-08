@@ -564,7 +564,7 @@ function ProgressStage({ program, progress, logs, onContinue }: { program: UiPro
     <div className="page progress-page">
       <SectionHeader title={`正在卸载 ${program.name}`} subtitle="请保持应用开启，我们会在任务完成后通知你" />
       <div className="progress-top">
-        <div className="progress-ring" style={{ "--progress": `${nativeWorkflow ? 90 : progress * 3.6}deg` } as React.CSSProperties}><div><strong>{nativeWorkflow ? "…" : `${progress}%`}</strong><span>{nativeWorkflow ? "等待真实卸载状态…" : "正在删除文件…"}</span><small>{nativeWorkflow ? "请保持窗口开启" : "00:00:28"}</small></div></div>
+        <div className={`progress-ring ${nativeWorkflow ? "indeterminate" : "preview-progress"}`}><div><strong>{nativeWorkflow ? "…" : `${progress}%`}</strong><span>{nativeWorkflow ? "等待真实卸载状态…" : "正在删除文件…"}</span><small>{nativeWorkflow ? "请保持窗口开启" : "00:00:28"}</small></div></div>
         <div className="steps-list">{steps.map(([label, state]) => <div key={label} className={`step ${state}`}><span>{state === "done" ? <Check size={12} /> : ""}</span><strong>{label}</strong><em>{state === "done" ? "完成" : state === "active" ? "进行中" : ""}</em></div>)}</div>
       </div>
       <div className="log-panel card-surface"><div className="panel-title"><span>实时日志</span><button>清空</button></div><div className="log-content">{logs.map((log, index) => <div key={`${log}-${index}`}>{log}</div>)}</div></div>

@@ -3,7 +3,7 @@ use rust_yu_lib::cleaner::models::CleanResult;
 use rust_yu_lib::scanner::models::Trace;
 use serde::{Deserialize, Serialize};
 
-use super::CommandError;
+use super::{require_administrator, CommandError};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CleanOptions {
@@ -18,6 +18,7 @@ pub async fn clean_traces(options: CleanOptions) -> Result<Vec<CleanResult>, Com
     if options.preview {
         return Ok(vec![]);
     }
+    require_administrator()?;
 
     let results = cleaner::clean_traces(options.traces, options.confirm)
         .await

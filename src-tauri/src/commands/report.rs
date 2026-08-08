@@ -2,7 +2,7 @@ use rust_yu_lib::reporter::models::UninstallerReport;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-use super::CommandError;
+use super::{require_administrator, CommandError};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ReportInfo {
@@ -56,6 +56,7 @@ pub async fn get_reports() -> Result<Vec<ReportInfo>, CommandError> {
 
 #[tauri::command]
 pub async fn delete_report(report_id: String) -> Result<bool, CommandError> {
+    require_administrator()?;
     let reports_dir = get_reports_dir();
 
     // 尝试删除 JSON 文件

@@ -1,5 +1,10 @@
 use serde::Serialize;
 
+pub fn require_administrator() -> Result<(), CommandError> {
+    rust_yu_lib::utils::ensure_running_as_administrator()
+        .map_err(|error| CommandError::with_code("admin_required", error.to_string()))
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct CommandError {
     #[serde(skip_serializing_if = "Option::is_none")]
