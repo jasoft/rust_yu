@@ -8,6 +8,8 @@ import type {
   UninstallResult,
   CommandError,
 } from "../types";
+import type { ProgramSourceFilter } from "../lib/programFilters";
+import { hasMissingProgramIcons } from "../lib/programFilters";
 
 type ViewMode = "list" | "detail" | "uninstall" | "traces";
 
@@ -16,7 +18,7 @@ interface ProgramsState {
   loading: boolean;
   error: string | null;
   searchQuery: string;
-  sourceFilter: string;
+  sourceFilter: ProgramSourceFilter;
   selectedProgram: InstalledProgram | null;
   viewMode: ViewMode;
   traces: Trace[];
@@ -27,10 +29,10 @@ interface ProgramsState {
   uninstallResult: UninstallResult | null;
   uninstalling: boolean;
 
-  loadPrograms: (options?: { source?: string; search?: string; refresh?: boolean }) => Promise<void>;
-  warmupIcons: () => Promise<void>;
+  loadPrograms: (options?: { refresh?: boolean }) => Promise<void>;
+  warmupIcons: () => Promise<boolean>;
   setSearchQuery: (query: string) => void;
-  setSourceFilter: (source: string) => void;
+  setSourceFilter: (source: ProgramSourceFilter) => void;
   selectProgram: (program: InstalledProgram | null) => void;
   setViewMode: (mode: ViewMode) => void;
   scanTraces: (programName: string) => Promise<void>;
@@ -77,8 +79,10 @@ export const useProgramsStore = create<ProgramsState>((set, get) => ({
     try {
       const response = await invoke<ProgramListResponse>("list_programs", {
         options: {
-          source: options?.source ?? get().sourceFilter,
-          search: options?.search ?? (get().searchQuery || undefined),
+          // 始终缓存一份全量列表；来源标签和搜索在前端即时筛选，
+          // 避免切换标签重新扫描后丢失已经预热的图标元数据。
+          source: "all",
+          search: undefined,
           refresh: options?.refresh ?? false,
         },
       });
@@ -89,6 +93,9 @@ export const useProgramsStore = create<ProgramsState>((set, get) => ({
   },
 
   warmupIcons: async () => {
+    // 缓存记录已经包含两种尺寸时无需启动后台遍历；后端读取缓存时会
+    // 清除已丢失的文件路径，因此这里仍能自动修复损坏的图标缓存。
+    if (!hasMissingProgramIcons(get().programs)) return false;
     set({ metadataLoading: true, error: null });
     try {
       await invoke("warmup_program_metadata", {
@@ -100,18 +107,17 @@ export const useProgramsStore = create<ProgramsState>((set, get) => ({
           progress_event: "installed-program-metadata-progress",
         },
       });
+      return true;
     } catch (e) {
       set({ error: extractErrorMessage(e) });
+      return false;
     } finally {
       set({ metadataLoading: false });
     }
   },
 
   setSearchQuery: (query) => set({ searchQuery: query }),
-  setSourceFilter: (source) => {
-    set({ sourceFilter: source });
-    get().loadPrograms({ source });
-  },
+  setSourceFilter: (source) => set({ sourceFilter: source }),
 
   selectProgram: (program) =>
     set({ selectedProgram: program, viewMode: program ? "detail" : "list" }),

@@ -33,6 +33,12 @@ import {
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { getProgramIconSrc } from "./lib/icon";
+import {
+  countProgramsBySource,
+  filterPrograms,
+  programSourceOptions,
+  type ProgramSourceFilter,
+} from "./lib/programFilters";
 import { useProgramsStore } from "./stores/programs";
 import { StartupManager } from "./components/StartupManager";
 import { CleanerPage } from "./components/CleanerPage";
@@ -166,8 +172,8 @@ export default function App() {
     const initialize = async () => {
       await loadPrograms();
       if (cancelled) return;
-      await warmupIcons();
-      if (!cancelled) await loadPrograms();
+      const iconsUpdated = await warmupIcons();
+      if (!cancelled && iconsUpdated) await loadPrograms();
     };
     void initialize();
     return () => {
@@ -247,17 +253,31 @@ export default function App() {
     if (uninstallResult?.success && !scanAfter) setStage("complete");
   }, [uninstallResult, scanAfter]);
 
+  const sourcePrograms = isTauriRuntime()
+    ? programs
+    : mockPrograms
+        .map((program) => program.source)
+        .filter((program): program is InstalledProgram => Boolean(program));
+  const visibleSourcePrograms = isTauriRuntime()
+    ? filterPrograms(sourcePrograms, sourceFilter, query)
+    : [];
   const allPrograms = isTauriRuntime() ? programs.map(toUiProgram) : mockPrograms;
-  const filteredPrograms = allPrograms.filter((program) =>
-    `${program.name} ${program.publisher}`.toLowerCase().includes(query.toLowerCase()),
-  );
-  const selectedProgram = allPrograms.find((program) => program.id === selectedId) ?? allPrograms[0] ?? mockPrograms[1];
+  const filteredPrograms = isTauriRuntime()
+    ? visibleSourcePrograms.map(toUiProgram)
+    : allPrograms.filter((program) => `${program.name} ${program.publisher}`.toLowerCase().includes(query.toLowerCase()));
+  const selectedProgram =
+    filteredPrograms.find((program) => program.id === selectedId) ??
+    filteredPrograms[0] ??
+    allPrograms[0] ??
+    mockPrograms[1];
+  const sourceCounts = isTauriRuntime()
+    ? countProgramsBySource(programs)
+    : { all: mockPrograms.length, registry: mockPrograms.length, msi: 0, store: 0 };
 
   const handleSearch = (value: string) => {
     setQuery(value);
     if (isTauriRuntime()) {
       setSearchQuery(value);
-      void loadPrograms({ search: value || undefined });
     }
   };
 
@@ -339,6 +359,7 @@ export default function App() {
               error={error}
               query={query}
               sourceFilter={sourceFilter}
+              sourceCounts={sourceCounts}
               onQuery={handleSearch}
               onSourceFilter={setSourceFilter}
               onSelect={setSelectedId}
@@ -468,25 +489,20 @@ function SectionHeader({ title, subtitle, action }: { title: string; subtitle?: 
 
 function AppsStage(props: {
   programs: UiProgram[]; selected: UiProgram; selectedId: string; loading: boolean; metadataLoading: boolean;
-  error: string | null; query: string; sourceFilter: string;
-  onQuery: (value: string) => void; onSourceFilter: (value: string) => void; onSelect: (id: string) => void;
+  error: string | null; query: string; sourceFilter: ProgramSourceFilter;
+  sourceCounts: Record<ProgramSourceFilter, number>;
+  onQuery: (value: string) => void; onSourceFilter: (value: ProgramSourceFilter) => void; onSelect: (id: string) => void;
   onUninstall: () => void; onScan: () => void; onDetails: () => void; onRefresh: () => void;
 }) {
-  const sourceOptions = [
-    { id: "all", label: "全部" },
-    { id: "registry", label: "注册表" },
-    { id: "msi", label: "MSI" },
-    { id: "store", label: "商店" },
-  ];
   return (
     <div className="page apps-page">
       <SectionHeader title="已安装应用" action={<button className="icon-button" title={props.metadataLoading ? "正在生成图标缓存" : "刷新"} onClick={props.onRefresh}><RefreshCw className={props.loading || props.metadataLoading ? "spinning" : ""} size={17} /></button>} />
       <div className="toolbar">
         <label className="search-box"><Search size={16} /><input value={props.query} onChange={(event) => props.onQuery(event.target.value)} placeholder="搜索应用、发布者或关键词…" /></label>
         <div className="filter-pills">
-          {sourceOptions.map((option) => (
+          {programSourceOptions.map((option) => (
             <button key={option.id} className={props.sourceFilter === option.id ? "selected" : ""} onClick={() => props.onSourceFilter(option.id)}>
-              {option.label}{option.id === "all" && <span>{props.programs.length}</span>}
+              {option.label}<span>{props.sourceCounts[option.id]}</span>
             </button>
           ))}
         </div>
