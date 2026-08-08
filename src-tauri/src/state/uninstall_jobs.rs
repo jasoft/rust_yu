@@ -63,9 +63,11 @@ impl UninstallCoordinator {
                 "已有卸载操作正在执行",
             ));
         }
-        let job = state.active_job.as_ref().ok_or_else(|| {
-            UninstallError::new(UninstallErrorCode::JobNotFound, "卸载任务不存在")
-        })?;
+        let job = state
+            .active_job
+            .as_ref()
+            .ok_or_else(|| UninstallError::new(UninstallErrorCode::JobNotFound, "卸载任务不存在"))?
+            .clone();
         if job.snapshot.job_id.0 != job_id {
             return Err(UninstallError::new(
                 UninstallErrorCode::JobNotFound,
@@ -79,7 +81,7 @@ impl UninstallCoordinator {
             ));
         }
         state.operation_in_flight = true;
-        Ok(job.clone())
+        Ok(job)
     }
 
     pub fn commit_operation(&self, job: UninstallJob) -> Result<(), UninstallError> {

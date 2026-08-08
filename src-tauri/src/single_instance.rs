@@ -16,7 +16,8 @@ impl SingleInstanceGuard {
             use windows::Win32::System::Threading::{CreateMutexW, GetCurrentProcessId};
             let name = format!(
                 r"Global\RustYu-{}",
-                std::env::var("USERNAME").unwrap_or_else(|_| GetCurrentProcessId().to_string())
+                std::env::var("USERNAME")
+                    .unwrap_or_else(|_| unsafe { GetCurrentProcessId().to_string() })
             );
             let wide = std::ffi::OsStr::new(&name)
                 .encode_wide()

@@ -161,7 +161,10 @@ pub fn run_startup_bootstrap() -> bool {
                     true
                 }
                 Ok(None) => false,
-                Err(error) => show_startup_error(error),
+                Err(error) => show_startup_error(ElevationError::new(
+                    ElevationErrorCode::ElevationLaunchFailed,
+                    error,
+                )),
             }
         }
         BootstrapAction::RunExistingTaskAndExit => match run_current_user_task() {
