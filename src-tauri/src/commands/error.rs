@@ -54,6 +54,12 @@ impl From<rust_yu_lib::UninstallerError> for CommandError {
     }
 }
 
+impl From<rust_yu_lib::application::uninstall::UninstallError> for CommandError {
+    fn from(error: rust_yu_lib::application::uninstall::UninstallError) -> Self {
+        Self::with_code(error.code.as_str(), error.message)
+    }
+}
+
 impl From<rust_yu_lib::startup::models::StartupError> for CommandError {
     fn from(error: rust_yu_lib::startup::models::StartupError) -> Self {
         Self::with_code(error.code.as_str(), error.message)

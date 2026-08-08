@@ -1,4 +1,5 @@
 pub mod commands;
+pub mod state;
 
 use commands::*;
 
@@ -164,6 +165,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .manage(state::UninstallCoordinator::new())
         .setup(|app| {
             tracing::info!("Rust Yu Tauri 应用启动");
             let _ = app.get_webview_window("main");
@@ -180,7 +182,11 @@ pub fn run() {
             list_cleaner_entries,
             scan_cleaner_entries,
             clean_cleaner_entries,
-            uninstall_program,
+            plan_uninstall,
+            execute_uninstall,
+            clean_uninstall_residues,
+            finish_uninstall,
+            get_uninstall_job,
             get_reports,
             delete_report,
             list_startup_items,
