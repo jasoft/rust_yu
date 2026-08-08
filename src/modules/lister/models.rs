@@ -178,12 +178,16 @@ impl UninstallKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum InstallSource {
     /// 注册表中的 Win32 安装程序
+    #[serde(rename = "registry", alias = "Registry")]
     Registry,
     /// MSI 安装包
+    #[serde(rename = "msi", alias = "Msi", alias = "MSI")]
     Msi,
     /// 微软商店应用 (UWP)
+    #[serde(rename = "store", alias = "Store")]
     Store,
     /// 未知来源
+    #[serde(rename = "unknown", alias = "Unknown")]
     Unknown,
 }
 
@@ -500,5 +504,19 @@ mod tests {
         .expect("旧缓存缺少 uninstall_kind 字段时也应成功反序列化");
 
         assert_eq!(program.uninstall_kind, UninstallKind::Legacy);
+    }
+
+    #[test]
+    fn install_source_serializes_to_frontend_contract_and_reads_legacy_cache_values() {
+        let program = InstalledProgram::new("Contract App".to_string(), InstallSource::Msi);
+        let serialized = serde_json::to_value(&program).expect("程序元数据应可序列化");
+        assert_eq!(serialized["install_source"], "msi");
+
+        let mut legacy_value = serialized;
+        legacy_value["install_source"] = serde_json::json!("MSI");
+        let legacy = legacy_value.to_string();
+        let decoded: InstalledProgram =
+            serde_json::from_str(&legacy).expect("旧缓存中的 MSI 来源应继续可读取");
+        assert_eq!(decoded.install_source, InstallSource::Msi);
     }
 }
