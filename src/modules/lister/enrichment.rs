@@ -10,7 +10,7 @@ use walkdir::WalkDir;
 
 use super::analyzer;
 use super::models::{
-    InstalledProgram, MetadataConfidence, MetadataSource, MetadataWarmupItemStatus,
+    InstallSource, InstalledProgram, MetadataConfidence, MetadataSource, MetadataWarmupItemStatus,
     MetadataWarmupKind, SlowAppInfo,
 };
 use super::storage;
@@ -62,13 +62,15 @@ pub fn enrich_program(program: &mut InstalledProgram) {
             .map(Path::new)
             .map(|path| !path.is_dir())
             .unwrap_or(true);
-        if location_missing {
+        // Store 包的 InstallLocation 来自 PackageManager，是卸载和残留定位所需的权威路径。
+        // WindowsApps 的 ACL 可能让普通文件探测返回 false，不能据此用 PowerShell 路径覆盖它。
+        if location_missing && program.install_source != InstallSource::Store {
             program.install_location = analysis
                 .install_location
                 .as_ref()
                 .map(|path| path.to_string_lossy().to_string());
         }
-        if program.icon_path.is_none() {
+        if program.icon_path.is_none() && program.install_source != InstallSource::Store {
             program.icon_path = analysis
                 .executable_path
                 .as_ref()
@@ -393,7 +395,11 @@ fn resolve_program_icon_path(program: &mut InstalledProgram) {
         program.icon_data_url_32 = None;
         program.icon_data_url_48 = None;
         if sanitized_registry_icon.is_some() {
-            program.icon_source = MetadataSource::Registry;
+            program.icon_source = if program.install_source == InstallSource::Store {
+                MetadataSource::Filesystem
+            } else {
+                MetadataSource::Registry
+            };
             program.icon_confidence = MetadataConfidence::High;
         } else {
             program.icon_source = MetadataSource::Filesystem;

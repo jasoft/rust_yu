@@ -23,7 +23,7 @@ const CACHE_TABLE_NAME: &str = "installed_programs_cache";
 const CACHE_METADATA_TABLE_NAME: &str = "cache_metadata";
 const META_KEY_SCHEMA_VERSION: &str = "schema_version";
 const META_KEY_GENERATED_AT: &str = "generated_at";
-pub const CACHE_SCHEMA_VERSION: u32 = 6;
+pub const CACHE_SCHEMA_VERSION: u32 = 7;
 pub const DEFAULT_CACHE_TTL_SECONDS: i64 = 86_400;
 
 #[cfg(test)]
