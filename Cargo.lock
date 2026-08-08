@@ -3285,6 +3285,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "warp 0.3.7",
+ "windows 0.62.2",
  "winreg",
 ]
 

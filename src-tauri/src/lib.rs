@@ -1,4 +1,5 @@
 pub mod commands;
+pub mod elevation;
 pub mod state;
 
 use commands::*;
