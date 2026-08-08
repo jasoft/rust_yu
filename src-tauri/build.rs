@@ -28,9 +28,8 @@ fn main() {
         "plan_add_startup_item",
         "add_startup_item",
     ];
-    let attributes = tauri_build::Attributes::new().app_manifest(
-        tauri_build::AppManifest::new().commands(COMMANDS),
-    );
+    let attributes = tauri_build::Attributes::new()
+        .app_manifest(tauri_build::AppManifest::new().commands(COMMANDS));
     if let Err(error) = tauri_build::try_build(attributes) {
         panic!("Tauri build configuration failed: {error}");
     }
