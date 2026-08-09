@@ -1,0 +1,136 @@
+import { invoke } from "@tauri-apps/api/core";
+import { create } from "zustand";
+import type {
+  CommandError,
+  InstallMonitorPlan,
+  InstallMonitorSession,
+  InstallMonitorSessionInfo,
+  InstallMonitorStartRequest,
+  MonitorExport,
+  Trace,
+} from "../types";
+
+interface InstallMonitorState {
+  plan: InstallMonitorPlan | null;
+  sessions: InstallMonitorSessionInfo[];
+  selectedSession: InstallMonitorSession | null;
+  activeSessionId: string | null;
+  loading: boolean;
+  actionLoading: boolean;
+  error: string | null;
+  notice: string | null;
+  load: () => Promise<void>;
+  planFor: (request: InstallMonitorStartRequest) => Promise<InstallMonitorPlan | null>;
+  start: (request: InstallMonitorStartRequest) => Promise<InstallMonitorSessionInfo | null>;
+  complete: (sessionId: string) => Promise<InstallMonitorSession | null>;
+  select: (sessionId: string | null) => Promise<void>;
+  exportSession: (sessionId: string, format: "json" | "csv") => Promise<MonitorExport | null>;
+  getTraces: (sessionId: string) => Promise<Trace[]>;
+  clearMessages: () => void;
+  setPlan: (plan: InstallMonitorPlan | null) => void;
+}
+
+function errorMessage(error: unknown): string {
+  if (typeof error === "string") return error;
+  if (error && typeof error === "object" && "message" in error) {
+    return String((error as CommandError).message);
+  }
+  return String(error);
+}
+
+export const useInstallMonitorStore = create<InstallMonitorState>((set, get) => ({
+  plan: null,
+  sessions: [],
+  selectedSession: null,
+  activeSessionId: null,
+  loading: false,
+  actionLoading: false,
+  error: null,
+  notice: null,
+
+  load: async () => {
+    set({ loading: true, error: null });
+    try {
+      const sessions = await invoke<InstallMonitorSessionInfo[]>("list_install_monitor_sessions");
+      set({ sessions, loading: false });
+    } catch (error) {
+      set({ loading: false, error: errorMessage(error) });
+    }
+  },
+
+  planFor: async (request) => {
+    set({ actionLoading: true, error: null, notice: null });
+    try {
+      const plan = await invoke<InstallMonitorPlan>("plan_install_monitor", { request });
+      set({ plan, actionLoading: false });
+      return plan;
+    } catch (error) {
+      set({ actionLoading: false, error: errorMessage(error) });
+      return null;
+    }
+  },
+
+  start: async (request) => {
+    set({ actionLoading: true, error: null, notice: null });
+    try {
+      const session = await invoke<InstallMonitorSessionInfo>("start_install_monitor", { request });
+      set({ actionLoading: false, activeSessionId: session.id, plan: null, notice: "安装前快照已保存，请完成安装后回到这里生成差异。" });
+      await get().load();
+      return session;
+    } catch (error) {
+      set({ actionLoading: false, error: errorMessage(error) });
+      return null;
+    }
+  },
+
+  complete: async (sessionId) => {
+    set({ actionLoading: true, error: null, notice: null });
+    try {
+      const session = await invoke<InstallMonitorSession>("complete_install_monitor", { sessionId });
+      set({ actionLoading: false, activeSessionId: null, selectedSession: session, notice: `差异生成完成，共发现 ${session.changes.length} 项变化。` });
+      await get().load();
+      return session;
+    } catch (error) {
+      set({ actionLoading: false, error: errorMessage(error) });
+      return null;
+    }
+  },
+
+  select: async (sessionId) => {
+    if (!sessionId) {
+      set({ selectedSession: null });
+      return;
+    }
+    set({ actionLoading: true, error: null });
+    try {
+      const session = await invoke<InstallMonitorSession>("get_install_monitor_session", { sessionId });
+      set({ selectedSession: session, actionLoading: false });
+    } catch (error) {
+      set({ actionLoading: false, error: errorMessage(error) });
+    }
+  },
+
+  exportSession: async (sessionId, format) => {
+    set({ actionLoading: true, error: null, notice: null });
+    try {
+      const result = await invoke<MonitorExport>("export_install_monitor", { sessionId, format });
+      set({ actionLoading: false, notice: `已导出 ${result.changes_count} 项变化：${result.path}` });
+      return result;
+    } catch (error) {
+      set({ actionLoading: false, error: errorMessage(error) });
+      return null;
+    }
+  },
+
+  getTraces: async (sessionId) => {
+    try {
+      return await invoke<Trace[]>("get_install_monitor_traces", { sessionId });
+    } catch (error) {
+      set({ error: errorMessage(error) });
+      return [];
+    }
+  },
+
+  clearMessages: () => set({ error: null, notice: null }),
+  setPlan: (plan) => set({ plan }),
+}));

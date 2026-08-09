@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-export-install-monitor"
+description = "Enables the export_install_monitor command without any pre-configured scope."
+commands.allow = ["export_install_monitor"]
+
+[[permission]]
+identifier = "deny-export-install-monitor"
+description = "Denies the export_install_monitor command without any pre-configured scope."
+commands.deny = ["export_install_monitor"]

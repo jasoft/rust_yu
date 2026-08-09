@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-install-monitor-traces"
+description = "Enables the get_install_monitor_traces command without any pre-configured scope."
+commands.allow = ["get_install_monitor_traces"]
+
+[[permission]]
+identifier = "deny-get-install-monitor-traces"
+description = "Denies the get_install_monitor_traces command without any pre-configured scope."
+commands.deny = ["get_install_monitor_traces"]

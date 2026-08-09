@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-install-monitor-session"
+description = "Enables the get_install_monitor_session command without any pre-configured scope."
+commands.allow = ["get_install_monitor_session"]
+
+[[permission]]
+identifier = "deny-get-install-monitor-session"
+description = "Denies the get_install_monitor_session command without any pre-configured scope."
+commands.deny = ["get_install_monitor_session"]

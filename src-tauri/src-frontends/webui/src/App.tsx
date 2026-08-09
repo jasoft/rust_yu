@@ -47,6 +47,7 @@ import { useBatchUninstallStore } from "./stores/batchUninstall";
 import { StartupManager } from "./components/StartupManager";
 import { CleanerPage } from "./components/CleanerPage";
 import { BackupCenter } from "./components/BackupCenter";
+import { InstallMonitorManager } from "./components/InstallMonitorManager";
 import { BrowserPluginsPage } from "./components/BrowserPluginsPage";
 import { getUninstallFailureMessage } from "./components/uninstall/uninstallFeedback";
 import {
@@ -484,6 +485,8 @@ export default function App() {
             <CleanerPage />
           ) : activeNav === "backups" ? (
             <BackupCenter />
+          ) : activeNav === "monitor" ? (
+            <InstallMonitorManager />
           ) : activeNav === "plugins" ? (
             <BrowserPluginsPage />
           ) : activeNav !== "apps" ? (

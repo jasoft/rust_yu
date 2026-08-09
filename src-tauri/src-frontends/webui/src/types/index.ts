@@ -170,6 +170,118 @@ export interface BackupRestoreResult {
   session: BackupSession;
 }
 
+export type MonitorChangeKind = "added" | "removed" | "modified";
+export type MonitorItemKind = "file" | "directory" | "registry_key" | "registry_value";
+export type InstallMonitorStatus = "waiting" | "completed" | "failed";
+export type MonitorConfidence = "high" | "medium";
+
+export interface MonitorRootInfo {
+  path: string;
+  source: string;
+  enabled: boolean;
+  reason: string | null;
+}
+
+export interface MonitorScope {
+  file_roots: string[];
+  registry_roots: string[];
+}
+
+export interface InstallMonitorPlan {
+  program_id: string;
+  program_name: string;
+  scope: MonitorScope;
+  file_roots: MonitorRootInfo[];
+  registry_roots: MonitorRootInfo[];
+  requires_admin: boolean;
+  warnings: string[];
+}
+
+export interface InstallMonitorStartRequest {
+  program: InstalledProgram;
+  extra_file_roots: string[];
+  extra_registry_roots: string[];
+}
+
+export interface MonitorFileRecord {
+  root_path: string;
+  relative_path: string;
+  kind: MonitorItemKind;
+  size: number;
+  modified_at: number | null;
+  content_hash: number | null;
+}
+
+export interface MonitorRegistryRecord {
+  key_path: string;
+  value_name: string | null;
+  value_type: number | null;
+  bytes: number[];
+}
+
+export interface MonitorSnapshot {
+  captured_at: string;
+  files: MonitorFileRecord[];
+  registry: MonitorRegistryRecord[];
+  warnings: string[];
+}
+
+export interface MonitorSnapshotSummary {
+  captured_at: string;
+  file_count: number;
+  registry_count: number;
+  bytes: number;
+  warning_count: number;
+}
+
+export interface MonitorChange {
+  id: string;
+  kind: MonitorChangeKind;
+  item_kind: MonitorItemKind;
+  trace_type: Trace["trace_type"];
+  path: string;
+  size_before: number | null;
+  size_after: number | null;
+  confidence: MonitorConfidence;
+  description: string;
+  evidence: string;
+}
+
+export interface InstallMonitorSession {
+  id: string;
+  program: InstalledProgram;
+  scope: MonitorScope;
+  created_at: string;
+  completed_at: string | null;
+  status: InstallMonitorStatus;
+  before: MonitorSnapshot;
+  after: MonitorSnapshot | null;
+  before_summary: MonitorSnapshotSummary;
+  after_summary: MonitorSnapshotSummary | null;
+  changes: MonitorChange[];
+  warnings: string[];
+}
+
+export interface InstallMonitorSessionInfo {
+  id: string;
+  program_id: string;
+  program_name: string;
+  created_at: string;
+  completed_at: string | null;
+  status: InstallMonitorStatus;
+  changes_count: number;
+  added_count: number;
+  removed_count: number;
+  modified_count: number;
+  warning_count: number;
+}
+
+export interface MonitorExport {
+  path: string;
+  format: "json" | "csv";
+  changes_count: number;
+}
+
 export interface UninstallResult {
   success: boolean;
   message: string;

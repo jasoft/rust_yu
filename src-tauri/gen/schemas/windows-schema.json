@@ -219,6 +219,12 @@
           "markdownDescription": "Enables the clean_uninstall_residues command without any pre-configured scope."
         },
         {
+          "description": "Enables the complete_install_monitor command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-complete-install-monitor",
+          "markdownDescription": "Enables the complete_install_monitor command without any pre-configured scope."
+        },
+        {
           "description": "Enables the delete_report command without any pre-configured scope.",
           "type": "string",
           "const": "allow-delete-report",
@@ -231,6 +237,12 @@
           "markdownDescription": "Enables the execute_uninstall command without any pre-configured scope."
         },
         {
+          "description": "Enables the export_install_monitor command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-export-install-monitor",
+          "markdownDescription": "Enables the export_install_monitor command without any pre-configured scope."
+        },
+        {
           "description": "Enables the finish_uninstall command without any pre-configured scope.",
           "type": "string",
           "const": "allow-finish-uninstall",
@@ -241,6 +253,18 @@
           "type": "string",
           "const": "allow-get-backup-session",
           "markdownDescription": "Enables the get_backup_session command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_install_monitor_session command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-install-monitor-session",
+          "markdownDescription": "Enables the get_install_monitor_session command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_install_monitor_traces command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-install-monitor-traces",
+          "markdownDescription": "Enables the get_install_monitor_traces command without any pre-configured scope."
         },
         {
           "description": "Enables the get_reports command without any pre-configured scope.",
@@ -271,6 +295,12 @@
           "type": "string",
           "const": "allow-list-cleaner-entries",
           "markdownDescription": "Enables the list_cleaner_entries command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the list_install_monitor_sessions command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-list-install-monitor-sessions",
+          "markdownDescription": "Enables the list_install_monitor_sessions command without any pre-configured scope."
         },
         {
           "description": "Enables the list_programs command without any pre-configured scope.",
@@ -307,6 +337,12 @@
           "type": "string",
           "const": "allow-plan-force-uninstall",
           "markdownDescription": "Enables the plan_force_uninstall command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the plan_install_monitor command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-plan-install-monitor",
+          "markdownDescription": "Enables the plan_install_monitor command without any pre-configured scope."
         },
         {
           "description": "Enables the plan_startup_action command without any pre-configured scope.",
@@ -357,6 +393,12 @@
           "markdownDescription": "Enables the search_programs command without any pre-configured scope."
         },
         {
+          "description": "Enables the start_install_monitor command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-start-install-monitor",
+          "markdownDescription": "Enables the start_install_monitor command without any pre-configured scope."
+        },
+        {
           "description": "Enables the warmup_program_metadata command without any pre-configured scope.",
           "type": "string",
           "const": "allow-warmup-program-metadata",
@@ -405,6 +447,12 @@
           "markdownDescription": "Denies the clean_uninstall_residues command without any pre-configured scope."
         },
         {
+          "description": "Denies the complete_install_monitor command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-complete-install-monitor",
+          "markdownDescription": "Denies the complete_install_monitor command without any pre-configured scope."
+        },
+        {
           "description": "Denies the delete_report command without any pre-configured scope.",
           "type": "string",
           "const": "deny-delete-report",
@@ -417,6 +465,12 @@
           "markdownDescription": "Denies the execute_uninstall command without any pre-configured scope."
         },
         {
+          "description": "Denies the export_install_monitor command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-export-install-monitor",
+          "markdownDescription": "Denies the export_install_monitor command without any pre-configured scope."
+        },
+        {
           "description": "Denies the finish_uninstall command without any pre-configured scope.",
           "type": "string",
           "const": "deny-finish-uninstall",
@@ -427,6 +481,18 @@
           "type": "string",
           "const": "deny-get-backup-session",
           "markdownDescription": "Denies the get_backup_session command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_install_monitor_session command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-install-monitor-session",
+          "markdownDescription": "Denies the get_install_monitor_session command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_install_monitor_traces command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-install-monitor-traces",
+          "markdownDescription": "Denies the get_install_monitor_traces command without any pre-configured scope."
         },
         {
           "description": "Denies the get_reports command without any pre-configured scope.",
@@ -457,6 +523,12 @@
           "type": "string",
           "const": "deny-list-cleaner-entries",
           "markdownDescription": "Denies the list_cleaner_entries command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the list_install_monitor_sessions command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-list-install-monitor-sessions",
+          "markdownDescription": "Denies the list_install_monitor_sessions command without any pre-configured scope."
         },
         {
           "description": "Denies the list_programs command without any pre-configured scope.",
@@ -493,6 +565,12 @@
           "type": "string",
           "const": "deny-plan-force-uninstall",
           "markdownDescription": "Denies the plan_force_uninstall command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the plan_install_monitor command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-plan-install-monitor",
+          "markdownDescription": "Denies the plan_install_monitor command without any pre-configured scope."
         },
         {
           "description": "Denies the plan_startup_action command without any pre-configured scope.",
@@ -541,6 +619,12 @@
           "type": "string",
           "const": "deny-search-programs",
           "markdownDescription": "Denies the search_programs command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the start_install_monitor command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-start-install-monitor",
+          "markdownDescription": "Denies the start_install_monitor command without any pre-configured scope."
         },
         {
           "description": "Denies the warmup_program_metadata command without any pre-configured scope.",
