@@ -57,6 +57,41 @@ export interface Trace {
   description: string | null;
 }
 
+export type ForceTargetKind = "directory" | "executable" | "shortcut";
+
+export interface ForceUninstallTarget {
+  input_path: string;
+  resolved_path: string;
+  name: string;
+  kind: ForceTargetKind;
+}
+
+export interface ForceUninstallPlan {
+  plan_id: string;
+  target: ForceUninstallTarget;
+  fingerprint: string;
+  traces: Trace[];
+  default_selected_ids: string[];
+  warnings: string[];
+}
+
+export interface ForceCleanupSelection {
+  plan_id: string;
+  trace_ids: string[];
+  confirm: boolean;
+}
+
+export interface ForceUninstallResult {
+  plan_id: string;
+  success: boolean;
+  message: string;
+  traces_found: number;
+  traces_cleaned: number;
+  failed_count: number;
+  bytes_freed: number;
+  outcomes: CleanResult[];
+}
+
 export interface CleanResult {
   trace_id: string;
   path: string;

@@ -16,6 +16,8 @@
     "allow-list-cleaner-entries",
     "allow-scan-cleaner-entries",
     "allow-clean-cleaner-entries",
+    "allow-plan-force-uninstall",
+    "allow-clean-force-uninstall",
     "allow-plan-uninstall",
     "allow-execute-uninstall",
     "allow-clean-uninstall-residues",

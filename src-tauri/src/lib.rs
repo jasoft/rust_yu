@@ -184,6 +184,8 @@ pub fn run() {
             list_cleaner_entries,
             scan_cleaner_entries,
             clean_cleaner_entries,
+            plan_force_uninstall,
+            clean_force_uninstall,
             plan_uninstall,
             execute_uninstall,
             clean_uninstall_residues,

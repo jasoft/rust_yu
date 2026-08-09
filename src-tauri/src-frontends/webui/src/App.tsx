@@ -40,6 +40,7 @@ import {
   type ProgramSourceFilter,
 } from "./lib/programFilters";
 import { useProgramsStore } from "./stores/programs";
+import { useForceUninstallStore } from "./stores/forceUninstall";
 import { StartupManager } from "./components/StartupManager";
 import { CleanerPage } from "./components/CleanerPage";
 import { BrowserPluginsPage } from "./components/BrowserPluginsPage";
@@ -182,6 +183,14 @@ export default function App() {
   const uninstallResult = useProgramsStore((state) => state.uninstallResult);
   const uninstallJob = useProgramsStore((state) => state.uninstallJob);
   const uninstallFailure = getUninstallFailureMessage(error, uninstallResult);
+  const forcePlan = useForceUninstallStore((state) => state.plan);
+  const forceResult = useForceUninstallStore((state) => state.result);
+  const forceLoading = useForceUninstallStore((state) => state.loading);
+  const forceError = useForceUninstallStore((state) => state.error);
+  const planForceTarget = useForceUninstallStore((state) => state.planTarget);
+  const cleanForceSelected = useForceUninstallStore((state) => state.cleanSelected);
+  const resetForce = useForceUninstallStore((state) => state.reset);
+  const [forceOpen, setForceOpen] = useState(false);
 
   useEffect(() => {
     if (!isTauriRuntime()) return;
@@ -302,6 +311,12 @@ export default function App() {
   const sourceCounts = isTauriRuntime()
     ? countProgramsBySource(programs)
     : { all: mockPrograms.length, registry: mockPrograms.length, msi: 0, store: 0 };
+
+  const closeForceUninstall = () => {
+    if (forceResult?.success) void reloadPrograms({ refresh: true });
+    setForceOpen(false);
+    resetForce();
+  };
 
   const handleSearch = (value: string) => {
     setQuery(value);
@@ -427,6 +442,7 @@ export default function App() {
               onUninstall={() => setStage("confirm")}
               onScan={handleManualScan}
               onDetails={() => setDetailsOpen(true)}
+              onForceUninstall={() => { resetForce(); setForceOpen(true); }}
               onRefresh={() => isTauriRuntime() && void reloadPrograms({ refresh: true })}
             />
           ) : stage === "confirm" ? (
@@ -477,6 +493,16 @@ export default function App() {
         </main>
       </div>
       {detailsOpen && <ProgramInfoModal program={selectedProgram} onClose={() => setDetailsOpen(false)} />}
+      {forceOpen && <ForceUninstallModal
+        initialPath={selectedProgram.source?.install_location ?? ""}
+        plan={forcePlan}
+        result={forceResult}
+        loading={forceLoading}
+        error={forceError}
+        onPlan={planForceTarget}
+        onClean={cleanForceSelected}
+        onClose={closeForceUninstall}
+      />}
     </div>
   );
 }
@@ -562,10 +588,11 @@ function AppsStage(props: {
   sourceCounts: Record<ProgramSourceFilter, number>;
   onQuery: (value: string) => void; onSourceFilter: (value: ProgramSourceFilter) => void; onSelect: (id: string) => void;
   onUninstall: () => void; onScan: () => void; onDetails: () => void; onRefresh: () => void;
+  onForceUninstall: () => void;
 }) {
   return (
     <div className="page apps-page">
-      <SectionHeader title="已安装应用" action={<button className="icon-button" disabled={props.loading || props.metadataLoading} title={props.metadataLoading ? "正在生成图标缓存" : "刷新"} onClick={props.onRefresh}><RefreshCw className={props.loading || props.metadataLoading ? "spinning" : ""} size={17} /></button>} />
+      <SectionHeader title="已安装应用" action={<div className="header-actions"><button className="secondary-button compact-button" onClick={props.onForceUninstall}><Wrench size={14} />强制卸载</button><button className="icon-button" disabled={props.loading || props.metadataLoading} title={props.metadataLoading ? "正在生成图标缓存" : "刷新"} onClick={props.onRefresh}><RefreshCw className={props.loading || props.metadataLoading ? "spinning" : ""} size={17} /></button></div>} />
       <div className="toolbar">
         <label className="search-box"><Search size={16} /><input value={props.query} onChange={(event) => props.onQuery(event.target.value)} placeholder="搜索应用、发布者或关键词…" /></label>
         <div className="filter-pills">
@@ -596,6 +623,7 @@ function AppsStage(props: {
           <div className="detail-actions">
             <button onClick={props.onDetails}><Info size={14} />详细信息</button>
             <button onClick={props.onScan}><Search size={14} />扫描残留</button>
+            <button onClick={props.onForceUninstall}><Wrench size={14} />强制卸载</button>
           </div>
           <button className="primary-button uninstall-button" onClick={props.onUninstall}><Trash2 size={16} />卸载</button>
         </aside>
@@ -693,6 +721,79 @@ function ScanStage({
       <div className="page-footnote"><Info size={15} /><span>我们仅显示与已卸载程序明确相关的项目，系统关键项和低置信度项目不会被自动删除。</span>{isComplete && <button onClick={onContinue}>查看扫描结果 <ChevronDown size={13} /></button>}</div>
     </div>
   );
+}
+
+function ForceUninstallModal({
+  initialPath,
+  plan,
+  result,
+  loading,
+  error,
+  onPlan,
+  onClean,
+  onClose,
+}: {
+  initialPath: string;
+  plan: import("./types").ForceUninstallPlan | null;
+  result: import("./types").ForceUninstallResult | null;
+  loading: boolean;
+  error: string | null;
+  onPlan: (path: string, name?: string) => Promise<import("./types").ForceUninstallPlan | null>;
+  onClean: (traceIds: string[]) => Promise<import("./types").ForceUninstallResult | null>;
+  onClose: () => void;
+}) {
+  const [path, setPath] = useState(initialPath === "—" ? "" : initialPath);
+  const [name, setName] = useState("");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  const submitPlan = async () => {
+    if (!isTauriRuntime()) return;
+    const next = await onPlan(path, name);
+    if (next) setSelectedIds(new Set(next.default_selected_ids));
+  };
+
+  const toggleTrace = (id: string) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const submitCleanup = () => {
+    if (selectedIds.size === 0 || loading) return;
+    void onClean([...selectedIds]);
+  };
+
+  return <div className="modal-backdrop" onMouseDown={onClose}>
+    <section className="force-uninstall-modal" onMouseDown={(event) => event.stopPropagation()}>
+      <header>
+        <div><span className="force-modal-mark"><Wrench size={19} /></span><span><h2>强制 / 自定义卸载</h2><p>适用于卸载器损坏、程序不在列表中或残留无法清理的情况。</p></span></div>
+        <button aria-label="关闭强制卸载" onClick={onClose}><X size={17} /></button>
+      </header>
+      {!plan && !result ? <>
+        <div className="force-form">
+          <div className="force-warning"><TriangleAlert size={17} /><span>强制模式不会运行原厂卸载器，而是删除你确认的目录和候选残留。请先尝试标准卸载。</span></div>
+          <label>程序目录、EXE 或快捷方式<input value={path} onChange={(event) => setPath(event.target.value)} placeholder={"例如：C:\\Program Files\\Example App"} /></label>
+          <label>程序名称（可选）<input value={name} onChange={(event) => setName(event.target.value)} placeholder="留空则从路径推断" /></label>
+          {error && <div className="force-error" role="alert"><TriangleAlert size={15} />{error}</div>}
+        </div>
+        <footer><span>计划阶段只扫描，不会删除文件或注册表。</span><button className="primary-button" disabled={loading || path.trim().length === 0 || !isTauriRuntime()} onClick={() => void submitPlan()}>{loading ? <Loader2 size={14} className="spinning" /> : <Search size={14} />}分析目标</button></footer>
+      </> : result ? <>
+        <div className={`force-result ${result.success ? "success" : "partial"}`}><span>{result.success ? <Check size={25} /> : <TriangleAlert size={25} />}</span><h2>{result.success ? "强制卸载完成" : "强制卸载部分完成"}</h2><p>{result.message}</p><div><strong>{result.traces_cleaned}</strong><small>已处理</small><strong>{result.failed_count}</strong><small>失败</small><strong>{formatBytes(result.bytes_freed)}</strong><small>释放空间</small></div></div>
+        {result.outcomes.some((outcome) => !outcome.success) && <div className="force-failed-list">{result.outcomes.filter((outcome) => !outcome.success).map((outcome) => <p key={outcome.trace_id}><TriangleAlert size={13} />{outcome.path}<small>{outcome.error ?? "删除失败"}</small></p>)}</div>}
+        <footer><span>失败项已保留，请处理占用文件后重试。</span><button className="primary-button" onClick={onClose}>关闭</button></footer>
+      </> : <>
+        <div className="force-plan-body">
+          <div className="force-target-summary"><strong>{plan?.target.name}</strong><span>{plan?.target.resolved_path}</span><em>{plan?.target.kind === "shortcut" ? "快捷方式解析" : plan?.target.kind === "executable" ? "EXE 所在目录" : "用户提供目录"}</em></div>
+          {plan?.warnings.map((warning) => <p className="force-warning-line" key={warning}><Info size={13} />{warning}</p>)}
+          <div className="force-trace-list"><h3>可审查目标 <small>{plan?.traces.length ?? 0} 项，默认不选</small></h3>{plan?.traces.map((trace) => <label className="force-trace-row" key={trace.id}><input type="checkbox" checked={selectedIds.has(trace.id)} onChange={() => toggleTrace(trace.id)} /><span className={`force-confidence ${trace.confidence}`}>{trace.confidence === "high" ? "高" : trace.confidence === "medium" ? "中" : "低"}</span><span><strong>{trace.description || formatTraceType(trace.trace_type)}</strong><small>{trace.path}</small></span><b>{formatBytes(trace.size)}</b></label>)}</div>
+          {error && <div className="force-error" role="alert"><TriangleAlert size={15} />{error}</div>}
+        </div>
+        <footer><button className="secondary-button" onClick={onClose}>取消</button><span className="force-selection-count">已选择 {selectedIds.size} 项</span><button className="danger-button" disabled={loading || selectedIds.size === 0} onClick={submitCleanup}>{loading ? <Loader2 size={14} className="spinning" /> : <Trash2 size={14} />}确认删除所选</button></footer>
+      </>}
+    </section>
+  </div>;
 }
 
 function ReviewStage(props: {

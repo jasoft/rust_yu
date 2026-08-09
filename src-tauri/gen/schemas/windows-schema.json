@@ -201,6 +201,12 @@
           "markdownDescription": "Enables the clean_cleaner_entries command without any pre-configured scope."
         },
         {
+          "description": "Enables the clean_force_uninstall command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-clean-force-uninstall",
+          "markdownDescription": "Enables the clean_force_uninstall command without any pre-configured scope."
+        },
+        {
           "description": "Enables the clean_traces command without any pre-configured scope.",
           "type": "string",
           "const": "allow-clean-traces",
@@ -279,6 +285,12 @@
           "markdownDescription": "Enables the plan_add_startup_item command without any pre-configured scope."
         },
         {
+          "description": "Enables the plan_force_uninstall command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-plan-force-uninstall",
+          "markdownDescription": "Enables the plan_force_uninstall command without any pre-configured scope."
+        },
+        {
           "description": "Enables the plan_startup_action command without any pre-configured scope.",
           "type": "string",
           "const": "allow-plan-startup-action",
@@ -349,6 +361,12 @@
           "type": "string",
           "const": "deny-clean-cleaner-entries",
           "markdownDescription": "Denies the clean_cleaner_entries command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the clean_force_uninstall command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-clean-force-uninstall",
+          "markdownDescription": "Denies the clean_force_uninstall command without any pre-configured scope."
         },
         {
           "description": "Denies the clean_traces command without any pre-configured scope.",
@@ -427,6 +445,12 @@
           "type": "string",
           "const": "deny-plan-add-startup-item",
           "markdownDescription": "Denies the plan_add_startup_item command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the plan_force_uninstall command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-plan-force-uninstall",
+          "markdownDescription": "Denies the plan_force_uninstall command without any pre-configured scope."
         },
         {
           "description": "Denies the plan_startup_action command without any pre-configured scope.",
