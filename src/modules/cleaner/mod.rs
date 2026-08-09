@@ -40,6 +40,25 @@ pub async fn clean_traces(
             TraceType::RegistryValue => registry::delete_registry_trace(&trace).await,
             TraceType::File | TraceType::AppData => filesystem::delete_file_trace(&trace).await,
             TraceType::Shortcut => shortcuts::delete_shortcut_trace(&trace).await,
+            TraceType::ScheduledTask | TraceType::Service => {
+                let candidate = trace.clone();
+                match tokio::task::spawn_blocking(move || {
+                    crate::modules::system_integration::remove_trace(&candidate)
+                })
+                .await
+                {
+                    Ok(result) => result.map(|()| CleanResult {
+                        trace_id: trace.id.clone(),
+                        path: trace.path.clone(),
+                        success: true,
+                        error: None,
+                        bytes_freed: 0,
+                    }),
+                    Err(error) => Err(UninstallerError::Other(format!(
+                        "系统集成清理任务失败: {error}"
+                    ))),
+                }
+            }
             _ => {
                 results.push(CleanResult {
                     trace_id: trace.id.clone(),

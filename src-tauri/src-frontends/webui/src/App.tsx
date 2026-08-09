@@ -161,7 +161,7 @@ export default function App() {
   const [logs, setLogs] = useState(initialLogs);
   const [traces, setTraces] = useState<Trace[]>(demoTraces);
   const [selectedTraceIds, setSelectedTraceIds] = useState<Set<string>>(
-    () => new Set(demoTraces.filter((trace) => trace.confidence === "high").map((trace) => trace.id)),
+    () => new Set(demoTraces.filter((trace) => trace.confidence === "high" && !trace.is_critical).map((trace) => trace.id)),
   );
   const [cleanConfirm, setCleanConfirm] = useState(false);
   const [cleanResults, setCleanResults] = useState<CleanResult[]>([]);
@@ -223,7 +223,7 @@ export default function App() {
   useEffect(() => {
     if (!manualScanPending || tracesLoading) return;
     setTraces(scannedTraces);
-    setSelectedTraceIds(new Set(scannedTraces.filter((trace) => trace.confidence === "high").map((trace) => trace.id)));
+    setSelectedTraceIds(new Set(scannedTraces.filter((trace) => trace.confidence === "high" && !trace.is_critical).map((trace) => trace.id)));
     setManualScanPending(false);
     setScanStatus("complete");
     setStage("review");
@@ -392,10 +392,10 @@ export default function App() {
     scanStartedAtRef.current = Date.now();
     if (isTauriRuntime() && selectedProgram.source) {
       setManualScanPending(true);
-      void scanTraces(selectedProgram.source.name);
+      void scanTraces(selectedProgram.source.name, selectedProgram.source);
     } else {
       setTraces(demoTraces);
-      setSelectedTraceIds(new Set(demoTraces.filter((trace) => trace.confidence === "high").map((trace) => trace.id)));
+      setSelectedTraceIds(new Set(demoTraces.filter((trace) => trace.confidence === "high" && !trace.is_critical).map((trace) => trace.id)));
       window.setTimeout(() => {
         setScanStatus("complete");
         setStage("review");
@@ -939,16 +939,18 @@ function ReviewStage(props: {
   traces: Trace[]; selectedIds: Set<string>; onToggle: (id: string) => void; onBack: () => void; onClean: () => void;
   allowBack: boolean; onSkip: () => void; onRescan: () => void; confirmOpen: boolean; onConfirmClose: () => void; onConfirm: () => void;
 }) {
-  const fileTraces = props.traces.filter((trace) => trace.trace_type !== "registry_key" && trace.trace_type !== "registry_value");
+  const systemTraces = props.traces.filter((trace) => trace.trace_type === "scheduled_task" || trace.trace_type === "service" || trace.trace_type === "driver");
+  const fileTraces = props.traces.filter((trace) => trace.trace_type !== "registry_key" && trace.trace_type !== "registry_value" && trace.trace_type !== "scheduled_task" && trace.trace_type !== "service" && trace.trace_type !== "driver");
   const registryTraces = props.traces.filter((trace) => trace.trace_type === "registry_key" || trace.trace_type === "registry_value");
   const selectedSize = props.traces.filter((trace) => props.selectedIds.has(trace.id)).reduce((sum, trace) => sum + (trace.size ?? 0), 0);
   return (
     <div className="page review-page">
       <SectionHeader title="检查残留项" subtitle={`发现 ${props.traces.length} 个项目（共 ${formatBytes(props.traces.reduce((sum, trace) => sum + (trace.size ?? 0), 0))}），已选择 ${props.selectedIds.size} 个项目`} action={<button className="link-button" onClick={props.onRescan}><RotateCcw size={14} />重新扫描</button>} />
-      <div className="review-tabs"><button className="active">全部 ({props.traces.length})</button><button>文件系统 ({fileTraces.length})</button><button>注册表 ({registryTraces.length})</button></div>
+      <div className="review-tabs"><button className="active">全部 ({props.traces.length})</button><button>文件系统 ({fileTraces.length})</button><button>注册表 ({registryTraces.length})</button><button>系统集成 ({systemTraces.length})</button></div>
       <div className="trace-table card-surface">
         <TraceGroup title={`文件系统 (${fileTraces.length} 项)`} traces={fileTraces} selectedIds={props.selectedIds} onToggle={props.onToggle} />
         <TraceGroup title={`注册表 (${registryTraces.length} 项)`} traces={registryTraces} selectedIds={props.selectedIds} onToggle={props.onToggle} />
+        <TraceGroup title={`系统集成 (${systemTraces.length} 项)`} traces={systemTraces} selectedIds={props.selectedIds} onToggle={props.onToggle} />
       </div>
       <div className="review-footer"><span>可回收空间：<strong>{formatBytes(selectedSize)}</strong></span><div><button className="secondary-button" onClick={props.onSkip}>跳过清理</button>{props.allowBack && <button className="secondary-button" onClick={props.onBack}>返回</button>}<button className="primary-button" disabled={props.selectedIds.size === 0} onClick={props.onClean}><Trash2 size={16} />清理所选</button></div></div>
       {props.confirmOpen && <div className="modal-backdrop"><div className="safety-modal"><span className="modal-icon"><TriangleAlert size={24} /></span><h2>确认清理所选残留？</h2><p>将永久删除 {props.selectedIds.size} 个已确认项目。低置信度项目不会被自动选择，此操作无法自动撤销。</p><div><button className="secondary-button" onClick={props.onConfirmClose}>取消</button><button className="danger-button" onClick={props.onConfirm}>确认清理</button></div></div></div>}
@@ -957,11 +959,11 @@ function ReviewStage(props: {
 }
 
 function TraceGroup({ title, traces, selectedIds, onToggle }: { title: string; traces: Trace[]; selectedIds: Set<string>; onToggle: (id: string) => void }) {
-  return <section className="trace-group"><h3>{title}</h3><div className="trace-head"><span /><span>名称 / 路径</span><span>大小</span><span>置信度</span></div>{traces.map((trace) => <label className="trace-row" key={trace.id}><input type="checkbox" checked={selectedIds.has(trace.id)} onChange={() => onToggle(trace.id)} /><span className="fake-check"><Check size={12} /></span><TraceIcon type={trace.trace_type} /><span className="trace-name"><strong>{trace.description ?? "残留项目"}</strong><small>{trace.path}</small></span><span>{formatBytes(trace.size)}</span><ConfidenceBadge value={trace.confidence} /></label>)}</section>;
+  return <section className="trace-group"><h3>{title}</h3><div className="trace-head"><span /><span>名称 / 路径</span><span>大小</span><span>置信度</span></div>{traces.map((trace) => <label className={`trace-row${trace.is_critical ? " protected" : ""}`} key={trace.id}><input type="checkbox" checked={selectedIds.has(trace.id)} disabled={trace.is_critical} onChange={() => onToggle(trace.id)} /><span className="fake-check"><Check size={12} /></span><TraceIcon type={trace.trace_type} /><span className="trace-name"><strong>{trace.description ?? "残留项目"}</strong><small>{trace.path}</small></span><span>{formatBytes(trace.size)}</span>{trace.is_critical ? <span className="confidence low">受保护</span> : <ConfidenceBadge value={trace.confidence} />}</label>)}</section>;
 }
 
 function TraceIcon({ type }: { type: Trace["trace_type"] }) {
-  const Icon = type === "registry_key" || type === "registry_value" ? Database : type === "shortcut" ? FileCode2 : Folder;
+  const Icon = type === "registry_key" || type === "registry_value" ? Database : type === "shortcut" ? FileCode2 : type === "scheduled_task" || type === "service" || type === "driver" ? ShieldCheck : Folder;
   return <span className="trace-icon"><Icon size={15} /></span>;
 }
 

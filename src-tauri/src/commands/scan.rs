@@ -1,3 +1,4 @@
+use rust_yu_lib::lister::models::InstalledProgram;
 use rust_yu_lib::scanner;
 use rust_yu_lib::scanner::models::Trace;
 use serde::{Deserialize, Serialize};
@@ -14,6 +15,7 @@ pub struct ScanOptions {
 pub async fn scan_traces(
     program_name: String,
     trace_types: Option<Vec<String>>,
+    program: Option<InstalledProgram>,
 ) -> Result<Vec<Trace>, CommandError> {
     use rust_yu_lib::scanner::models::TraceType;
 
@@ -25,14 +27,20 @@ pub async fn scan_traces(
                 "file" => Some(TraceType::File),
                 "appdata" => Some(TraceType::AppData),
                 "shortcut" => Some(TraceType::Shortcut),
+                "scheduled_task" => Some(TraceType::ScheduledTask),
+                "service" => Some(TraceType::Service),
+                "driver" => Some(TraceType::Driver),
                 _ => None,
             })
             .collect()
     });
 
-    let traces = scanner::scan_all_traces(&program_name, types)
-        .await
-        .map_err(CommandError::from)?;
+    let traces = if let Some(program) = program.as_ref() {
+        scanner::scan_all_traces_for_program(program, types).await
+    } else {
+        scanner::scan_all_traces(&program_name, types).await
+    }
+    .map_err(CommandError::from)?;
 
     Ok(traces)
 }

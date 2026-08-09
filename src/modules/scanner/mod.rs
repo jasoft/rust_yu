@@ -5,6 +5,7 @@ pub mod registry;
 pub mod shortcuts;
 
 use crate::modules::common::error::UninstallerError;
+use crate::modules::lister::models::InstalledProgram;
 use models::{Trace, TraceType};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -14,12 +15,31 @@ pub async fn scan_all_traces(
     program_name: &str,
     trace_types: Option<Vec<TraceType>>,
 ) -> Result<Vec<Trace>, UninstallerError> {
+    scan_all_traces_internal(program_name, None, trace_types).await
+}
+
+/// 扫描带有安装目录上下文的程序残留，包括服务、计划任务和驱动证据。
+pub async fn scan_all_traces_for_program(
+    program: &InstalledProgram,
+    trace_types: Option<Vec<TraceType>>,
+) -> Result<Vec<Trace>, UninstallerError> {
+    scan_all_traces_internal(&program.name, Some(program.clone()), trace_types).await
+}
+
+async fn scan_all_traces_internal(
+    program_name: &str,
+    program: Option<InstalledProgram>,
+    trace_types: Option<Vec<TraceType>>,
+) -> Result<Vec<Trace>, UninstallerError> {
     let types = trace_types.unwrap_or_else(|| {
         vec![
             TraceType::RegistryKey,
             TraceType::File,
             TraceType::AppData,
             TraceType::Shortcut,
+            TraceType::ScheduledTask,
+            TraceType::Service,
+            TraceType::Driver,
         ]
     });
 
@@ -88,6 +108,27 @@ pub async fn scan_all_traces(
         }));
     }
 
+    if types.iter().any(|trace_type| {
+        matches!(
+            trace_type,
+            TraceType::ScheduledTask | TraceType::Service | TraceType::Driver
+        )
+    }) {
+        if let Some(program) = program {
+            let requested_types = types.clone();
+            let t = traces.clone();
+            handles.push(tokio::task::spawn_blocking(move || {
+                let mut integration_traces =
+                    crate::modules::system_integration::scan_traces(&program);
+                integration_traces.retain(|trace| requested_types.contains(&trace.trace_type));
+                let mut guard = t.blocking_lock();
+                guard.append(&mut integration_traces);
+            }));
+        } else {
+            tracing::debug!("没有安装目录上下文，跳过服务、计划任务和驱动残留扫描");
+        }
+    }
+
     // 等待所有任务完成
     for handle in handles {
         let _ = handle.await;
@@ -115,24 +156,44 @@ fn assign_confidence_scores(program_name: &str, traces: &mut Vec<Trace>) {
     for trace in traces.iter_mut() {
         let path_lower = trace.path.to_lowercase();
 
-        // 检查是否包含程序名
-        let name_match = path_lower.contains(&name_lower);
-
-        // 检查是否完全匹配
-        let exact_match = path_lower.contains(&format!("\\{} ", name_lower))
-            || path_lower.contains(&format!("/{} ", name_lower))
-            || path_lower.contains(&format!("\\{}.", name_lower));
-
-        trace.confidence = if exact_match {
-            models::Confidence::High
-        } else if name_match {
-            models::Confidence::Medium
+        if matches!(
+            trace.trace_type,
+            TraceType::ScheduledTask | TraceType::Service | TraceType::Driver
+        ) {
+            // 系统集成项目只有在扫描器拿到明确关联路径时才会进入列表，
+            // 因此保留高置信度；名称本身不能提升服务/任务的关联等级。
+            trace.confidence = if trace.related_path.is_some() {
+                models::Confidence::High
+            } else {
+                models::Confidence::Low
+            };
         } else {
-            models::Confidence::Low
-        };
+            // 检查是否包含程序名
+            let name_match = path_lower.contains(&name_lower);
+
+            // 检查是否完全匹配
+            let exact_match = path_lower.contains(&format!("\\{} ", name_lower))
+                || path_lower.contains(&format!("/{} ", name_lower))
+                || path_lower.contains(&format!("\\{}.", name_lower));
+
+            trace.confidence = if exact_match {
+                models::Confidence::High
+            } else if name_match {
+                models::Confidence::Medium
+            } else {
+                models::Confidence::Low
+            };
+        }
 
         // 检查是否为关键系统项
         if crate::modules::common::utils::is_system_critical_path(&trace.path) {
+            trace.is_critical = true;
+        }
+        if trace
+            .related_path
+            .as_deref()
+            .is_some_and(crate::modules::common::utils::is_system_critical_path)
+        {
             trace.is_critical = true;
         }
 

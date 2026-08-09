@@ -40,7 +40,7 @@ interface ProgramsState {
   setSourceFilter: (source: ProgramSourceFilter) => void;
   selectProgram: (program: InstalledProgram | null) => void;
   setViewMode: (mode: ViewMode) => void;
-  scanTraces: (programName: string) => Promise<void>;
+  scanTraces: (programName: string, program?: InstalledProgram) => Promise<void>;
   toggleTrace: (traceId: string) => void;
   toggleAllTraces: () => void;
   cleanTraces: (confirm: boolean) => Promise<void>;
@@ -137,12 +137,13 @@ export const useProgramsStore = create<ProgramsState>((set, get) => ({
 
   setViewMode: (mode) => set({ viewMode: mode }),
 
-  scanTraces: async (programName) => {
+  scanTraces: async (programName, program) => {
     set({ tracesLoading: true, traces: [], selectedTraces: new Set() });
     try {
       const traces = await invoke<Trace[]>("scan_traces", {
         programName,
         traceTypes: null,
+        program: program ?? null,
       });
       const existing = traces.filter((t) => t.exists);
       set({
@@ -158,6 +159,8 @@ export const useProgramsStore = create<ProgramsState>((set, get) => ({
   },
 
   toggleTrace: (traceId) => {
+    const trace = get().traces.find((candidate) => candidate.id === traceId);
+    if (trace?.is_critical) return;
     const current = new Set(get().selectedTraces);
     if (current.has(traceId)) {
       current.delete(traceId);
@@ -169,10 +172,11 @@ export const useProgramsStore = create<ProgramsState>((set, get) => ({
 
   toggleAllTraces: () => {
     const { traces, selectedTraces } = get();
-    if (selectedTraces.size === traces.length) {
+    const selectableTraces = traces.filter((trace) => !trace.is_critical);
+    if (selectedTraces.size === selectableTraces.length) {
       set({ selectedTraces: new Set() });
     } else {
-      set({ selectedTraces: new Set(traces.map((t) => t.id)) });
+      set({ selectedTraces: new Set(selectableTraces.map((trace) => trace.id)) });
     }
   },
 

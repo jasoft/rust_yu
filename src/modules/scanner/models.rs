@@ -1,23 +1,31 @@
 use serde::{Deserialize, Serialize};
 
-/// 痕迹类型
+/// 痕迹类型。对外统一使用 snake_case，同时接受旧快照中的 PascalCase。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TraceType {
     /// 注册表项
+    #[serde(rename = "registry_key", alias = "RegistryKey")]
     RegistryKey,
     /// 注册表值
+    #[serde(rename = "registry_value", alias = "RegistryValue")]
     RegistryValue,
     /// 文件或目录
+    #[serde(rename = "file", alias = "File")]
     File,
     /// 快捷方式 (.lnk)
+    #[serde(rename = "shortcut", alias = "Shortcut")]
     Shortcut,
     /// AppData/LocalAppData
+    #[serde(rename = "appdata", alias = "AppData")]
     AppData,
     /// 计划任务
+    #[serde(rename = "scheduled_task", alias = "ScheduledTask")]
     ScheduledTask,
     /// 服务
+    #[serde(rename = "service", alias = "Service")]
     Service,
     /// 驱动程序
+    #[serde(rename = "driver", alias = "Driver")]
     Driver,
 }
 
@@ -71,6 +79,9 @@ pub struct Trace {
     pub is_critical: bool,
     pub confidence: Confidence,
     pub exists: bool,
+    /// 系统集成痕迹的关联路径，用于破坏性操作前重新核对当前目标。
+    #[serde(default)]
+    pub related_path: Option<String>,
 }
 
 impl Trace {
@@ -85,6 +96,7 @@ impl Trace {
             is_critical: false,
             confidence: Confidence::Low,
             exists: true,
+            related_path: None,
         }
     }
 
@@ -102,6 +114,11 @@ impl Trace {
         self.confidence = confidence;
         self
     }
+
+    pub fn with_related_path(mut self, related_path: String) -> Self {
+        self.related_path = Some(related_path);
+        self
+    }
 }
 
 #[cfg(test)]
@@ -112,6 +129,18 @@ mod tests {
     fn trace_type_display_is_stable() {
         assert_eq!(TraceType::RegistryKey.to_string(), "RegistryKey");
         assert_eq!(TraceType::Shortcut.to_string(), "Shortcut");
+    }
+
+    #[test]
+    fn trace_type_wire_format_is_snake_case_and_reads_legacy_case() {
+        assert!(matches!(
+            serde_json::to_string(&TraceType::ScheduledTask).as_deref(),
+            Ok("\"scheduled_task\"")
+        ));
+        assert_eq!(
+            serde_json::from_str::<TraceType>("\"Service\"").ok(),
+            Some(TraceType::Service),
+        );
     }
 
     #[test]
@@ -130,5 +159,6 @@ mod tests {
         assert_eq!(trace.confidence, Confidence::High);
         assert!(trace.exists);
         assert!(!trace.is_critical);
+        assert_eq!(trace.related_path, None);
     }
 }

@@ -22,6 +22,9 @@ const traceTypeLabels: Record<string, { label: string; icon: typeof FileCode; va
   file: { label: "文件", icon: FileCode, variant: "warning" },
   appdata: { label: "AppData", icon: FolderOpen, variant: "success" },
   shortcut: { label: "快捷方式", icon: Link2, variant: "secondary" },
+  scheduled_task: { label: "计划任务", icon: FileCode, variant: "warning" },
+  service: { label: "系统服务", icon: FileCode, variant: "warning" },
+  driver: { label: "驱动程序", icon: FileCode, variant: "warning" },
 };
 
 export function TracePanel() {
@@ -47,7 +50,8 @@ export function TracePanel() {
     );
   }
 
-  const allSelected = traces.length > 0 && selectedTraces.size === traces.length;
+  const selectableCount = traces.filter((trace) => !trace.is_critical).length;
+  const allSelected = selectableCount > 0 && selectedTraces.size === selectableCount;
   const hasCleaned = cleanResults.length > 0;
 
   return (
@@ -63,11 +67,12 @@ export function TracePanel() {
       <div className="min-w-0 flex-1 space-y-4 p-4">
         {/* 操作栏 */}
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={toggleAllTraces}>
+          <Button variant="ghost" size="sm" onClick={toggleAllTraces} disabled={selectableCount === 0}>
             {allSelected ? "取消全选" : "全选"}
           </Button>
           <span className="text-xs text-slate-500">
-            已选 {selectedTraces.size} / {traces.length} 项
+            已选 {selectedTraces.size} / {selectableCount} 项
+            {traces.length > selectableCount && ` · ${traces.length - selectableCount} 项受保护`}
           </span>
           <div className="flex-1" />
           {!hasCleaned && (
@@ -88,7 +93,7 @@ export function TracePanel() {
             <CardContent className="space-y-3 py-4">
               <p className="text-sm font-medium text-amber-300">确认清理选中的残留项？</p>
               <p className="text-xs text-slate-400">
-                将删除 {selectedTraces.size} 个已选文件或注册表项。此操作不可自动撤销，请确认每一项都属于该程序。
+                将清理 {selectedTraces.size} 个已选项目。受保护的系统集成痕迹不会被删除；此操作不可自动撤销，请确认每一项都属于该程序。
               </p>
               <div className="flex gap-2">
                 <Button
@@ -171,7 +176,7 @@ function TraceItem({
   return (
     <button
       onClick={onToggle}
-      disabled={cleaned}
+      disabled={cleaned || trace.is_critical}
       className={`flex min-w-0 w-full items-start gap-3 rounded-md border p-3 text-left transition-colors ${
         selected
           ? "border-blue-500/50 bg-blue-900/10"
@@ -182,7 +187,7 @@ function TraceItem({
         type="checkbox"
         checked={selected}
         readOnly
-        disabled={cleaned}
+        disabled={cleaned || trace.is_critical}
         tabIndex={-1}
         className="pointer-events-none mt-1"
       />
@@ -191,6 +196,7 @@ function TraceItem({
         <div className="flex items-center gap-2 mb-1">
           <Badge variant={meta.variant}>{meta.label}</Badge>
           <Badge variant="outline">{trace.confidence}</Badge>
+          {trace.is_critical && <Badge variant="secondary">受保护</Badge>}
           {trace.size != null && (
             <span className="text-xs text-slate-500">{formatBytes(trace.size)}</span>
           )}

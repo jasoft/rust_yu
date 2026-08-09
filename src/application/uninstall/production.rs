@@ -86,7 +86,7 @@ impl UninstallPort for ProductionUninstallPort {
         &self,
         program: &InstalledProgram,
     ) -> Result<Vec<Trace>, UninstallError> {
-        scanner::scan_all_traces(&program.name, None)
+        scanner::scan_all_traces_for_program(program, None)
             .await
             .map(|traces| traces.into_iter().filter(|trace| trace.exists).collect())
             .map_err(|error| core_error(UninstallErrorCode::ResidueScanFailed, error))

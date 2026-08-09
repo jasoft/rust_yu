@@ -49,12 +49,14 @@ export interface ProgramListResponse {
 export interface Trace {
   id: string;
   program_name: string;
-  trace_type: "registry_key" | "registry_value" | "file" | "appdata" | "shortcut";
+  trace_type: "registry_key" | "registry_value" | "file" | "appdata" | "shortcut" | "scheduled_task" | "service" | "driver";
   path: string;
   exists: boolean;
   size: number | null;
+  is_critical?: boolean;
   confidence: "high" | "medium" | "low";
   description: string | null;
+  related_path?: string | null;
 }
 
 export type ForceTargetKind = "directory" | "executable" | "shortcut";
