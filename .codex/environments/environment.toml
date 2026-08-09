@@ -3,10 +3,18 @@ version = 1
 name = "rust_yu"
 
 [setup]
-script = ""
+script = '''
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\Initialize-Worktree.ps1
+'''
 
 [[actions]]
 name = "run gui"
 icon = "run"
 command = "./tools/dev/Run-Gui.ps1"
+platform = "win32"
+
+[[actions]]
+name = "cleanup worktree"
+icon = "trash"
+command = "powershell -NoProfile -ExecutionPolicy Bypass -File ./tools/dev/Cleanup-Worktree.ps1 -PruneStaleWorktrees"
 platform = "win32"
