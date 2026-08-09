@@ -62,6 +62,7 @@ mod tests {
                 success: true,
                 error: None,
                 bytes_freed: 512,
+                backup_id: None,
             },
             CleanResult {
                 trace_id: "2".to_string(),
@@ -69,6 +70,7 @@ mod tests {
                 success: false,
                 error: Some("denied".to_string()),
                 bytes_freed: 0,
+                backup_id: None,
             },
         ]);
 

@@ -1,6 +1,7 @@
 pub mod application;
 pub mod modules;
 
+pub use modules::backup;
 pub use modules::browser_cleaner;
 pub use modules::cleaner;
 pub use modules::common::error::UninstallerError;

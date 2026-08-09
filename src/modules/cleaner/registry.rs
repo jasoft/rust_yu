@@ -19,6 +19,7 @@ pub async fn delete_registry_trace(trace: &Trace) -> Result<CleanResult, Uninsta
                 success: false,
                 error: Some("无效的注册表路径格式".to_string()),
                 bytes_freed: 0,
+                backup_id: None,
             });
         }
     };
@@ -34,6 +35,7 @@ pub async fn delete_registry_trace(trace: &Trace) -> Result<CleanResult, Uninsta
                 success: false,
                 error: Some("不支持的注册表痕迹类型".to_string()),
                 bytes_freed: 0,
+                backup_id: None,
             })
         }
     };
@@ -48,6 +50,7 @@ pub async fn delete_registry_trace(trace: &Trace) -> Result<CleanResult, Uninsta
                 success: true,
                 error: None,
                 bytes_freed: 0,
+                backup_id: None,
             })
         }
         Err(e) => {
@@ -59,6 +62,7 @@ pub async fn delete_registry_trace(trace: &Trace) -> Result<CleanResult, Uninsta
                 success: false,
                 error: Some(e.to_string()),
                 bytes_freed: 0,
+                backup_id: None,
             })
         }
     }

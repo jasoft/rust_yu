@@ -299,6 +299,7 @@ mod tests {
                 success: true,
                 error: None,
                 bytes_freed: 1024,
+                backup_id: None,
             },
         ]);
 
@@ -319,6 +320,7 @@ mod tests {
                 success: true,
                 error: None,
                 bytes_freed: 0,
+                backup_id: None,
             },
             CleanResult {
                 trace_id: "2".to_string(),
@@ -326,6 +328,7 @@ mod tests {
                 success: true,
                 error: None,
                 bytes_freed: 0,
+                backup_id: None,
             },
             CleanResult {
                 trace_id: "3".to_string(),
@@ -333,6 +336,7 @@ mod tests {
                 success: true,
                 error: None,
                 bytes_freed: 0,
+                backup_id: None,
             },
         ]);
 

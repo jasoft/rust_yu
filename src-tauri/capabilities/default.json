@@ -6,6 +6,10 @@
   "permissions": [
     "core:default",
     "core:event:default",
+    "allow-plan-backup",
+    "allow-list-backup-sessions",
+    "allow-get-backup-session",
+    "allow-restore-backup-session",
     "allow-scan-browser-data",
     "allow-clean-browser-data",
     "allow-list-programs",

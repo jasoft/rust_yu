@@ -1,3 +1,4 @@
+pub mod backup;
 pub mod browser_cleaner;
 pub mod clean;
 pub mod error;
@@ -10,6 +11,7 @@ pub mod search;
 pub mod startup;
 pub mod uninstall;
 
+pub use backup::*;
 pub use browser_cleaner::*;
 pub use clean::*;
 pub use error::*;

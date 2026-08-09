@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-restore-backup-session"
+description = "Enables the restore_backup_session command without any pre-configured scope."
+commands.allow = ["restore_backup_session"]
+
+[[permission]]
+identifier = "deny-restore-backup-session"
+description = "Denies the restore_backup_session command without any pre-configured scope."
+commands.deny = ["restore_backup_session"]

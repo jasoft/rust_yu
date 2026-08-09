@@ -100,6 +100,74 @@ export interface CleanResult {
   success: boolean;
   error: string | null;
   bytes_freed: number;
+  backup_id?: string | null;
+}
+
+export type BackupItemKind = "file" | "directory" | "registry_key" | "registry_value";
+export type BackupItemState =
+  | "ready"
+  | "missing"
+  | "backup_failed"
+  | "delete_succeeded"
+  | "delete_failed"
+  | "restored"
+  | "restore_failed";
+export type BackupSessionStatus = "prepared" | "partially_cleaned" | "restored" | "restore_failed";
+
+export interface BackupPlanItem {
+  trace_id: string;
+  path: string;
+  trace_type: Trace["trace_type"];
+  kind: BackupItemKind | null;
+  exists: boolean;
+  estimated_bytes: number;
+  eligible: boolean;
+  reason: string | null;
+}
+
+export interface BackupPlan {
+  items: BackupPlanItem[];
+  total_bytes: number;
+  eligible_count: number;
+  unsupported_count: number;
+}
+
+export interface BackupItem {
+  trace_id: string;
+  original_path: string;
+  trace_type: Trace["trace_type"];
+  kind: BackupItemKind;
+  payload: string | null;
+  bytes: number;
+  state: BackupItemState;
+  error: string | null;
+}
+
+export interface BackupSession {
+  id: string;
+  created_at: string;
+  reason: string;
+  status: BackupSessionStatus;
+  items: BackupItem[];
+}
+
+export interface BackupSessionInfo {
+  id: string;
+  created_at: string;
+  reason: string;
+  status: BackupSessionStatus;
+  item_count: number;
+  restorable_count: number;
+  failed_count: number;
+  bytes: number;
+}
+
+export interface BackupRestoreResult {
+  session_id: string;
+  success: boolean;
+  restored_count: number;
+  failed_count: number;
+  session: BackupSession;
 }
 
 export interface UninstallResult {

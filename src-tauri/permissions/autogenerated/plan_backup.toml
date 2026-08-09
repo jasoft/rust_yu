@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-plan-backup"
+description = "Enables the plan_backup command without any pre-configured scope."
+commands.allow = ["plan_backup"]
+
+[[permission]]
+identifier = "deny-plan-backup"
+description = "Denies the plan_backup command without any pre-configured scope."
+commands.deny = ["plan_backup"]

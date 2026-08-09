@@ -237,6 +237,12 @@
           "markdownDescription": "Enables the finish_uninstall command without any pre-configured scope."
         },
         {
+          "description": "Enables the get_backup_session command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-backup-session",
+          "markdownDescription": "Enables the get_backup_session command without any pre-configured scope."
+        },
+        {
           "description": "Enables the get_reports command without any pre-configured scope.",
           "type": "string",
           "const": "allow-get-reports",
@@ -253,6 +259,12 @@
           "type": "string",
           "const": "allow-get-uninstall-job",
           "markdownDescription": "Enables the get_uninstall_job command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the list_backup_sessions command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-list-backup-sessions",
+          "markdownDescription": "Enables the list_backup_sessions command without any pre-configured scope."
         },
         {
           "description": "Enables the list_cleaner_entries command without any pre-configured scope.",
@@ -285,6 +297,12 @@
           "markdownDescription": "Enables the plan_add_startup_item command without any pre-configured scope."
         },
         {
+          "description": "Enables the plan_backup command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-plan-backup",
+          "markdownDescription": "Enables the plan_backup command without any pre-configured scope."
+        },
+        {
           "description": "Enables the plan_force_uninstall command without any pre-configured scope.",
           "type": "string",
           "const": "allow-plan-force-uninstall",
@@ -301,6 +319,12 @@
           "type": "string",
           "const": "allow-plan-uninstall",
           "markdownDescription": "Enables the plan_uninstall command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the restore_backup_session command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-restore-backup-session",
+          "markdownDescription": "Enables the restore_backup_session command without any pre-configured scope."
         },
         {
           "description": "Enables the rollback_startup_action command without any pre-configured scope.",
@@ -399,6 +423,12 @@
           "markdownDescription": "Denies the finish_uninstall command without any pre-configured scope."
         },
         {
+          "description": "Denies the get_backup_session command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-backup-session",
+          "markdownDescription": "Denies the get_backup_session command without any pre-configured scope."
+        },
+        {
           "description": "Denies the get_reports command without any pre-configured scope.",
           "type": "string",
           "const": "deny-get-reports",
@@ -415,6 +445,12 @@
           "type": "string",
           "const": "deny-get-uninstall-job",
           "markdownDescription": "Denies the get_uninstall_job command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the list_backup_sessions command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-list-backup-sessions",
+          "markdownDescription": "Denies the list_backup_sessions command without any pre-configured scope."
         },
         {
           "description": "Denies the list_cleaner_entries command without any pre-configured scope.",
@@ -447,6 +483,12 @@
           "markdownDescription": "Denies the plan_add_startup_item command without any pre-configured scope."
         },
         {
+          "description": "Denies the plan_backup command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-plan-backup",
+          "markdownDescription": "Denies the plan_backup command without any pre-configured scope."
+        },
+        {
           "description": "Denies the plan_force_uninstall command without any pre-configured scope.",
           "type": "string",
           "const": "deny-plan-force-uninstall",
@@ -463,6 +505,12 @@
           "type": "string",
           "const": "deny-plan-uninstall",
           "markdownDescription": "Denies the plan_uninstall command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the restore_backup_session command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-restore-backup-session",
+          "markdownDescription": "Denies the restore_backup_session command without any pre-configured scope."
         },
         {
           "description": "Denies the rollback_startup_action command without any pre-configured scope.",

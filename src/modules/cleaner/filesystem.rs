@@ -15,6 +15,7 @@ pub async fn delete_file_trace(trace: &Trace) -> Result<CleanResult, Uninstaller
             success: true, // 目标已不存在，视为成功
             error: None,
             bytes_freed: 0,
+            backup_id: None,
         });
     }
 
@@ -40,6 +41,7 @@ pub async fn delete_file_trace(trace: &Trace) -> Result<CleanResult, Uninstaller
                 success: true,
                 error: None,
                 bytes_freed,
+                backup_id: None,
             })
         }
         Err(e) => {
@@ -51,6 +53,7 @@ pub async fn delete_file_trace(trace: &Trace) -> Result<CleanResult, Uninstaller
                 success: false,
                 error: Some(e.to_string()),
                 bytes_freed: 0,
+                backup_id: None,
             })
         }
     }

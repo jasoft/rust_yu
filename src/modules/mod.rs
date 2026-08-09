@@ -1,3 +1,4 @@
+pub mod backup;
 #[allow(dead_code)]
 pub mod browser_cleaner;
 pub mod cleaner;

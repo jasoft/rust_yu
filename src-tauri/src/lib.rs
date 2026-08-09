@@ -174,6 +174,10 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            plan_backup,
+            list_backup_sessions,
+            get_backup_session,
+            restore_backup_session,
             scan_browser_data,
             clean_browser_data,
             list_programs,

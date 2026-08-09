@@ -14,6 +14,7 @@ pub async fn delete_shortcut_trace(trace: &Trace) -> Result<CleanResult, Uninsta
             success: true,
             error: None,
             bytes_freed: 0,
+            backup_id: None,
         });
     }
 
@@ -28,6 +29,7 @@ pub async fn delete_shortcut_trace(trace: &Trace) -> Result<CleanResult, Uninsta
                 success: true,
                 error: None,
                 bytes_freed: 0,
+                backup_id: None,
             })
         }
         Err(e) => {
@@ -39,6 +41,7 @@ pub async fn delete_shortcut_trace(trace: &Trace) -> Result<CleanResult, Uninsta
                 success: false,
                 error: Some(e.to_string()),
                 bytes_freed: 0,
+                backup_id: None,
             })
         }
     }
