@@ -8,12 +8,5 @@ script = ""
 [[actions]]
 name = "run gui"
 icon = "run"
-command = '''
-.\tools\dev\Initialize-Worktree.ps1 -SkipFrontend -SkipCheck
-Push-Location .\src-tauri
-try {
-    npx tauri dev
-} finally {
-    Pop-Location
-}'''
+command = "./tools/dev/Run-Gui.ps1"
 platform = "win32"
