@@ -23,7 +23,8 @@ const CACHE_TABLE_NAME: &str = "installed_programs_cache";
 const CACHE_METADATA_TABLE_NAME: &str = "cache_metadata";
 const META_KEY_SCHEMA_VERSION: &str = "schema_version";
 const META_KEY_GENERATED_AT: &str = "generated_at";
-pub const CACHE_SCHEMA_VERSION: u32 = 7;
+// 程序 ID 已改为稳定的注册表项路径；递增版本以淘汰旧的随机 UUID 缓存。
+pub const CACHE_SCHEMA_VERSION: u32 = 8;
 pub const DEFAULT_CACHE_TTL_SECONDS: i64 = 86_400;
 
 #[cfg(test)]

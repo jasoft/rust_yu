@@ -268,6 +268,9 @@ export default function App() {
     filteredPrograms[0] ??
     allPrograms[0] ??
     mockPrograms[1];
+  const completedProgram = uninstallJob
+    ? toUiProgram(uninstallJob.snapshot.program)
+    : selectedProgram;
   const sourceCounts = isTauriRuntime()
     ? countProgramsBySource(programs)
     : { all: mockPrograms.length, registry: mockPrograms.length, msi: 0, store: 0 };
@@ -407,7 +410,7 @@ export default function App() {
             />
           ) : (
             <CompleteStage
-              program={selectedProgram}
+              program={completedProgram}
               results={cleanResults}
               onDone={() => { setStage("apps"); setCleanResults([]); }}
             />

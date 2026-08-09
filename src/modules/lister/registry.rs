@@ -103,6 +103,10 @@ fn parse_registry_entry(
         InstallSource::Registry
     };
     let mut program = InstalledProgram::new(name, install_source);
+    // 注册表扫描本身没有稳定的顺序，不能把随机 UUID 作为卸载目标 ID。
+    // 使用完整注册表项路径，使列表刷新、卸载计划和执行阶段始终指向同一个程序。
+    let registry_key_path = build_registry_key_path(hkey, parent_path, subkey_name);
+    program.id = format!("registry:{registry_key_path}");
 
     // 提取可选字段
     program.publisher = subkey.get_value("Publisher").ok();
@@ -111,12 +115,7 @@ fn parse_registry_entry(
     program.install_location = subkey.get_value("InstallLocation").ok();
     program.uninstall_string = subkey.get_value("UninstallString").ok();
     program.quiet_uninstall_string = subkey.get_value("QuietUninstallString").ok();
-    program.uninstall_registry_key_path = Some(format!(
-        "{}\\{}\\{}",
-        format_hkey(hkey),
-        parent_path,
-        subkey_name
-    ));
+    program.uninstall_registry_key_path = Some(registry_key_path);
     program.icon_path = subkey.get_value("DisplayIcon").ok();
     program.url_info_about = subkey.get_value("URLInfoAbout").ok();
     program.help_link = subkey.get_value("HelpLink").ok();
@@ -166,6 +165,10 @@ fn format_hkey(hkey: winreg::HKEY) -> &'static str {
 }
 
 /// 检查是否为系统组件
+fn build_registry_key_path(hkey: winreg::HKEY, parent_path: &str, subkey_name: &str) -> String {
+    format!("{}\\{}\\{}", format_hkey(hkey), parent_path, subkey_name)
+}
+
 fn is_system_component(program: &InstalledProgram) -> bool {
     let system_components = [
         "Windows",
@@ -197,6 +200,30 @@ fn is_system_component(program: &InstalledProgram) -> bool {
 
     // 检查 ParentKeyName (通常是系统组件)
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_registry_key_path, format_hkey, HKEY_LOCAL_MACHINE};
+
+    #[test]
+    fn registry_program_id_is_derived_from_full_registry_key_path() {
+        let path = build_registry_key_path(
+            HKEY_LOCAL_MACHINE,
+            r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+            "demo",
+        );
+
+        assert_eq!(format_hkey(HKEY_LOCAL_MACHINE), "HKLM");
+        assert_eq!(
+            path,
+            r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\demo"
+        );
+        assert_eq!(
+            format!("registry:{path}"),
+            r"registry:HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\demo"
+        );
+    }
 }
 
 /// 获取特定程序的详细信息
