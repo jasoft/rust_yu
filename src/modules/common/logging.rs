@@ -8,10 +8,12 @@ pub fn init_logging(verbose: bool) {
     };
 
     // 创建日志目录
-    let log_dir = dirs::data_local_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("rust-yu")
-        .join("logs");
+    let storage_root = std::env::var_os("RUST_YU_STORAGE_DIR")
+        .filter(|value| !value.to_string_lossy().trim().is_empty())
+        .map(std::path::PathBuf::from)
+        .or_else(|| dirs::data_local_dir().map(|path| path.join("rust-yu")))
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let log_dir = storage_root.join("logs");
 
     // 尝试创建日志目录，如果失败则使用临时目录
     let log_dir = match std::fs::create_dir_all(&log_dir) {

@@ -4,19 +4,56 @@ use crate::elevation::{
     ElevationError, ElevationErrorCode, TokenState,
 };
 use crate::single_instance::SingleInstanceGuard;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+const PORTABLE_MARKER_FILE_NAME: &str = "portable.flag";
+const PORTABLE_STORAGE_DIR_NAME: &str = "data";
+const PORTABLE_MODE_ENV: &str = "RUST_YU_PORTABLE";
+const STORAGE_DIR_ENV: &str = "RUST_YU_STORAGE_DIR";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InternalArgs {
-    Normal,
+    Normal {
+        portable: bool,
+    },
     ForceUninstall {
         path: String,
+        portable: bool,
     },
     ElevatedEntry {
         repair_launch_task: bool,
         force_target: Option<String>,
+        portable: bool,
     },
     RemoveLaunchTasks,
+}
+
+impl InternalArgs {
+    fn is_portable(&self) -> bool {
+        match self {
+            Self::Normal { portable }
+            | Self::ForceUninstall { portable, .. }
+            | Self::ElevatedEntry { portable, .. } => *portable,
+            Self::RemoveLaunchTasks => false,
+        }
+    }
+
+    fn with_portable(self, portable: bool) -> Self {
+        match self {
+            Self::Normal { .. } => Self::Normal { portable },
+            Self::ForceUninstall { path, .. } => Self::ForceUninstall { path, portable },
+            Self::ElevatedEntry {
+                repair_launch_task,
+                force_target,
+                ..
+            } => Self::ElevatedEntry {
+                repair_launch_task,
+                force_target,
+                portable,
+            },
+            Self::RemoveLaunchTasks => Self::RemoveLaunchTasks,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,11 +77,13 @@ pub fn parse_internal_args(args: &[String]) -> Result<InternalArgs, ElevationErr
     let mut repair = false;
     let mut remove_tasks = false;
     let mut force_target = None;
+    let mut portable = false;
     let mut arguments = args.iter().skip(1);
     while let Some(arg) = arguments.next() {
         match arg.as_str() {
             "--elevated-entry" => elevated = true,
             "--repair-launch-task" if elevated => repair = true,
+            "--portable" => portable = true,
             "--force-uninstall" => {
                 if force_target.is_some() {
                     return Err(ElevationError::new(
@@ -75,7 +114,7 @@ pub fn parse_internal_args(args: &[String]) -> Result<InternalArgs, ElevationErr
             }
         }
     }
-    if remove_tasks && (elevated || force_target.is_some()) {
+    if remove_tasks && (elevated || force_target.is_some() || portable) {
         return Err(ElevationError::new(
             ElevationErrorCode::ElevationLaunchFailed,
             "维护模式参数不能与管理员入口参数同时使用",
@@ -87,11 +126,12 @@ pub fn parse_internal_args(args: &[String]) -> Result<InternalArgs, ElevationErr
         InternalArgs::ElevatedEntry {
             repair_launch_task: repair,
             force_target,
+            portable,
         }
     } else if let Some(path) = force_target {
-        InternalArgs::ForceUninstall { path }
+        InternalArgs::ForceUninstall { path, portable }
     } else {
-        InternalArgs::Normal
+        InternalArgs::Normal { portable }
     })
 }
 
@@ -102,6 +142,7 @@ pub fn decide_bootstrap(
     install_path_safe: bool,
     task: TaskPresence,
 ) -> BootstrapAction {
+    let portable = args.is_portable();
     if matches!(&args, InternalArgs::ElevatedEntry { .. }) && !token.is_elevated {
         return BootstrapAction::Reject(ElevationErrorCode::UnsupportedStandardUser);
     }
@@ -111,8 +152,11 @@ pub fn decide_bootstrap(
     if !token.is_administrator {
         return BootstrapAction::Reject(ElevationErrorCode::UnsupportedStandardUser);
     }
-    if !install_path_safe {
+    if !portable && !install_path_safe {
         return BootstrapAction::Reject(ElevationErrorCode::UnsafeInstallLocation);
+    }
+    if portable && !token.is_elevated {
+        return BootstrapAction::RelaunchWithUacAndExit;
     }
     if token.is_elevated {
         return BootstrapAction::StartElevatedGui;
@@ -150,11 +194,6 @@ pub fn run_startup_bootstrap() -> bool {
             Err(error) => show_startup_error(error),
         };
     }
-    let debug_build = cfg!(debug_assertions);
-    if debug_build && !token.is_elevated {
-        return true;
-    }
-
     let executable = match std::env::current_exe() {
         Ok(path) => path,
         Err(error) => {
@@ -164,6 +203,18 @@ pub fn run_startup_bootstrap() -> bool {
             ))
         }
     };
+    let portable = parsed.is_portable() || has_portable_marker(&executable);
+    let parsed = parsed.with_portable(portable);
+    if portable {
+        if let Err(error) = configure_portable_storage(&executable) {
+            return show_startup_error(error);
+        }
+    }
+    let debug_build = cfg!(debug_assertions);
+    if debug_build && !token.is_elevated {
+        return true;
+    }
+
     let install_path_safe = executable
         .parent()
         .map(validate_protected_install_path)
@@ -178,18 +229,21 @@ pub fn run_startup_bootstrap() -> bool {
         TaskPresence::Invalid
     };
     let force_target = match &parsed {
-        InternalArgs::ForceUninstall { path } => Some(path.clone()),
+        InternalArgs::ForceUninstall { path, .. } => Some(path.clone()),
         InternalArgs::ElevatedEntry { force_target, .. } => force_target.clone(),
         _ => None,
     };
+    let portable = parsed.is_portable();
     let action = decide_bootstrap(debug_build, parsed, token, install_path_safe, task);
     match action {
         BootstrapAction::StartDebugGui => true,
         BootstrapAction::StartElevatedGui => {
-            if let Err(error) = validate_protected_executable(&executable)
-                .and_then(|_| create_or_repair_current_user_task(&executable).map(|_| ()))
-            {
-                return show_startup_error(error);
+            if !portable {
+                if let Err(error) = validate_protected_executable(&executable)
+                    .and_then(|_| create_or_repair_current_user_task(&executable).map(|_| ()))
+                {
+                    return show_startup_error(error);
+                }
             }
             // 右键入口必须能在已有主窗口旁打开独立的目标审查窗口；
             // 该窗口仍只执行计划、二次校验和用户确认的路径。
@@ -211,7 +265,7 @@ pub fn run_startup_bootstrap() -> bool {
         }
         BootstrapAction::RunExistingTaskAndExit => {
             if force_target.is_some() {
-                match launch_with_runas(&executable, force_target.as_deref()) {
+                match launch_with_runas(&executable, force_target.as_deref(), portable) {
                     Ok(()) => false,
                     Err(error) => show_startup_error(error),
                 }
@@ -223,7 +277,7 @@ pub fn run_startup_bootstrap() -> bool {
             }
         }
         BootstrapAction::RelaunchWithUacAndExit => {
-            match launch_with_runas(&executable, force_target.as_deref()) {
+            match launch_with_runas(&executable, force_target.as_deref(), portable) {
                 Ok(()) => false,
                 Err(error) => show_startup_error(error),
             }
@@ -239,6 +293,7 @@ pub fn run_startup_bootstrap() -> bool {
 fn launch_with_runas(
     executable: &PathBuf,
     force_target: Option<&str>,
+    portable: bool,
 ) -> Result<(), ElevationError> {
     use std::os::windows::ffi::OsStrExt;
     use windows::core::PCWSTR;
@@ -251,6 +306,9 @@ fn launch_with_runas(
         .chain(Some(0))
         .collect::<Vec<_>>();
     let mut parameter_text = String::from("--elevated-entry --repair-launch-task");
+    if portable {
+        parameter_text.push_str(" --portable");
+    }
     if let Some(target) = force_target {
         parameter_text.push_str(" --force-uninstall ");
         parameter_text.push_str(&quote_windows_argument(target));
@@ -279,11 +337,61 @@ fn launch_with_runas(
 fn launch_with_runas(
     _executable: &PathBuf,
     _force_target: Option<&str>,
+    _portable: bool,
 ) -> Result<(), ElevationError> {
     Err(ElevationError::new(
         ElevationErrorCode::ElevationLaunchFailed,
         "当前平台不支持 UAC 启动",
     ))
+}
+
+fn has_portable_marker(executable: &Path) -> bool {
+    executable
+        .parent()
+        .map(|directory| directory.join(PORTABLE_MARKER_FILE_NAME).is_file())
+        .unwrap_or(false)
+}
+
+fn configure_portable_storage(executable: &Path) -> Result<(), ElevationError> {
+    let executable_directory = executable.parent().ok_or_else(|| {
+        ElevationError::new(
+            ElevationErrorCode::UnsafeInstallLocation,
+            "无法确定便携版程序目录",
+        )
+    })?;
+    let storage_directory = executable_directory.join(PORTABLE_STORAGE_DIR_NAME);
+    match std::fs::symlink_metadata(&storage_directory) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            return Err(ElevationError::new(
+                ElevationErrorCode::UnsafeInstallLocation,
+                "便携版 data 目录不能是符号链接",
+            ));
+        }
+        Ok(metadata) if !metadata.is_dir() => {
+            return Err(ElevationError::new(
+                ElevationErrorCode::UnsafeInstallLocation,
+                "便携版 data 路径不是文件夹",
+            ));
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            std::fs::create_dir_all(&storage_directory).map_err(|create_error| {
+                ElevationError::new(
+                    ElevationErrorCode::UnsafeInstallLocation,
+                    format!("无法创建便携版 data 目录: {create_error}"),
+                )
+            })?;
+        }
+        Err(error) => {
+            return Err(ElevationError::new(
+                ElevationErrorCode::UnsafeInstallLocation,
+                format!("无法检查便携版 data 目录: {error}"),
+            ));
+        }
+    }
+    std::env::set_var(STORAGE_DIR_ENV, &storage_directory);
+    std::env::set_var(PORTABLE_MODE_ENV, "1");
+    Ok(())
 }
 
 #[cfg(windows)]
@@ -340,7 +448,7 @@ mod tests {
         assert_eq!(
             decide_bootstrap(
                 true,
-                InternalArgs::Normal,
+                InternalArgs::Normal { portable: false },
                 admin(false),
                 false,
                 TaskPresence::Missing
@@ -350,7 +458,7 @@ mod tests {
         assert_eq!(
             decide_bootstrap(
                 false,
-                InternalArgs::Normal,
+                InternalArgs::Normal { portable: false },
                 admin(true),
                 true,
                 TaskPresence::Valid
@@ -360,7 +468,7 @@ mod tests {
         assert_eq!(
             decide_bootstrap(
                 false,
-                InternalArgs::Normal,
+                InternalArgs::Normal { portable: false },
                 admin(false),
                 true,
                 TaskPresence::Valid
@@ -370,7 +478,7 @@ mod tests {
         assert_eq!(
             decide_bootstrap(
                 false,
-                InternalArgs::Normal,
+                InternalArgs::Normal { portable: false },
                 admin(false),
                 true,
                 TaskPresence::Missing
@@ -380,7 +488,7 @@ mod tests {
         assert_eq!(
             decide_bootstrap(
                 false,
-                InternalArgs::Normal,
+                InternalArgs::Normal { portable: false },
                 TokenState {
                     is_elevated: false,
                     is_administrator: false,
@@ -397,6 +505,7 @@ mod tests {
                 InternalArgs::ElevatedEntry {
                     repair_launch_task: false,
                     force_target: None,
+                    portable: false,
                 },
                 admin(false),
                 true,
@@ -418,6 +527,7 @@ mod tests {
             InternalArgs::ElevatedEntry {
                 repair_launch_task: true,
                 force_target: None,
+                portable: false,
             }
         );
         assert!(parse_internal_args(&["RustYu.exe".to_string(), "--clean".to_string()]).is_err());
@@ -434,7 +544,51 @@ mod tests {
             parse_internal_args(&args).expect("右键入口参数应可解析"),
             InternalArgs::ForceUninstall {
                 path: "C:\\Program Files\\Demo App\\Demo.exe".to_string(),
+                portable: false,
             }
+        );
+    }
+
+    #[test]
+    fn portable_flag_is_preserved_for_uac_relaunch() {
+        let args = vec![
+            "RustYu.exe".to_string(),
+            "--portable".to_string(),
+            "--elevated-entry".to_string(),
+            "--force-uninstall".to_string(),
+            "C:\\Demo.exe".to_string(),
+        ];
+        assert_eq!(
+            parse_internal_args(&args).expect("便携管理员入口应可解析"),
+            InternalArgs::ElevatedEntry {
+                repair_launch_task: false,
+                force_target: Some("C:\\Demo.exe".to_string()),
+                portable: true,
+            }
+        );
+    }
+
+    #[test]
+    fn portable_mode_skips_install_path_and_task_requirements() {
+        assert_eq!(
+            decide_bootstrap(
+                false,
+                InternalArgs::Normal { portable: true },
+                admin(true),
+                false,
+                TaskPresence::Missing,
+            ),
+            BootstrapAction::StartElevatedGui
+        );
+        assert_eq!(
+            decide_bootstrap(
+                false,
+                InternalArgs::Normal { portable: true },
+                admin(false),
+                false,
+                TaskPresence::Valid,
+            ),
+            BootstrapAction::RelaunchWithUacAndExit
         );
     }
 

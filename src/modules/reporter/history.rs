@@ -9,6 +9,7 @@ use uuid::Uuid;
 
 const REPORTS_DIR_NAME: &str = "reports";
 const EXPORTS_DIR_NAME: &str = "exports";
+const STORAGE_DIR_ENV: &str = "RUST_YU_STORAGE_DIR";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -45,15 +46,22 @@ pub struct ReportExport {
 }
 
 pub fn reports_dir() -> Result<PathBuf, UninstallerError> {
-    dirs::data_local_dir()
-        .map(|path| path.join("rust-yu").join(REPORTS_DIR_NAME))
-        .ok_or_else(|| UninstallerError::Other("无法确定本机报告目录".to_string()))
+    Ok(application_storage_root()?.join(REPORTS_DIR_NAME))
 }
 
 pub fn exports_dir() -> Result<PathBuf, UninstallerError> {
+    Ok(application_storage_root()?.join(EXPORTS_DIR_NAME))
+}
+
+fn application_storage_root() -> Result<PathBuf, UninstallerError> {
+    if let Ok(override_dir) = std::env::var(STORAGE_DIR_ENV) {
+        if !override_dir.trim().is_empty() {
+            return Ok(PathBuf::from(override_dir));
+        }
+    }
     dirs::data_local_dir()
-        .map(|path| path.join("rust-yu").join(EXPORTS_DIR_NAME))
-        .ok_or_else(|| UninstallerError::Other("无法确定本机导出目录".to_string()))
+        .map(|path| path.join("rust-yu"))
+        .ok_or_else(|| UninstallerError::Other("无法确定本机应用数据目录".to_string()))
 }
 
 pub fn save_job_report(job: &UninstallJob) -> Result<UninstallerReport, UninstallerError> {

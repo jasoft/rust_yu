@@ -30,7 +30,7 @@ pub struct ContextMenuStatus {
 pub fn get_force_uninstall_startup_target() -> Result<Option<String>, CommandError> {
     let args = std::env::args().collect::<Vec<_>>();
     let target = match crate::bootstrap::parse_internal_args(&args) {
-        Ok(crate::bootstrap::InternalArgs::ForceUninstall { path }) => Some(path),
+        Ok(crate::bootstrap::InternalArgs::ForceUninstall { path, .. }) => Some(path),
         Ok(crate::bootstrap::InternalArgs::ElevatedEntry { force_target, .. }) => force_target,
         _ => None,
     };
