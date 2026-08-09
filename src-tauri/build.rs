@@ -1,4 +1,6 @@
 fn main() {
+    println!("cargo:rerun-if-env-changed=RUST_YU_SKIP_ADMIN_MANIFEST");
+
     // AppManifest 是 Tauri v2 的应用 command ACL 来源；新增 handler 必须同步加入此列表。
     // capability/default.json 只引用 allow 权限，不开放任意动态命令。
     const COMMANDS: &[&str] = &[
@@ -48,8 +50,17 @@ fn main() {
     ];
     // GUI 本身必须在管理员令牌下运行；Windows 会在进入 Rust main 之前根据
     // requestedExecutionLevel=requireAdministrator 请求 UAC，拒绝时不会创建 WebView。
-    let windows_attributes = tauri_build::WindowsAttributes::new()
-        .app_manifest(include_str!("windows-app-manifest.xml"));
+    // 仅为普通用户能运行 Tauri 测试 harness，debug 构建允许显式跳过这个 manifest；
+    // release 构建拒绝该开关，避免发布产物意外失去管理员边界。
+    let skip_admin_manifest = std::env::var_os("RUST_YU_SKIP_ADMIN_MANIFEST").is_some();
+    if skip_admin_manifest && std::env::var("PROFILE").as_deref() == Ok("release") {
+        panic!("RUST_YU_SKIP_ADMIN_MANIFEST 不能用于 release 构建");
+    }
+    let windows_attributes = if skip_admin_manifest {
+        tauri_build::WindowsAttributes::new()
+    } else {
+        tauri_build::WindowsAttributes::new().app_manifest(include_str!("windows-app-manifest.xml"))
+    };
     let attributes = tauri_build::Attributes::new()
         .windows_attributes(windows_attributes)
         .app_manifest(tauri_build::AppManifest::new().commands(COMMANDS));

@@ -77,6 +77,22 @@ Set-Location ..
 .\tools\test\Verify-InnoLegacyFixture.ps1 -RunLifecycle
 ```
 
+## 后续 ARM64 构建复核（2026-08-10）
+
+上面的段落保留 2026-08-09 当时的历史结果。随后仓库加入 `vendor\tauri-winres`
+补丁，在 ARM64 GNU 目标使用 `llvm-rc` 和 `llvm-cvtres /MACHINE:ARM64` 生成
+正确的 COFF 资源，并从 `src-tauri` 成功执行：
+
+```powershell
+npx tauri build --bundles nsis
+```
+
+已验证：
+
+- `target\release\rust-yu-tauri.exe` 为 `COFF-ARM64`，资源表非空，并包含图标、版本信息和 manifest。
+- `target\release\bundle\nsis\Rust Yu_0.1.3_arm64-setup.exe` 已成功生成。
+- 普通 `cargo test -p rust-yu-tauri --lib` 若继承正式管理员 manifest，会在启动测试 harness 时返回 Windows 740；测试支持显式使用 `RUST_YU_SKIP_ADMIN_MANIFEST=1`，并已验证 `22 passed`。该开关仅允许 debug 构建，release 构建会拒绝它，正式应用仍保持 `requireAdministrator`。
+
 ## 安全门禁
 
 - 正式 bundle 仅允许 NSIS `perMachine`，安装目录必须在 Program Files。
