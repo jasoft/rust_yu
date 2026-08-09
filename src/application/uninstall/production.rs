@@ -103,7 +103,9 @@ impl UninstallPort for ProductionUninstallPort {
                     hash.wrapping_mul(31).wrapping_add(u64::from(byte))
                 }),
                 success: result.success,
+                error: result.error,
                 bytes_freed: result.bytes_freed,
+                backup_id: result.backup_id,
             })
             .collect())
     }

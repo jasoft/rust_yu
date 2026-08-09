@@ -20,11 +20,13 @@ pub struct RemovalVerification {
     pub store_package_present: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CleanedTrace {
     pub trace_id_hash: u64,
     pub success: bool,
+    pub error: Option<String>,
     pub bytes_freed: u64,
+    pub backup_id: Option<String>,
 }
 
 #[async_trait]

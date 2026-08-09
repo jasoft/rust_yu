@@ -249,6 +249,12 @@
           "markdownDescription": "Enables the export_install_monitor command without any pre-configured scope."
         },
         {
+          "description": "Enables the export_report command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-export-report",
+          "markdownDescription": "Enables the export_report command without any pre-configured scope."
+        },
+        {
           "description": "Enables the finish_uninstall command without any pre-configured scope.",
           "type": "string",
           "const": "allow-finish-uninstall",
@@ -283,6 +289,12 @@
           "type": "string",
           "const": "allow-get-install-monitor-traces",
           "markdownDescription": "Enables the get_install_monitor_traces command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_report command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-report",
+          "markdownDescription": "Enables the get_report command without any pre-configured scope."
         },
         {
           "description": "Enables the get_reports command without any pre-configured scope.",
@@ -501,6 +513,12 @@
           "markdownDescription": "Denies the export_install_monitor command without any pre-configured scope."
         },
         {
+          "description": "Denies the export_report command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-export-report",
+          "markdownDescription": "Denies the export_report command without any pre-configured scope."
+        },
+        {
           "description": "Denies the finish_uninstall command without any pre-configured scope.",
           "type": "string",
           "const": "deny-finish-uninstall",
@@ -535,6 +553,12 @@
           "type": "string",
           "const": "deny-get-install-monitor-traces",
           "markdownDescription": "Denies the get_install_monitor_traces command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_report command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-report",
+          "markdownDescription": "Denies the get_report command without any pre-configured scope."
         },
         {
           "description": "Denies the get_reports command without any pre-configured scope.",

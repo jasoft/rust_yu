@@ -49,6 +49,7 @@ import { StartupManager } from "./components/StartupManager";
 import { CleanerPage } from "./components/CleanerPage";
 import { BackupCenter } from "./components/BackupCenter";
 import { InstallMonitorManager } from "./components/InstallMonitorManager";
+import { ReportCenter } from "./components/ReportCenter";
 import { BrowserPluginsPage } from "./components/BrowserPluginsPage";
 import { getUninstallFailureMessage } from "./components/uninstall/uninstallFeedback";
 import {
@@ -66,7 +67,7 @@ import type {
 } from "./types";
 
 type Stage = "apps" | "confirm" | "progress" | "scan" | "review" | "complete";
-type NavKey = "apps" | "startup" | "cleaner" | "backups" | "traces" | "monitor" | "plugins" | "tools" | "settings" | "about";
+type NavKey = "apps" | "startup" | "cleaner" | "backups" | "traces" | "monitor" | "reports" | "plugins" | "tools" | "settings" | "about";
 
 interface UiProgram {
   id: string;
@@ -513,6 +514,8 @@ export default function App() {
             <BackupCenter />
           ) : activeNav === "monitor" ? (
             <InstallMonitorManager />
+          ) : activeNav === "reports" ? (
+            <ReportCenter />
           ) : activeNav === "plugins" ? (
             <BrowserPluginsPage />
           ) : activeNav !== "apps" ? (
@@ -671,6 +674,7 @@ const navItems: { id: NavKey; label: string; icon: typeof Package }[] = [
   { id: "backups", label: "备份与恢复", icon: ShieldCheck },
   { id: "traces", label: "软件残留", icon: Archive },
   { id: "monitor", label: "安装监控", icon: SquareActivity },
+  { id: "reports", label: "卸载记录", icon: FileText },
   { id: "plugins", label: "浏览器插件", icon: AppWindow },
   { id: "tools", label: "工具箱", icon: Wrench },
 ];
@@ -1139,6 +1143,6 @@ function ProgramInfoModal({ program, onClose }: { program: UiProgram; onClose: (
 }
 
 function PlaceholderPage({ active }: { active: NavKey }) {
-  const names: Record<NavKey, string> = { apps: "已安装应用", startup: "自启动管理", cleaner: "系统清理", backups: "备份与恢复", traces: "软件残留", monitor: "安装监控", plugins: "浏览器插件", tools: "工具箱", settings: "设置", about: "关于" };
+  const names: Record<NavKey, string> = { apps: "已安装应用", startup: "自启动管理", cleaner: "系统清理", backups: "备份与恢复", traces: "软件残留", monitor: "安装监控", reports: "卸载记录", plugins: "浏览器插件", tools: "工具箱", settings: "设置", about: "关于" };
   return <div className="placeholder-page"><span><Sparkles size={30} /></span><h1>{names[active]}</h1><p>该模块将在后续版本中提供。</p></div>;
 }

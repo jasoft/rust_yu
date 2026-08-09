@@ -218,6 +218,7 @@ fn generate_results_table(results: &[CleanResult]) -> String {
                     <th>类型</th>
                     <th>路径</th>
                     <th>释放空间</th>
+                    <th>错误</th>
                 </tr>
             </thead>
             <tbody>
@@ -236,6 +237,11 @@ fn generate_results_table(results: &[CleanResult]) -> String {
         } else {
             "-".to_string()
         };
+        let error_html = result
+            .error
+            .as_deref()
+            .map(escape_html)
+            .unwrap_or_else(|| "-".to_string());
 
         // 尝试从路径推断类型
         let type_html = if result.path.contains("HKLM")
@@ -258,12 +264,14 @@ fn generate_results_table(results: &[CleanResult]) -> String {
                     <td>{}</td>
                     <td class="path">{}</td>
                     <td>{}</td>
+                    <td>{}</td>
                 </tr>
         "#,
             status_html,
             type_html,
             escape_html(&result.path),
             size_html,
+            error_html,
         ));
     }
 

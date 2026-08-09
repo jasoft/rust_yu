@@ -39,6 +39,8 @@
     "allow-finish-uninstall",
     "allow-get-uninstall-job",
     "allow-get-reports",
+    "allow-get-report",
+    "allow-export-report",
     "allow-delete-report",
     "allow-list-startup-items",
     "allow-get-startup-item",

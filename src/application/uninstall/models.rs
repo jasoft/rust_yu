@@ -1,4 +1,5 @@
 use super::fingerprint::UninstallTargetFingerprint;
+use crate::modules::cleaner::models::CleanResult;
 use crate::modules::lister::models::InstalledProgram;
 use crate::modules::scanner::models::Trace;
 use serde::{Deserialize, Serialize};
@@ -131,6 +132,8 @@ pub struct UninstallJob {
     pub next_sequence: u64,
     pub events: Vec<UninstallEvent>,
     pub residue_review: ResidueReview,
+    #[serde(default)]
+    pub cleanup_results: Vec<CleanResult>,
     pub outcome: Option<UninstallOutcome>,
 }
 
@@ -150,6 +153,7 @@ impl UninstallJob {
             next_sequence: 1,
             events: Vec::new(),
             residue_review: ResidueReview::default(),
+            cleanup_results: Vec::new(),
             outcome: None,
         }
     }

@@ -1,3 +1,4 @@
+use crate::application::uninstall::UninstallJob;
 use crate::modules::cleaner::models::CleanResult;
 use crate::modules::scanner::models::Trace;
 use chrono::{DateTime, Utc};
@@ -14,6 +15,9 @@ pub struct UninstallerReport {
     pub total_size_freed: u64,
     pub success: bool,
     pub warnings: Vec<String>,
+    /// 保留完整卸载任务快照，历史报告不依赖当前进程内的 coordinator。
+    #[serde(default)]
+    pub job: Option<UninstallJob>,
 }
 
 #[allow(dead_code)]
@@ -28,6 +32,34 @@ impl UninstallerReport {
             total_size_freed: 0,
             success: true,
             warnings: Vec::new(),
+            job: None,
+        }
+    }
+
+    pub fn from_job(job: &UninstallJob) -> Self {
+        let outcome = job.outcome.as_ref();
+        let warnings = job
+            .events
+            .iter()
+            .filter_map(|event| match &event.payload {
+                crate::application::uninstall::UninstallEventPayload::Finished {
+                    success: false,
+                    message,
+                } => Some(message.clone()),
+                _ => None,
+            })
+            .collect();
+        Self {
+            id: job.snapshot.job_id.0.clone(),
+            program_name: job.snapshot.program.name.clone(),
+            generated_at: Utc::now(),
+            traces_found: job.snapshot.traces.clone(),
+            traces_removed: job.cleanup_results.clone(),
+            total_size_freed: outcome.map_or(0, |value| value.bytes_freed),
+            success: outcome.is_some_and(|value| value.success)
+                && job.phase == crate::application::uninstall::UninstallPhase::Completed,
+            warnings,
+            job: Some(job.clone()),
         }
     }
 

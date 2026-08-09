@@ -357,6 +357,39 @@ export interface UninstallJobResponse {
   job: UninstallJob;
 }
 
+export type ReportExportFormat = "json" | "html" | "text";
+
+export interface ReportInfo {
+  id: string;
+  name: string;
+  created_at: string;
+  path: string;
+  success: boolean;
+  traces_count: number;
+  cleaned_count: number;
+  failed_count: number;
+  warning_count: number;
+  formats: string[];
+}
+
+export interface ReportExport {
+  path: string;
+  format: ReportExportFormat;
+  report_id: string;
+}
+
+export interface UninstallerReport {
+  id: string;
+  program_name: string;
+  generated_at: string;
+  traces_found: Trace[];
+  traces_removed: CleanResult[];
+  total_size_freed: number;
+  success: boolean;
+  warnings: string[];
+  job: UninstallJob | null;
+}
+
 export type BatchUninstallItemStatus =
   | "queued"
   | "planning"

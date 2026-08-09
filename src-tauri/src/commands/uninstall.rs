@@ -85,7 +85,7 @@ pub async fn execute_uninstall(
     coordinator
         .commit_operation(job.clone())
         .map_err(CommandError::from)?;
-    result.map_err(CommandError::from)?;
+    finalize_job_result(result, &job)?;
     Ok(UninstallJobResponse { job })
 }
 
@@ -107,7 +107,7 @@ pub async fn clean_uninstall_residues(
     coordinator
         .commit_operation(job.clone())
         .map_err(CommandError::from)?;
-    result.map_err(CommandError::from)?;
+    finalize_job_result(result, &job)?;
     Ok(UninstallJobResponse { job })
 }
 
@@ -137,7 +137,7 @@ pub async fn finish_uninstall(
     coordinator
         .commit_operation(job.clone())
         .map_err(CommandError::from)?;
-    result.map_err(CommandError::from)?;
+    finalize_job_result(result, &job)?;
     Ok(UninstallJobResponse { job })
 }
 
@@ -158,4 +158,27 @@ fn emit_job_events(app: &AppHandle, job: &UninstallJob) {
 
 fn emit_job_event(app: &AppHandle, event: &UninstallEvent) {
     let _ = app.emit(UNINSTALL_JOB_PROGRESS_EVENT, event);
+}
+
+fn finalize_job_result<T>(
+    result: Result<T, rust_yu_lib::application::uninstall::UninstallError>,
+    job: &UninstallJob,
+) -> Result<(), CommandError> {
+    let operation_result = result.map_err(CommandError::from);
+    let report_result = if job.phase.is_terminal() {
+        rust_yu_lib::reporter::history::save_job_report(job)
+            .map(|_| ())
+            .map_err(|error| CommandError::new(format!("卸载报告保存失败: {error}")))
+    } else {
+        Ok(())
+    };
+    match (operation_result, report_result) {
+        (Ok(_), Ok(())) => Ok(()),
+        (Ok(_), Err(report_error)) => Err(report_error),
+        (Err(operation_error), Ok(())) => Err(operation_error),
+        (Err(operation_error), Err(report_error)) => Err(CommandError::new(format!(
+            "{}；{}",
+            operation_error.message, report_error.message
+        ))),
+    }
 }

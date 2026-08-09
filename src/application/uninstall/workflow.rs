@@ -256,6 +256,20 @@ where
         Ok(results) => results,
         Err(error) => return fail_job_with_progress(job, error, &mut on_event),
     };
+    job.cleanup_results = selected
+        .iter()
+        .zip(cleaned.iter())
+        .map(
+            |(trace, result)| crate::modules::cleaner::models::CleanResult {
+                trace_id: trace.id.clone(),
+                path: trace.path.clone(),
+                success: result.success,
+                error: result.error.clone(),
+                bytes_freed: result.bytes_freed,
+                backup_id: result.backup_id.clone(),
+            },
+        )
+        .collect();
     if let Err(error) = port.invalidate_cache(&job.snapshot.program.id).await {
         return fail_job_with_progress(job, error, &mut on_event);
     }
@@ -475,7 +489,9 @@ mod tests {
             Ok(vec![CleanedTrace {
                 trace_id_hash: 1,
                 success: true,
+                error: None,
                 bytes_freed: 10,
+                backup_id: None,
             }])
         }
 
@@ -572,5 +588,35 @@ mod tests {
             .lock()
             .expect("test mutex should not be poisoned")
             .contains(&"clean"));
+    }
+
+    #[tokio::test]
+    async fn cleanup_preserves_result_details_for_historical_reports() {
+        let port = FakePort::new();
+        let mut job = planned_job(&port).await;
+        execute_uninstall(&port, &mut job, 1)
+            .await
+            .expect("fake execute should succeed");
+        let trace_id = job.snapshot.traces[0].id.clone();
+
+        clean_uninstall_residues(
+            &port,
+            &mut job,
+            CleanupSelection {
+                trace_ids: vec![trace_id],
+                confirm: true,
+            },
+        )
+        .await
+        .expect("fake cleanup should succeed");
+
+        assert_eq!(job.cleanup_results.len(), 1);
+        assert_eq!(job.cleanup_results[0].path, r"C:\Demo.leftover");
+        assert!(job.cleanup_results[0].success);
+        assert_eq!(job.cleanup_results[0].bytes_freed, 10);
+        assert_eq!(
+            job.outcome.as_ref().map(|outcome| outcome.bytes_freed),
+            Some(10)
+        );
     }
 }

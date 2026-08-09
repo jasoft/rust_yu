@@ -33,6 +33,8 @@ fn main() {
         "finish_uninstall",
         "get_uninstall_job",
         "get_reports",
+        "get_report",
+        "export_report",
         "delete_report",
         "list_startup_items",
         "get_startup_item",

@@ -1,77 +1,92 @@
+use rust_yu_lib::reporter::history::{self, ReportExport, ReportExportFormat};
 use rust_yu_lib::reporter::models::UninstallerReport;
-use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use serde::Serialize;
 
-use super::{require_administrator, CommandError};
+use super::CommandError;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ReportInfo {
     pub id: String,
     pub name: String,
     pub created_at: String,
     pub path: String,
-}
-
-fn get_reports_dir() -> PathBuf {
-    dirs::data_local_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("rust-yu")
-        .join("reports")
+    pub success: bool,
+    pub traces_count: usize,
+    pub cleaned_count: usize,
+    pub failed_count: usize,
+    pub warning_count: usize,
+    pub formats: Vec<String>,
 }
 
 #[tauri::command]
 pub async fn get_reports() -> Result<Vec<ReportInfo>, CommandError> {
-    let reports_dir = get_reports_dir();
+    tauri::async_runtime::spawn_blocking(|| {
+        history::list_reports().map(|reports| reports.into_iter().map(report_info).collect())
+    })
+    .await
+    .map_err(|error| CommandError::new(format!("读取报告历史任务失败: {error}")))?
+    .map_err(CommandError::from)
+}
 
-    if !reports_dir.exists() {
-        return Ok(vec![]);
-    }
+#[tauri::command]
+pub async fn get_report(report_id: String) -> Result<UninstallerReport, CommandError> {
+    tauri::async_runtime::spawn_blocking(move || history::load_report(&report_id))
+        .await
+        .map_err(|error| CommandError::new(format!("读取报告详情任务失败: {error}")))?
+        .map_err(CommandError::from)
+}
 
-    let mut reports = Vec::new();
-
-    let entries = std::fs::read_dir(&reports_dir)
-        .map_err(|error| CommandError::new(format!("读取报告目录失败: {}", error)))?;
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().map_or(false, |e| e == "json") {
-            if let Ok(content) = std::fs::read_to_string(&path) {
-                if let Ok(report) = serde_json::from_str::<UninstallerReport>(&content) {
-                    reports.push(ReportInfo {
-                        id: report.id,
-                        name: report.program_name,
-                        created_at: report.generated_at.format("%Y-%m-%d %H:%M:%S").to_string(),
-                        path: path.to_string_lossy().to_string(),
-                    });
-                }
-            }
-        }
-    }
-
-    // 按创建时间排序，最新的在前面
-    reports.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-
-    Ok(reports)
+#[tauri::command]
+pub async fn export_report(
+    report_id: String,
+    format: String,
+) -> Result<ReportExport, CommandError> {
+    let format = ReportExportFormat::parse(&format).ok_or_else(|| {
+        CommandError::with_code("invalid_format", "仅支持 json、html 或 text 导出")
+    })?;
+    tauri::async_runtime::spawn_blocking(move || history::export_report(&report_id, format))
+        .await
+        .map_err(|error| CommandError::new(format!("导出卸载报告任务失败: {error}")))?
+        .map_err(CommandError::from)
 }
 
 #[tauri::command]
 pub async fn delete_report(report_id: String) -> Result<bool, CommandError> {
-    require_administrator()?;
-    let reports_dir = get_reports_dir();
+    tauri::async_runtime::spawn_blocking(move || history::delete_report(&report_id))
+        .await
+        .map_err(|error| CommandError::new(format!("删除报告任务失败: {error}")))?
+        .map_err(CommandError::from)
+}
 
-    // 尝试删除 JSON 文件
-    let json_path = reports_dir.join(format!("{}.json", report_id));
-    if json_path.exists() {
-        std::fs::remove_file(&json_path)
-            .map_err(|error| CommandError::new(format!("删除报告文件失败: {}", error)))?;
+fn report_info(report: UninstallerReport) -> ReportInfo {
+    let id = report.id.clone();
+    let formats = ["json", "html", "txt"]
+        .into_iter()
+        .filter(|extension| {
+            history::report_file_path(&id, extension).is_ok_and(|path| path.is_file())
+        })
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    ReportInfo {
+        id: report.id,
+        name: report.program_name,
+        created_at: report.generated_at.to_rfc3339(),
+        path: history::report_file_path(&id, "json")
+            .map(|path| path.to_string_lossy().to_string())
+            .unwrap_or_default(),
+        success: report.success,
+        traces_count: report.traces_found.len(),
+        cleaned_count: report
+            .traces_removed
+            .iter()
+            .filter(|item| item.success)
+            .count(),
+        failed_count: report
+            .traces_removed
+            .iter()
+            .filter(|item| !item.success)
+            .count(),
+        warning_count: report.warnings.len(),
+        formats,
     }
-
-    // 同时删除 HTML 文件
-    let html_path = reports_dir.join(format!("{}.html", report_id));
-    if html_path.exists() {
-        std::fs::remove_file(&html_path)
-            .map_err(|error| CommandError::new(format!("删除HTML文件失败: {}", error)))?;
-    }
-
-    Ok(true)
 }
