@@ -76,11 +76,16 @@ debug/worktree 启动永远直接进入 GUI，destructive command 仍由后端�
 schtasks.exe /Query /TN "\Rust Yu\ElevatedGui"
 ```
 
-普通开发启动也会继承应用清单并请求管理员权限：
+推荐使用开发脚本启动。`tools/dev/Run-Gui.ps1` 会在初始化工作树前检查当前
+PowerShell 的管理员令牌；普通终端执行它时，脚本会自动以 `RunAs` 重启自身，
+然后再运行 `npx tauri dev`：
 
 ```powershell
-cargo tauri dev
+.\tools\dev\Run-Gui.ps1
 ```
+
+如果直接运行 `cargo tauri dev`，仍需先打开管理员 PowerShell；Cargo 和 Tauri CLI
+不会替调用它们的普通终端自动提升。
 
 需要执行真实系统清理时，应在管理员 PowerShell 中运行开发版，并确认 `current_exe` 不会通过路径校验进入正式任务注册流程。
 
