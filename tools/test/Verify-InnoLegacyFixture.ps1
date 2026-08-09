@@ -32,7 +32,7 @@ if ($missingPaths.Count -gt 0) {
 }
 
 if (-not (Test-Path $outputPath)) {
-    throw "Missing installer output: $outputPath"
+    throw "Missing prebuilt installer fixture: $outputPath. Run Build-InnoLegacyFixture.ps1 only when the fixture must be refreshed."
 }
 
 if ($RunLifecycle) {

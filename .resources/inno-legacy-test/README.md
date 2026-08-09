@@ -1,6 +1,6 @@
 # Inno Setup Legacy Test Fixture
 
-这个目录提供一个可复编译的 legacy 非 MSI 测试安装器，用于验证：
+这个目录提供一个可复编译、并随仓库保存已生成产物的 legacy 非 MSI 测试安装器，用于验证：
 
 - 标准 Win32 卸载项枚举
 - `QuietUninstallString` 优先使用
@@ -12,7 +12,7 @@
 
 - `LegacyUninstallTest.iss`: Inno Setup 主脚本
 - `payload/`: 安装时复制的样例文件
-- `output/`: `ISCC.exe` 编译后的安装包输出目录
+- `output/`: 已生成并随仓库保存的安装包输出目录
 - `tools/SpawnUninstallHelper.rs`: 原生卸载包装器源码
 - `Build-InnoLegacyFixture.ps1`: 统一编译 helper 和安装包
 
@@ -25,7 +25,18 @@
 
 这个链式模型由 `tests/windows_uninstall_lifecycle.rs` 验证：父进程已退出时，application workflow 仍依赖 Job Object 等待整条卸载进程链结束
 
-## 编译
+## 使用现成安装包
+
+正常验证直接使用以下已生成文件，不需要每次重新编译：
+
+```text
+.resources\inno-legacy-test\output\RustYuLegacyTestSetup.exe
+```
+
+结构校验和生命周期测试都会读取这个文件。只有修改了 `LegacyUninstallTest.iss`
+或卸载 helper，需要刷新测试夹具时，才显式运行下面的构建脚本。
+
+## 重新编译（仅在需要刷新夹具时）
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File '.\.resources\inno-legacy-test\Build-InnoLegacyFixture.ps1'
