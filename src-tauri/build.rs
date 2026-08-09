@@ -19,6 +19,7 @@ fn main() {
         "capture_hunter_target",
         "scan_browser_data",
         "clean_browser_data",
+        "get_program_health",
         "list_programs",
         "warmup_program_metadata",
         "search_programs",

@@ -23,6 +23,7 @@
     "allow-capture-hunter-target",
     "allow-scan-browser-data",
     "allow-clean-browser-data",
+    "allow-get-program-health",
     "allow-list-programs",
     "allow-warmup-program-metadata",
     "allow-search-programs",

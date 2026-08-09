@@ -46,6 +46,48 @@ export interface ProgramListResponse {
   cache: ProgramListCacheState;
 }
 
+export type HealthStatus = "healthy" | "review";
+export type HealthSeverity = "info" | "warning" | "critical";
+export type StartupImpact = "none" | "low" | "medium" | "high" | "unknown";
+
+export interface HealthFinding {
+  code: string;
+  title: string;
+  detail: string;
+  severity: HealthSeverity;
+}
+
+export interface UpdateHint {
+  url: string;
+  source: string;
+  message: string;
+}
+
+export interface ProgramHealth {
+  program_id: string;
+  program_name: string;
+  publisher: string | null;
+  version: string | null;
+  score: number;
+  status: HealthStatus;
+  findings: HealthFinding[];
+  duplicate_count: number;
+  last_used: string | null;
+  times_used: number | null;
+  startup_entry_count: number;
+  startup_impact: StartupImpact;
+  update_hint: UpdateHint | null;
+}
+
+export interface HealthReport {
+  evaluated_at: string;
+  programs: ProgramHealth[];
+  total_programs: number;
+  review_count: number;
+  healthy_count: number;
+  warnings: string[];
+}
+
 export interface Trace {
   id: string;
   program_name: string;
