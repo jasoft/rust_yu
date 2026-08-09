@@ -8,7 +8,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $bootstrapScript = Join-Path $repoRoot "tools\dev\Initialize-Worktree.ps1"
 
 & $bootstrapScript -SkipFrontend -SkipCheck
-if ($LASTEXITCODE -ne 0) {
+if (-not $?) {
     throw "Worktree initialization failed"
 }
 
