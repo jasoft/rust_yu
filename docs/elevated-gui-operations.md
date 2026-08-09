@@ -4,7 +4,12 @@
 
 ## 为什么使用 Task Scheduler
 
-Rust Yu 的 destructive 操作需要管理员权限，但每次从快捷方式启动都弹 UAC 会破坏使用体验。正式安装器把 GUI 放在管理员 ACL 保护的 `Program Files` 下。用户第一次启动时，普通实例只负责发现任务缺失并请求一次 UAC；提升后的实例注册固定任务。以后普通实例只运行这个固定任务，不传入业务参数，随后退出。任务动作永远指向已验证的安装目录 EXE 和固定参数 `--elevated-entry`，不能被 WebView 或前端改写。
+Rust Yu 的 GUI 本身必须在管理员令牌下运行。Tauri Windows 应用清单声明了
+`requestedExecutionLevel=requireAdministrator`，因此每次从快捷方式或 EXE 启动时，Windows
+都会先请求 UAC；用户拒绝后不会创建 WebView，也不会执行任何业务操作。提升后的实例仍会
+验证受保护安装路径并注册/修复固定任务，任务动作永远指向已验证的安装目录 EXE 和固定参数
+`--elevated-entry`，不能被 WebView 或前端改写。Task Scheduler 用于受保护的启动维护和生命周期
+清理，不用于绕过每次启动的 UAC 请求。
 
 这不是公开命令行接口。未知参数会被拒绝，维护参数只供安装器卸载 hook 使用。
 
@@ -28,10 +33,9 @@ Rust Yu 的 destructive 操作需要管理员权限，但每次从快捷方式�
 ## 正常启动流程
 
 1. 从 Program Files 的快捷方式启动 GUI。
-2. 普通进程检查管理员令牌、安装路径和任务 XML。
-3. 任务缺失或被篡改时，显示一次 UAC；提升实例验证 EXE 后创建/修复任务。
-4. 任务启动提升 GUI。管理员 GUI 建立按用户隔离的单实例 mutex 后创建 WebView。
-5. 已有有效任务时，后续启动只请求任务运行，不再次请求 UAC。
+2. Windows 根据应用清单显示 UAC；用户接受后才进入 Rust 启动代码。
+3. 管理员实例检查令牌、安装路径和任务 XML，并创建/修复固定任务。
+4. 管理员 GUI 建立按用户隔离的单实例 mutex 后创建 WebView。
 
 标准用户没有管理员令牌，产品不会静默切换账户，也不会把卸载操作交给任意外部命令；会显示 `unsupported_standard_user`。
 
@@ -72,7 +76,7 @@ debug/worktree 启动永远直接进入 GUI，destructive command 仍由后端�
 schtasks.exe /Query /TN "\Rust Yu\ElevatedGui"
 ```
 
-普通开发启动：
+普通开发启动也会继承应用清单并请求管理员权限：
 
 ```powershell
 cargo tauri dev

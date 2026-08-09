@@ -28,7 +28,12 @@ fn main() {
         "plan_add_startup_item",
         "add_startup_item",
     ];
+    // GUI 本身必须在管理员令牌下运行；Windows 会在进入 Rust main 之前根据
+    // requestedExecutionLevel=requireAdministrator 请求 UAC，拒绝时不会创建 WebView。
+    let windows_attributes = tauri_build::WindowsAttributes::new()
+        .app_manifest(include_str!("windows-app-manifest.xml"));
     let attributes = tauri_build::Attributes::new()
+        .windows_attributes(windows_attributes)
         .app_manifest(tauri_build::AppManifest::new().commands(COMMANDS));
     if let Err(error) = tauri_build::try_build(attributes) {
         panic!("Tauri build configuration failed: {error}");
