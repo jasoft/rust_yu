@@ -4,6 +4,7 @@ import { useProgramsStore } from "../stores/programs";
 import { useTauriEvent } from "../hooks/useTauriEvent";
 import { ResidueReview } from "./uninstall/ResidueReview";
 import { isModalLocked } from "./uninstall/uninstallState";
+import { formatUninstallEventLog } from "./uninstall/uninstallReport";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader } from "./ui/card";
 import type { UninstallJobEvent } from "../types";
@@ -29,7 +30,7 @@ export function UninstallDialog() {
 
   useTauriEvent<UninstallJobEvent>("uninstall-job-progress", (event) => {
     if (job && event.job_id !== job.snapshot.job_id) return;
-    setLogs((previous) => [...previous, `[${event.sequence}] ${event.phase}`]);
+    setLogs((previous) => [...previous, formatUninstallEventLog(event)]);
     setTimeout(() => logEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
   });
 

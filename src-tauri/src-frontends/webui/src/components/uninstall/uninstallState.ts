@@ -4,6 +4,7 @@ import type {
   UninstallJobEvent,
   UninstallPhase,
 } from "../../types";
+import { formatUninstallEventLog } from "./uninstallReport";
 
 export interface UninstallUiState {
   job: UninstallJob | null;
@@ -70,19 +71,5 @@ export function hydrateUninstallJob(
 }
 
 function formatEventLog(event: UninstallJobEvent): string {
-  const prefix = `[${event.sequence}] ${event.phase}`;
-  switch (event.payload.kind) {
-    case "uninstaller_started":
-      return `${prefix} · ${event.payload.command_summary}`;
-    case "uninstaller_completed":
-      return `${prefix} · 卸载器结束，退出码 ${event.payload.exit_code ?? "unknown"}`;
-    case "residues_scanned":
-      return `${prefix} · 发现 ${event.payload.count} 项残留`;
-    case "cleanup_completed":
-      return `${prefix} · 清理成功 ${event.payload.success_count}，失败 ${event.payload.failed_count}`;
-    case "finished":
-      return `${prefix} · ${event.payload.message}`;
-    default:
-      return prefix;
-  }
+  return formatUninstallEventLog(event);
 }

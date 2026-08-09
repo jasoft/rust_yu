@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AppWindow,
   Archive,
@@ -13,6 +13,7 @@ import {
   FolderOpen,
   Grid2X2,
   Info,
+  Loader2,
   Maximize2,
   Minus,
   Package,
@@ -43,11 +44,17 @@ import { StartupManager } from "./components/StartupManager";
 import { CleanerPage } from "./components/CleanerPage";
 import { BrowserPluginsPage } from "./components/BrowserPluginsPage";
 import { getUninstallFailureMessage } from "./components/uninstall/uninstallFeedback";
+import {
+  formatTraceType,
+  formatUninstallEventLog,
+  summarizeTraces,
+} from "./components/uninstall/uninstallReport";
 import type {
   CleanResult,
   InstalledProgram,
   Trace,
   UninstallJobEvent,
+  UninstallJob,
 } from "./types";
 
 type Stage = "apps" | "confirm" | "progress" | "scan" | "review" | "complete";
@@ -123,7 +130,7 @@ function toUiProgram(program: InstalledProgram): UiProgram {
 }
 
 function formatBytes(bytes: number | null | undefined) {
-  if (!bytes) return "—";
+  if (bytes === null || bytes === undefined) return "—";
   const units = ["B", "KB", "MB", "GB"];
   let value = bytes;
   let unit = 0;
@@ -132,6 +139,10 @@ function formatBytes(bytes: number | null | undefined) {
     unit += 1;
   }
   return `${value.toFixed(value >= 10 || unit === 0 ? 0 : 2)} ${units[unit]}`;
+}
+
+function formatLocalLog(message: string) {
+  return `[${new Date().toLocaleTimeString("zh-CN", { hour12: false })}] ${message}`;
 }
 
 export default function App() {
@@ -151,6 +162,8 @@ export default function App() {
   const [cleanResults, setCleanResults] = useState<CleanResult[]>([]);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [manualScanPending, setManualScanPending] = useState(false);
+  const [scanStatus, setScanStatus] = useState<"idle" | "scanning" | "complete">("idle");
+  const scanStartedAtRef = useRef<number | null>(null);
   const programs = useProgramsStore((state) => state.programs);
   const loading = useProgramsStore((state) => state.loading);
   const metadataLoading = useProgramsStore((state) => state.metadataLoading);
@@ -188,6 +201,7 @@ export default function App() {
     setTraces(scannedTraces);
     setSelectedTraceIds(new Set(scannedTraces.filter((trace) => trace.confidence === "high").map((trace) => trace.id)));
     setManualScanPending(false);
+    setScanStatus("complete");
     setStage("review");
   }, [manualScanPending, scannedTraces, tracesLoading]);
 
@@ -220,25 +234,39 @@ export default function App() {
       listen<UninstallJobEvent>("uninstall-job-progress", (event) => {
         const payload = event.payload;
         if (uninstallJob && payload.job_id !== uninstallJob.snapshot.job_id) return;
+        setLogs((current) => [...current, formatUninstallEventLog(payload)]);
         if (payload.phase === "running_uninstaller") {
           setProgress(38);
-          setLogs((current) => [...current, `[卸载] 已启动受控卸载器`]);
         } else if (payload.phase === "verifying_removal") {
           setProgress(72);
-          setLogs((current) => [...current, `[验证] 正在确认程序是否已移除`]);
         } else if (payload.phase === "scanning_residues") {
           setProgress(86);
-          setLogs((current) => [...current, `[扫描] 正在查找残留`]);
+          setScanStatus("scanning");
+          scanStartedAtRef.current = Date.now();
+          setLogs((current) => [
+            ...current,
+            formatLocalLog("[残留扫描] 检查安装目录、程序文件与快捷方式"),
+            formatLocalLog("[残留扫描] 检查 APPDATA / LOCALAPPDATA 用户数据"),
+            formatLocalLog("[残留扫描] 检查 HKCU / HKLM 注册表与文件关联"),
+            formatLocalLog("[残留扫描] 检查明确关联的服务、任务与系统集成"),
+          ]);
+          setStage("scan");
+        } else if (payload.phase === "awaiting_cleanup_confirmation") {
+          setScanStatus("complete");
+        } else if (payload.phase === "cleaning_residues") {
+          setProgress(94);
+        } else if (payload.phase === "failed" || payload.phase === "cancelled") {
+          setScanStatus("complete");
+          setStage("progress");
         } else if (payload.phase === "completed") {
           setProgress(100);
-          setStage("complete");
         }
       }).then((fn) => {
         unlisten = fn;
       }),
     );
     return () => unlisten?.();
-  }, [scanAfter, uninstallJob]);
+  }, [uninstallJob]);
 
   useEffect(() => {
     if (!isTauriRuntime() && stage === "progress") {
@@ -284,20 +312,29 @@ export default function App() {
 
   const handleManualScan = () => {
     setStage("scan");
+    setTraces([]);
+    setScanStatus("scanning");
+    scanStartedAtRef.current = Date.now();
     if (isTauriRuntime() && selectedProgram.source) {
       setManualScanPending(true);
       void scanTraces(selectedProgram.source.name);
     } else {
       setTraces(demoTraces);
       setSelectedTraceIds(new Set(demoTraces.filter((trace) => trace.confidence === "high").map((trace) => trace.id)));
-      window.setTimeout(() => setStage("review"), 900);
+      window.setTimeout(() => {
+        setScanStatus("complete");
+        setStage("review");
+      }, 900);
     }
   };
 
   const startUninstall = () => {
     setStage("progress");
     setProgress(8);
-    setLogs(["[10:24:31] 正在准备卸载任务…"]);
+    setTraces([]);
+    setLogs([`[${new Date().toLocaleTimeString("zh-CN", { hour12: false })}] [准备] 正在生成卸载快照…`]);
+    setScanStatus("idle");
+    scanStartedAtRef.current = null;
     if (isTauriRuntime() && selectedProgram.source) {
       void (async () => {
         const planned = await planUninstall(selectedProgram.source!.id);
@@ -307,8 +344,18 @@ export default function App() {
         const residueItems = executed.residue_review.traces;
         setTraces(residueItems);
         setSelectedTraceIds(new Set());
-        if (executed.phase === "awaiting_cleanup_confirmation") setStage("review");
-        else if (executed.phase === "completed") setStage("complete");
+        const categoryLabels = { files: "文件系统", user_data: "用户数据", registry: "注册表", system: "系统集成" };
+        const scanSummaryLogs = summarizeTraces(residueItems)
+          .filter((summary) => summary.count > 0)
+          .map((summary) => formatLocalLog(`[扫描结果] ${categoryLabels[summary.category]}：${summary.count} 项，${formatBytes(summary.bytes)}`));
+        setLogs((current) => [...current, ...scanSummaryLogs]);
+        setScanStatus("complete");
+        const scanElapsed = scanStartedAtRef.current === null ? 1_000 : Date.now() - scanStartedAtRef.current;
+        const revealResults = () => {
+          if (executed.phase === "awaiting_cleanup_confirmation") setStage("review");
+          else if (executed.phase === "completed") setStage("complete");
+        };
+        window.setTimeout(revealResults, Math.max(0, 850 - scanElapsed));
       })();
     } else {
       window.setTimeout(() => {
@@ -319,8 +366,13 @@ export default function App() {
   };
 
   const continueDemo = () => {
-    if (stage === "progress") setStage("scan");
-    else if (stage === "scan") setStage("review");
+    if (stage === "progress") {
+      setScanStatus("scanning");
+      setStage("scan");
+    } else if (stage === "scan") {
+      setScanStatus("complete");
+      setStage("review");
+    }
   };
 
   const cleanSelected = async () => {
@@ -333,6 +385,10 @@ export default function App() {
         confirm: true,
       });
       if (!result) return;
+      if (result.phase === "failed") {
+        setStage("progress");
+        return;
+      }
     } else {
       setCleanResults(chosen.map((trace) => ({ trace_id: trace.id, path: trace.path, success: true, error: null, bytes_freed: trace.size ?? 0 })));
     }
@@ -386,7 +442,7 @@ export default function App() {
           ) : stage === "progress" ? (
             <ProgressStage program={selectedProgram} progress={progress} logs={logs} error={uninstallFailure} onContinue={continueDemo} />
           ) : stage === "scan" ? (
-            <ScanStage onContinue={continueDemo} />
+            <ScanStage program={selectedProgram} traces={traces} logs={logs} status={scanStatus} onContinue={continueDemo} />
           ) : stage === "review" ? (
             <ReviewStage
               traces={traces}
@@ -412,6 +468,9 @@ export default function App() {
             <CompleteStage
               program={completedProgram}
               results={cleanResults}
+              traces={traces}
+              job={uninstallJob}
+              logs={logs}
               onDone={() => { setStage("apps"); setCleanResults([]); }}
             />
           )}
@@ -597,21 +656,41 @@ function ProgressStage({ program, progress, logs, error, onContinue }: { program
   );
 }
 
-function ScanStage({ onContinue }: { onContinue: () => void }) {
-  const locations = [
-    { icon: Folder, title: "程序文件 (Program Files)", path: "C:\\Program Files\\", count: "1,248 项" },
-    { icon: Box, title: "用户数据 (AppData)", path: "%LOCALAPPDATA%\\", count: "632 项" },
-    { icon: Database, title: "注册表 (Registry)", path: "HKEY_CURRENT_USER", count: "487 项" },
+function ScanStage({
+  program,
+  traces,
+  logs,
+  status,
+  onContinue,
+}: {
+  program: UiProgram;
+  traces: Trace[];
+  logs: string[];
+  status: "idle" | "scanning" | "complete";
+  onContinue: () => void;
+}) {
+  const summaries = summarizeTraces(traces);
+  const locationMeta = [
+    { category: "files" as const, icon: Folder, title: "程序文件", path: program.location || "Program Files / 安装目录", hint: "安装目录、缓存与快捷方式" },
+    { category: "user_data" as const, icon: Box, title: "用户数据", path: "%APPDATA% · %LOCALAPPDATA%", hint: "配置、缓存与用户级数据" },
+    { category: "registry" as const, icon: Database, title: "注册表", path: "HKCU · HKLM\\Software", hint: "卸载项、设置与文件关联" },
+    { category: "system" as const, icon: ShieldCheck, title: "系统集成", path: "服务 · 任务 · 驱动", hint: "仅检查明确关联的系统项" },
   ];
+  const isComplete = status === "complete";
+  const latestLogs = logs.slice(-4);
   return (
-    <div className="page scan-page">
-      <SectionHeader title="扫描残留" subtitle="正在保守地查找与该程序明确关联的项目" />
+    <div className={`page scan-page ${isComplete ? "scan-complete" : "scan-running"}`}>
+      <SectionHeader title={isComplete ? "扫描完成" : "正在扫描残留"} subtitle={`${program.name} · ${isComplete ? "扫描结果已经准备好，请检查后再决定清理范围" : "正在保守地查找与该程序明确关联的项目"}`} />
       <div className="scan-main">
-        <div className="radar"><div className="radar-sweep" /><span className="radar-dot one" /><span className="radar-dot two" /><span className="radar-dot three" /></div>
-        <div className="scan-locations"><h3>扫描位置</h3>{locations.map(({ icon: Icon, title, path, count }) => <div className="scan-location" key={title}><Icon size={20} /><div><strong>{title}</strong><span>{path}</span></div><em>正在扫描…</em><b>{count}</b></div>)}</div>
+        <div className={`radar ${isComplete ? "done" : ""}`}><div className="radar-sweep" /><span className="radar-dot one" /><span className="radar-dot two" /><span className="radar-dot three" /><div className="radar-center"><strong>{isComplete ? traces.length : "…"}</strong><span>{isComplete ? "发现项目" : "分析中"}</span></div></div>
+        <div className="scan-locations"><h3>扫描位置 <span>{isComplete ? "4 个区域已完成" : "实时扫描中"}</span></h3>{locationMeta.map(({ category, icon: Icon, title, path, hint }) => {
+          const summary = summaries.find((item) => item.category === category);
+          return <div className={`scan-location ${isComplete ? "done" : "active"}`} key={category}><Icon size={20} /><div><strong>{title}</strong><span>{path}</span><small>{hint}</small></div><em>{isComplete ? "已完成" : "正在扫描…"}</em><b>{isComplete ? `${summary?.count ?? 0} 项` : "探测中"}</b></div>;
+        })}</div>
       </div>
-      <div className="scan-stats card-surface"><h3>扫描统计</h3><div><span>已扫描项<strong>1,842</strong></span><span>发现项<strong className="blue">正在统计…</strong></span><span>预计大小<strong className="blue">正在计算…</strong></span><span>用时<strong>00:00:15</strong></span></div></div>
-      <div className="page-footnote"><Info size={15} /><span>我们仅显示与已卸载程序相关的项目，系统关键项将被自动排除。</span>{!isTauriRuntime() && <button onClick={onContinue}>查看扫描结果</button>}</div>
+      <div className="scan-stats card-surface"><h3>扫描统计 <span>{isComplete ? "已生成可审查快照" : "扫描引擎正在建立快照"}</span></h3><div><span>扫描区域<strong>4 / 4</strong></span><span>发现项目<strong className="blue">{isComplete ? traces.length : "分析中"}</strong></span><span>预计大小<strong className="blue">{isComplete ? formatBytes(traces.reduce((sum, trace) => sum + (trace.size ?? 0), 0)) : "计算中"}</strong></span><span>扫描策略<strong>{isComplete ? "保守匹配" : "安全筛选"}</strong></span></div></div>
+      <div className="scan-live-log card-surface"><div className="panel-title"><span><Loader2 size={13} className={isComplete ? "" : "spinning"} />扫描引擎实时日志</span><strong>{isComplete ? "扫描结果已锁定" : "正在工作"}</strong></div><div>{latestLogs.length > 0 ? latestLogs.map((log, index) => <p key={`${log}-${index}`}>{log}</p>) : <p>正在初始化扫描器…</p>}</div></div>
+      <div className="page-footnote"><Info size={15} /><span>我们仅显示与已卸载程序明确相关的项目，系统关键项和低置信度项目不会被自动删除。</span>{isComplete && <button onClick={onContinue}>查看扫描结果 <ChevronDown size={13} /></button>}</div>
     </div>
   );
 }
@@ -651,18 +730,32 @@ function ConfidenceBadge({ value }: { value: Trace["confidence"] }) {
   return <span className={`confidence ${value}`}>{label}</span>;
 }
 
-function CompleteStage({ program, results, onDone }: { program: UiProgram; results: CleanResult[]; onDone: () => void }) {
-  const removed = results.length || 56;
-  const freed = results.length ? results.reduce((sum, result) => sum + result.bytes_freed, 0) : 18_900_000;
+function CompleteStage({ program, results, traces: visibleTraces, job, logs, onDone }: { program: UiProgram; results: CleanResult[]; traces: Trace[]; job: UninstallJob | null; logs: string[]; onDone: () => void }) {
+  const [reportOpen, setReportOpen] = useState(false);
+  const traces = job?.snapshot.traces ?? visibleTraces;
+  const selectedIds = new Set(job?.snapshot.selected_trace_ids ?? results.filter((result) => result.success).map((result) => result.trace_id));
+  const outcome = job?.outcome;
+  const removed = outcome?.traces_cleaned ?? results.filter((result) => result.success).length;
+  const found = outcome?.traces_found ?? traces.length;
+  const freed = outcome?.bytes_freed ?? results.reduce((sum, result) => sum + result.bytes_freed, 0);
+  const skipped = Math.max(0, found - removed);
+  const summaries = summarizeTraces(traces);
+  const eventLogs = logs.length > 0 ? logs : job?.events.map((event) => formatUninstallEventLog(event)) ?? [];
+  const reportLogs = eventLogs.length > 0 ? eventLogs : ["扫描日志暂不可用，请重新打开卸载报告。"];
   return (
     <div className="page complete-page">
-      <SectionHeader title="卸载完成" />
-      <div className="success-heading"><span><Check size={36} /></span><div><h2>{program.name} 已成功卸载</h2><p>所有选定项目已清理完成。</p></div></div>
-      <div className="summary-grid card-surface"><div><span>释放空间</span><strong className="green">{formatBytes(freed)}</strong></div><div><span>删除项目</span><strong className="blue">{removed} 个</strong></div><div><span>跳过项</span><strong className="orange">22 个</strong></div><div><span>用时</span><strong>00:01:24</strong></div></div>
-      <div className="report-panel card-surface"><div className="panel-title"><span>详细报告</span><button>导出日志</button></div><div className="log-content"><div>[10:24:31] 开始卸载：{program.name}</div><div>[10:24:33] 创建系统还原点成功</div><div>[10:24:50] 扫描完成，发现 78 个残留项目（24.6 MB）</div><div>[10:25:02] 清理完成，删除 {removed} 个项目</div><div>[10:25:05] 操作完成</div></div></div>
-      <div className="complete-actions"><button className="secondary-button"><FileText size={16} />查看报告</button><button className="primary-button" onClick={onDone}><Check size={16} />完成</button></div>
+      <SectionHeader title="卸载完成" subtitle="扫描结果已保存为本次卸载任务的审查快照" />
+      <div className="success-heading"><span><Check size={36} /></span><div><h2>{program.name} 已成功卸载</h2><p>内置卸载器、移除验证、残留扫描和清理流程均已完成。</p></div></div>
+      <div className="summary-grid card-surface"><div><span>扫描发现</span><strong className="blue">{found} 项</strong></div><div><span>已清理</span><strong className="green">{removed} 项</strong></div><div><span>保留 / 跳过</span><strong className="orange">{skipped} 项</strong></div><div><span>释放空间</span><strong className="green">{formatBytes(freed)}</strong></div></div>
+      <div className="report-panel card-surface"><div className="panel-title"><span><FileText size={14} />扫描与清理报告</span><button onClick={() => setReportOpen(true)}>展开完整报告</button></div><div className="report-category-grid">{summaries.filter((summary) => summary.count > 0).map((summary) => <div key={summary.category}><span>{summary.category === "files" ? "文件系统" : summary.category === "user_data" ? "用户数据" : summary.category === "registry" ? "注册表" : "系统集成"}</span><strong>{summary.count} 项</strong><small>{formatBytes(summary.bytes)}</small></div>)}{summaries.every((summary) => summary.count === 0) && <div className="report-empty">未发现可疑残留项目</div>}</div><div className="log-content report-log">{reportLogs.slice(-8).map((log, index) => <div key={`${log}-${index}`}>{log}</div>)}</div></div>
+      <div className="complete-actions"><button className="secondary-button" onClick={() => setReportOpen(true)}><FileText size={16} />查看完整报告</button><button className="primary-button" onClick={onDone}><Check size={16} />完成</button></div>
+      {reportOpen && <UninstallReportModal program={program} traces={traces} selectedIds={selectedIds} summaries={summaries} logs={reportLogs} onClose={() => setReportOpen(false)} />}
     </div>
   );
+}
+
+function UninstallReportModal({ program, traces, selectedIds, summaries, logs, onClose }: { program: UiProgram; traces: Trace[]; selectedIds: Set<string>; summaries: ReturnType<typeof summarizeTraces>; logs: string[]; onClose: () => void }) {
+  return <div className="modal-backdrop" onMouseDown={onClose}><section className="uninstall-report-modal" onMouseDown={(event) => event.stopPropagation()}><header><div><span className="report-modal-mark"><FileText size={20} /></span><span><h2>{program.name} · 卸载扫描报告</h2><p>以下内容来自本次卸载的真实扫描快照，不是估算值。</p></span></div><button aria-label="关闭卸载报告" onClick={onClose}><X size={17} /></button></header><div className="report-modal-summary">{summaries.filter((summary) => summary.count > 0).map((summary) => <div key={summary.category}><span>{summary.category === "files" ? "文件系统" : summary.category === "user_data" ? "用户数据" : summary.category === "registry" ? "注册表" : "系统集成"}</span><strong>{summary.count}</strong><small>{formatBytes(summary.bytes)}</small></div>)}</div><div className="report-modal-body"><section className="report-event-column"><h3>完整操作日志 <small>{logs.length} 条</small></h3><div className="report-event-list">{logs.map((log, index) => <p key={`${log}-${index}`}>{log}</p>)}</div></section><section className="report-trace-column"><h3>扫描项目明细 <small>{traces.length} 项</small></h3><div className="report-trace-list">{traces.length > 0 ? traces.map((trace) => <div className="report-trace-item" key={trace.id}><span className={`report-trace-state ${selectedIds.has(trace.id) ? "cleaned" : "kept"}`}>{selectedIds.has(trace.id) ? <Check size={12} /> : "—"}</span><span><strong>{trace.description || formatTraceType(trace.trace_type)}</strong><small>{trace.path}</small><em>{formatTraceType(trace.trace_type)} · {trace.confidence === "high" ? "高置信度" : trace.confidence === "medium" ? "中置信度" : "低置信度"} · {formatBytes(trace.size)}</em></span><b className={selectedIds.has(trace.id) ? "cleaned-status" : "kept-status"}>{selectedIds.has(trace.id) ? "已纳入清理" : "已保留"}</b></div>) : <p className="report-empty">扫描没有发现残留项目。</p>}</div></section></div><footer><span>低置信度项目默认保留，避免误删用户数据。</span><button className="primary-button" onClick={onClose}>关闭报告</button></footer></section></div>;
 }
 
 function ProgramInfoModal({ program, onClose }: { program: UiProgram; onClose: () => void }) {

@@ -15,4 +15,7 @@ pub use models::{
 pub use ports::{CleanedTrace, RemovalVerification, UninstallPort, UninstallerExecution};
 pub use production::ProductionUninstallPort;
 pub use state::{StateTransitionError, UninstallStateMachine};
-pub use workflow::{clean_uninstall_residues, execute_uninstall, plan_uninstall};
+pub use workflow::{
+    clean_uninstall_residues, clean_uninstall_residues_with_progress, execute_uninstall,
+    execute_uninstall_with_progress, plan_uninstall,
+};

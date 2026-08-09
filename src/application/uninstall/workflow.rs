@@ -1,8 +1,8 @@
 use super::error::{UninstallError, UninstallErrorCode};
 use super::fingerprint::fingerprint_program;
 use super::models::{
-    CleanupSelection, ResidueReview, UninstallEventPayload, UninstallJob, UninstallOutcome,
-    UninstallPhase, UninstallPlan,
+    CleanupSelection, ResidueReview, UninstallEvent, UninstallEventPayload, UninstallJob,
+    UninstallOutcome, UninstallPhase, UninstallPlan,
 };
 use super::ports::UninstallPort;
 use super::state::UninstallStateMachine;
@@ -37,27 +37,46 @@ pub async fn execute_uninstall<P: UninstallPort>(
     job: &mut UninstallJob,
     timeout_secs: u64,
 ) -> Result<ResidueReview, UninstallError> {
+    execute_uninstall_with_progress(port, job, timeout_secs, |_| {}).await
+}
+
+pub async fn execute_uninstall_with_progress<P, F>(
+    port: &P,
+    job: &mut UninstallJob,
+    timeout_secs: u64,
+    mut on_event: F,
+) -> Result<ResidueReview, UninstallError>
+where
+    P: UninstallPort,
+    F: FnMut(&UninstallEvent),
+{
     require_phase(job, UninstallPhase::Planned)?;
 
     let current = port.resolve_program_by_id(&job.snapshot.program.id).await?;
     if fingerprint_program(&current) != job.snapshot.fingerprint {
-        return fail_job(
+        return fail_job_with_progress(
             job,
             UninstallError::new(
                 UninstallErrorCode::TargetChanged,
                 "目标程序信息已变化，请重新生成卸载计划",
             ),
+            &mut on_event,
         );
     }
 
-    port.ensure_administrator().await?;
-    port.save_snapshot(&job.snapshot.program).await?;
-    transition(
+    if let Err(error) = port.ensure_administrator().await {
+        return fail_job_with_progress(job, error, &mut on_event);
+    }
+    if let Err(error) = port.save_snapshot(&job.snapshot.program).await {
+        return fail_job_with_progress(job, error, &mut on_event);
+    }
+    transition_with_progress(
         job,
         UninstallPhase::RunningUninstaller,
         UninstallEventPayload::UninstallerStarted {
             command_summary: "已交由受控卸载器执行".to_string(),
         },
+        &mut on_event,
     )?;
 
     let execution = match port
@@ -65,27 +84,30 @@ pub async fn execute_uninstall<P: UninstallPort>(
         .await
     {
         Ok(result) => result,
-        Err(error) => return fail_job(job, error),
+        Err(error) => return fail_job_with_progress(job, error, &mut on_event),
     };
     if execution.user_cancelled {
-        return fail_job(
+        return fail_job_with_progress(
             job,
             UninstallError::new(UninstallErrorCode::UninstallerCancelled, "用户取消了卸载"),
+            &mut on_event,
         );
     }
     if !execution.successful {
-        return fail_job(
+        return fail_job_with_progress(
             job,
             UninstallError::new(UninstallErrorCode::UninstallerFailed, "卸载器返回失败状态"),
+            &mut on_event,
         );
     }
-    transition(
+    transition_with_progress(
         job,
         UninstallPhase::VerifyingRemoval,
         UninstallEventPayload::UninstallerCompleted {
             exit_code: execution.exit_code,
             reboot_required: execution.reboot_required,
         },
+        &mut on_event,
     )?;
 
     let verification = match port
@@ -93,21 +115,23 @@ pub async fn execute_uninstall<P: UninstallPort>(
         .await
     {
         Ok(result) => result,
-        Err(error) => return fail_job(job, error),
+        Err(error) => return fail_job_with_progress(job, error, &mut on_event),
     };
     if !verification.removed {
-        return fail_job(
+        return fail_job_with_progress(
             job,
             UninstallError::new(
                 UninstallErrorCode::RemovalNotConfirmed,
                 "卸载命令已结束，但程序仍未确认移除",
             ),
+            &mut on_event,
         );
     }
-    transition(
+    transition_with_progress(
         job,
         UninstallPhase::ScanningResidues,
         UninstallEventPayload::RemovalVerified { removed: true },
+        &mut on_event,
     )?;
 
     let traces = match port.scan_residues(&job.snapshot.program).await {
@@ -115,7 +139,7 @@ pub async fn execute_uninstall<P: UninstallPort>(
             .into_iter()
             .filter(|trace| trace.exists)
             .collect::<Vec<_>>(),
-        Err(error) => return fail_job(job, error),
+        Err(error) => return fail_job_with_progress(job, error, &mut on_event),
     };
     job.snapshot.traces = traces.clone();
     job.residue_review = ResidueReview {
@@ -123,10 +147,11 @@ pub async fn execute_uninstall<P: UninstallPort>(
         default_selected_ids: Vec::new(),
     };
     if job.residue_review.traces.is_empty() {
-        transition(
+        transition_with_progress(
             job,
             UninstallPhase::Completed,
             UninstallEventPayload::ResiduesScanned { count: 0 },
+            &mut on_event,
         )?;
         job.outcome = Some(UninstallOutcome {
             success: true,
@@ -136,12 +161,13 @@ pub async fn execute_uninstall<P: UninstallPort>(
             ..UninstallOutcome::default()
         });
     } else {
-        transition(
+        transition_with_progress(
             job,
             UninstallPhase::AwaitingCleanupConfirmation,
             UninstallEventPayload::ResiduesScanned {
                 count: job.residue_review.traces.len(),
             },
+            &mut on_event,
         )?;
     }
 
@@ -153,6 +179,19 @@ pub async fn clean_uninstall_residues<P: UninstallPort>(
     job: &mut UninstallJob,
     selection: CleanupSelection,
 ) -> Result<UninstallOutcome, UninstallError> {
+    clean_uninstall_residues_with_progress(port, job, selection, |_| {}).await
+}
+
+pub async fn clean_uninstall_residues_with_progress<P, F>(
+    port: &P,
+    job: &mut UninstallJob,
+    selection: CleanupSelection,
+    mut on_event: F,
+) -> Result<UninstallOutcome, UninstallError>
+where
+    P: UninstallPort,
+    F: FnMut(&UninstallEvent),
+{
     require_phase(job, UninstallPhase::AwaitingCleanupConfirmation)?;
     if !selection.confirm {
         return Err(UninstallError::new(
@@ -185,13 +224,14 @@ pub async fn clean_uninstall_residues<P: UninstallPort>(
     }
 
     if selected.is_empty() {
-        transition(
+        transition_with_progress(
             job,
             UninstallPhase::Completed,
             UninstallEventPayload::Finished {
                 success: true,
                 message: "卸载完成，已跳过残留清理".to_string(),
             },
+            &mut on_event,
         )?;
         let outcome = UninstallOutcome {
             success: true,
@@ -204,18 +244,21 @@ pub async fn clean_uninstall_residues<P: UninstallPort>(
     }
 
     job.snapshot.selected_trace_ids = requested;
-    transition(
+    transition_with_progress(
         job,
         UninstallPhase::CleaningResidues,
         UninstallEventPayload::CleanupStarted {
             count: selected.len(),
         },
+        &mut on_event,
     )?;
     let cleaned = match port.clean_traces(&selected).await {
         Ok(results) => results,
-        Err(error) => return fail_job(job, error),
+        Err(error) => return fail_job_with_progress(job, error, &mut on_event),
     };
-    port.invalidate_cache(&job.snapshot.program.id).await?;
+    if let Err(error) = port.invalidate_cache(&job.snapshot.program.id).await {
+        return fail_job_with_progress(job, error, &mut on_event);
+    }
     let success_count = cleaned.iter().filter(|item| item.success).count();
     let failed_count = cleaned.len().saturating_sub(success_count);
     let bytes_freed = cleaned
@@ -231,7 +274,7 @@ pub async fn clean_uninstall_residues<P: UninstallPort>(
         bytes_freed,
         ..UninstallOutcome::default()
     };
-    transition(
+    transition_with_progress(
         job,
         if outcome.success {
             UninstallPhase::Completed
@@ -242,6 +285,7 @@ pub async fn clean_uninstall_residues<P: UninstallPort>(
             success_count,
             failed_count,
         },
+        &mut on_event,
     )?;
     job.outcome = Some(outcome.clone());
     Ok(outcome)
@@ -267,23 +311,55 @@ fn transition(
         .map(|_| ())
 }
 
-fn fail_job<T>(job: &mut UninstallJob, error: UninstallError) -> Result<T, UninstallError> {
+fn transition_with_progress<F>(
+    job: &mut UninstallJob,
+    phase: UninstallPhase,
+    payload: UninstallEventPayload,
+    on_event: &mut F,
+) -> Result<(), UninstallError>
+where
+    F: FnMut(&UninstallEvent),
+{
+    transition(job, phase, payload)?;
+    if let Some(event) = job.events.last() {
+        on_event(event);
+    }
+    Ok(())
+}
+
+fn fail_job_with_progress<T, F>(
+    job: &mut UninstallJob,
+    error: UninstallError,
+    on_event: &mut F,
+) -> Result<T, UninstallError>
+where
+    F: FnMut(&UninstallEvent),
+{
     if !job.phase.is_terminal() {
-        let _ = transition(
+        if transition(
             job,
             UninstallPhase::Failed,
             UninstallEventPayload::Finished {
                 success: false,
                 message: error.message.clone(),
             },
-        );
+        )
+        .is_ok()
+        {
+            if let Some(event) = job.events.last() {
+                on_event(event);
+            }
+        }
     }
     Err(error)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{clean_uninstall_residues, execute_uninstall, plan_uninstall};
+    use super::{
+        clean_uninstall_residues, execute_uninstall, execute_uninstall_with_progress,
+        plan_uninstall,
+    };
     use crate::application::uninstall::error::{UninstallError, UninstallErrorCode};
     use crate::application::uninstall::models::{CleanupSelection, UninstallJob};
     use crate::application::uninstall::ports::{
@@ -428,6 +504,35 @@ mod tests {
                 .lock()
                 .expect("test mutex should not be poisoned"),
             vec!["resolve", "snapshot", "resolve", "precheck", "snapshot", "run", "verify", "scan"]
+        );
+    }
+
+    #[tokio::test]
+    async fn progress_callback_receives_each_phase_before_execute_returns() {
+        let port = FakePort::new();
+        let mut job = planned_job(&port).await;
+        let phases = Arc::new(Mutex::new(Vec::new()));
+        let observed = Arc::clone(&phases);
+
+        execute_uninstall_with_progress(&port, &mut job, 1, |event| {
+            observed
+                .lock()
+                .expect("progress mutex should not be poisoned")
+                .push(event.phase);
+        })
+        .await
+        .expect("fake execute should succeed");
+
+        assert_eq!(
+            *phases
+                .lock()
+                .expect("progress mutex should not be poisoned"),
+            vec![
+                crate::application::uninstall::UninstallPhase::RunningUninstaller,
+                crate::application::uninstall::UninstallPhase::VerifyingRemoval,
+                crate::application::uninstall::UninstallPhase::ScanningResidues,
+                crate::application::uninstall::UninstallPhase::AwaitingCleanupConfirmation,
+            ]
         );
     }
 

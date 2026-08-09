@@ -1,7 +1,7 @@
 use rust_yu_lib::application::uninstall::{
-    clean_uninstall_residues as run_clean_uninstall_residues,
-    execute_uninstall as run_execute_uninstall, plan_uninstall as run_plan_uninstall,
-    CleanupSelection, ProductionUninstallPort, UninstallJob, UninstallPhase,
+    clean_uninstall_residues_with_progress as run_clean_uninstall_residues,
+    execute_uninstall_with_progress as run_execute_uninstall, plan_uninstall as run_plan_uninstall,
+    CleanupSelection, ProductionUninstallPort, UninstallEvent, UninstallJob, UninstallPhase,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
@@ -78,11 +78,13 @@ pub async fn execute_uninstall(
         .begin_operation(&request.job_id, UninstallPhase::Planned)
         .map_err(CommandError::from)?;
     let port = ProductionUninstallPort;
-    let result = run_execute_uninstall(&port, &mut job, request.timeout_secs).await;
+    let result = run_execute_uninstall(&port, &mut job, request.timeout_secs, |event| {
+        emit_job_event(&app, event);
+    })
+    .await;
     coordinator
         .commit_operation(job.clone())
         .map_err(CommandError::from)?;
-    emit_job_events(&app, &job);
     result.map_err(CommandError::from)?;
     Ok(UninstallJobResponse { job })
 }
@@ -98,11 +100,13 @@ pub async fn clean_uninstall_residues(
         .begin_operation(&request.job_id, UninstallPhase::AwaitingCleanupConfirmation)
         .map_err(CommandError::from)?;
     let port = ProductionUninstallPort;
-    let result = run_clean_uninstall_residues(&port, &mut job, request.selection).await;
+    let result = run_clean_uninstall_residues(&port, &mut job, request.selection, |event| {
+        emit_job_event(&app, event);
+    })
+    .await;
     coordinator
         .commit_operation(job.clone())
         .map_err(CommandError::from)?;
-    emit_job_events(&app, &job);
     result.map_err(CommandError::from)?;
     Ok(UninstallJobResponse { job })
 }
@@ -125,12 +129,14 @@ pub async fn finish_uninstall(
             trace_ids: Vec::new(),
             confirm: true,
         },
+        |event| {
+            emit_job_event(&app, event);
+        },
     )
     .await;
     coordinator
         .commit_operation(job.clone())
         .map_err(CommandError::from)?;
-    emit_job_events(&app, &job);
     result.map_err(CommandError::from)?;
     Ok(UninstallJobResponse { job })
 }
@@ -146,6 +152,10 @@ pub fn get_uninstall_job(
 
 fn emit_job_events(app: &AppHandle, job: &UninstallJob) {
     for event in &job.events {
-        let _ = app.emit(UNINSTALL_JOB_PROGRESS_EVENT, event);
+        emit_job_event(app, event);
     }
+}
+
+fn emit_job_event(app: &AppHandle, event: &UninstallEvent) {
+    let _ = app.emit(UNINSTALL_JOB_PROGRESS_EVENT, event);
 }
