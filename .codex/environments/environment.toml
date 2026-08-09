@@ -4,7 +4,7 @@ name = "rust_yu"
 
 [setup]
 script = '''
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\Initialize-Worktree.ps1
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\dev\Initialize-Worktree.ps1
 '''
 
 [[actions]]
@@ -16,5 +16,5 @@ platform = "win32"
 [[actions]]
 name = "cleanup worktree"
 icon = "trash"
-command = "powershell -NoProfile -ExecutionPolicy Bypass -File ./tools/dev/Cleanup-Worktree.ps1 -PruneStaleWorktrees"
+command = "pwsh -NoProfile -ExecutionPolicy Bypass -File ./tools/dev/Cleanup-Worktree.ps1 -PruneStaleWorktrees"
 platform = "win32"
