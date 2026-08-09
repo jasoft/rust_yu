@@ -42,6 +42,7 @@ import { useProgramsStore } from "./stores/programs";
 import { StartupManager } from "./components/StartupManager";
 import { CleanerPage } from "./components/CleanerPage";
 import { BrowserPluginsPage } from "./components/BrowserPluginsPage";
+import { getUninstallFailureMessage } from "./components/uninstall/uninstallFeedback";
 import type {
   CleanResult,
   InstalledProgram,
@@ -167,6 +168,7 @@ export default function App() {
   const finishUninstall = useProgramsStore((state) => state.finishUninstall);
   const uninstallResult = useProgramsStore((state) => state.uninstallResult);
   const uninstallJob = useProgramsStore((state) => state.uninstallJob);
+  const uninstallFailure = getUninstallFailureMessage(error, uninstallResult);
 
   useEffect(() => {
     if (!isTauriRuntime()) return;
@@ -379,7 +381,7 @@ export default function App() {
               onStart={startUninstall}
             />
           ) : stage === "progress" ? (
-            <ProgressStage program={selectedProgram} progress={progress} logs={logs} onContinue={continueDemo} />
+            <ProgressStage program={selectedProgram} progress={progress} logs={logs} error={uninstallFailure} onContinue={continueDemo} />
           ) : stage === "scan" ? (
             <ScanStage onContinue={continueDemo} />
           ) : stage === "review" ? (
@@ -569,19 +571,24 @@ function CheckOption({ checked, onChange, title, hint }: { checked: boolean; onC
   return <label className="check-option"><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} /><span className="fake-check"><Check size={13} /></span><span>{title}<small>（{hint}）</small></span></label>;
 }
 
-function ProgressStage({ program, progress, logs, onContinue }: { program: UiProgram; progress: number; logs: string[]; onContinue: () => void }) {
+function ProgressStage({ program, progress, logs, error, onContinue }: { program: UiProgram; progress: number; logs: string[]; error: string | null; onContinue: () => void }) {
   const nativeWorkflow = isTauriRuntime();
+  const failed = Boolean(error);
   const steps = [
-    ["创建系统还原点", "done"], ["分析卸载程序", "done"], ["运行内置卸载程序", "active"], ["删除程序文件", "todo"], ["清理注册表项", "todo"], ["卸载完成", "todo"],
+    ["创建系统还原点", "done"], ["分析卸载程序", "done"], ["运行内置卸载程序", failed ? "failed" : "active"], ["删除程序文件", "todo"], ["清理注册表项", "todo"], ["卸载完成", "todo"],
   ];
   return (
     <div className="page progress-page">
-      <SectionHeader title={`正在卸载 ${program.name}`} subtitle="请保持应用开启，我们会在任务完成后通知你" />
+      <SectionHeader title={failed ? `${program.name} 卸载失败` : `正在卸载 ${program.name}`} subtitle={failed ? "卸载没有继续，请查看下方错误信息。" : "请保持应用开启，我们会在任务完成后通知你"} />
       <div className="progress-top">
-        <div className={`progress-ring ${nativeWorkflow ? "indeterminate" : "preview-progress"}`}><div><strong>{nativeWorkflow ? "…" : `${progress}%`}</strong><span>{nativeWorkflow ? "等待真实卸载状态…" : "正在删除文件…"}</span><small>{nativeWorkflow ? "请保持窗口开启" : "00:00:28"}</small></div></div>
-        <div className="steps-list">{steps.map(([label, state]) => <div key={label} className={`step ${state}`}><span>{state === "done" ? <Check size={12} /> : ""}</span><strong>{label}</strong><em>{state === "done" ? "完成" : state === "active" ? "进行中" : ""}</em></div>)}</div>
+        <div className={`progress-ring ${failed ? "failed" : nativeWorkflow ? "indeterminate" : "preview-progress"}`}><div><strong>{failed ? "!" : nativeWorkflow ? "…" : `${progress}%`}</strong><span>{failed ? "卸载失败" : nativeWorkflow ? "等待真实卸载状态…" : "正在删除文件…"}</span><small>{failed ? "请查看下方错误信息" : nativeWorkflow ? "请保持窗口开启" : "00:00:28"}</small></div></div>
+        <div className="steps-list">{steps.map(([label, state]) => <div key={label} className={`step ${state}`}><span>{state === "done" ? <Check size={12} /> : state === "failed" ? <TriangleAlert size={11} /> : ""}</span><strong>{label}</strong><em>{state === "done" ? "完成" : state === "active" ? "进行中" : state === "failed" ? "失败" : ""}</em></div>)}</div>
       </div>
-      <div className="log-panel card-surface"><div className="panel-title"><span>实时日志</span><button>清空</button></div><div className="log-content">{logs.map((log, index) => <div key={`${log}-${index}`}>{log}</div>)}</div></div>
+      <div className={`log-panel card-surface${failed ? " error-state" : ""}`}>
+        <div className="panel-title"><span>实时日志</span><button>清空</button></div>
+        {error && <div className="uninstall-error" role="alert"><TriangleAlert size={16} /><div><strong>卸载失败</strong><span>{error}</span></div></div>}
+        <div className="log-content">{error && <div className="error-log">[错误] {error}</div>}{logs.map((log, index) => <div key={`${log}-${index}`}>{log}</div>)}</div>
+      </div>
       <div className="page-footnote"><Info size={15} /><span>该过程可能需要一些时间，请耐心等待。</span>{!isTauriRuntime() && <button onClick={onContinue}>预览下一阶段</button>}</div>
     </div>
   );
