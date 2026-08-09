@@ -6,10 +6,16 @@ use crate::elevation::{
 use crate::single_instance::SingleInstanceGuard;
 use std::path::PathBuf;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InternalArgs {
     Normal,
-    ElevatedEntry { repair_launch_task: bool },
+    ForceUninstall {
+        path: String,
+    },
+    ElevatedEntry {
+        repair_launch_task: bool,
+        force_target: Option<String>,
+    },
     RemoveLaunchTasks,
 }
 
@@ -33,10 +39,33 @@ pub fn parse_internal_args(args: &[String]) -> Result<InternalArgs, ElevationErr
     let mut elevated = false;
     let mut repair = false;
     let mut remove_tasks = false;
-    for arg in args.iter().skip(1) {
+    let mut force_target = None;
+    let mut arguments = args.iter().skip(1);
+    while let Some(arg) = arguments.next() {
         match arg.as_str() {
             "--elevated-entry" => elevated = true,
             "--repair-launch-task" if elevated => repair = true,
+            "--force-uninstall" => {
+                if force_target.is_some() {
+                    return Err(ElevationError::new(
+                        ElevationErrorCode::ElevationLaunchFailed,
+                        "强制卸载入口只能接收一个目标路径",
+                    ));
+                }
+                let path = arguments.next().ok_or_else(|| {
+                    ElevationError::new(
+                        ElevationErrorCode::ElevationLaunchFailed,
+                        "强制卸载入口缺少目标路径",
+                    )
+                })?;
+                if path.is_empty() || path.starts_with('-') {
+                    return Err(ElevationError::new(
+                        ElevationErrorCode::ElevationLaunchFailed,
+                        "强制卸载入口的目标路径无效",
+                    ));
+                }
+                force_target = Some(path.clone());
+            }
             "--remove-launch-tasks" => remove_tasks = true,
             _ => {
                 return Err(ElevationError::new(
@@ -46,7 +75,7 @@ pub fn parse_internal_args(args: &[String]) -> Result<InternalArgs, ElevationErr
             }
         }
     }
-    if remove_tasks && elevated {
+    if remove_tasks && (elevated || force_target.is_some()) {
         return Err(ElevationError::new(
             ElevationErrorCode::ElevationLaunchFailed,
             "维护模式参数不能与管理员入口参数同时使用",
@@ -57,7 +86,10 @@ pub fn parse_internal_args(args: &[String]) -> Result<InternalArgs, ElevationErr
     } else if elevated {
         InternalArgs::ElevatedEntry {
             repair_launch_task: repair,
+            force_target,
         }
+    } else if let Some(path) = force_target {
+        InternalArgs::ForceUninstall { path }
     } else {
         InternalArgs::Normal
     })
@@ -70,7 +102,7 @@ pub fn decide_bootstrap(
     install_path_safe: bool,
     task: TaskPresence,
 ) -> BootstrapAction {
-    if matches!(args, InternalArgs::ElevatedEntry { .. }) && !token.is_elevated {
+    if matches!(&args, InternalArgs::ElevatedEntry { .. }) && !token.is_elevated {
         return BootstrapAction::Reject(ElevationErrorCode::UnsupportedStandardUser);
     }
     if debug_build {
@@ -106,7 +138,7 @@ pub fn run_startup_bootstrap() -> bool {
             ))
         }
     };
-    if matches!(parsed, InternalArgs::RemoveLaunchTasks) {
+    if matches!(&parsed, InternalArgs::RemoveLaunchTasks) {
         if !token.is_elevated {
             return show_startup_error(ElevationError::new(
                 ElevationErrorCode::UnsupportedStandardUser,
@@ -145,6 +177,11 @@ pub fn run_startup_bootstrap() -> bool {
     } else {
         TaskPresence::Invalid
     };
+    let force_target = match &parsed {
+        InternalArgs::ForceUninstall { path } => Some(path.clone()),
+        InternalArgs::ElevatedEntry { force_target, .. } => force_target.clone(),
+        _ => None,
+    };
     let action = decide_bootstrap(debug_build, parsed, token, install_path_safe, task);
     match action {
         BootstrapAction::StartDebugGui => true,
@@ -153,6 +190,11 @@ pub fn run_startup_bootstrap() -> bool {
                 .and_then(|_| create_or_repair_current_user_task(&executable).map(|_| ()))
             {
                 return show_startup_error(error);
+            }
+            // 右键入口必须能在已有主窗口旁打开独立的目标审查窗口；
+            // 该窗口仍只执行计划、二次校验和用户确认的路径。
+            if force_target.is_some() {
+                return true;
             }
             match SingleInstanceGuard::acquire() {
                 Ok(Some(guard)) => {
@@ -167,14 +209,25 @@ pub fn run_startup_bootstrap() -> bool {
                 )),
             }
         }
-        BootstrapAction::RunExistingTaskAndExit => match run_current_user_task() {
-            Ok(()) => false,
-            Err(error) => show_startup_error(error),
-        },
-        BootstrapAction::RelaunchWithUacAndExit => match launch_with_runas(&executable) {
-            Ok(()) => false,
-            Err(error) => show_startup_error(error),
-        },
+        BootstrapAction::RunExistingTaskAndExit => {
+            if force_target.is_some() {
+                match launch_with_runas(&executable, force_target.as_deref()) {
+                    Ok(()) => false,
+                    Err(error) => show_startup_error(error),
+                }
+            } else {
+                match run_current_user_task() {
+                    Ok(()) => false,
+                    Err(error) => show_startup_error(error),
+                }
+            }
+        }
+        BootstrapAction::RelaunchWithUacAndExit => {
+            match launch_with_runas(&executable, force_target.as_deref()) {
+                Ok(()) => false,
+                Err(error) => show_startup_error(error),
+            }
+        }
         BootstrapAction::Reject(code) => show_startup_error(ElevationError::new(
             code,
             "当前环境不满足管理员 GUI 启动要求",
@@ -183,7 +236,10 @@ pub fn run_startup_bootstrap() -> bool {
 }
 
 #[cfg(windows)]
-fn launch_with_runas(executable: &PathBuf) -> Result<(), ElevationError> {
+fn launch_with_runas(
+    executable: &PathBuf,
+    force_target: Option<&str>,
+) -> Result<(), ElevationError> {
     use std::os::windows::ffi::OsStrExt;
     use windows::core::PCWSTR;
     use windows::Win32::UI::Shell::ShellExecuteW;
@@ -194,7 +250,12 @@ fn launch_with_runas(executable: &PathBuf) -> Result<(), ElevationError> {
         .encode_wide()
         .chain(Some(0))
         .collect::<Vec<_>>();
-    let parameters = windows_string("--elevated-entry --repair-launch-task");
+    let mut parameter_text = String::from("--elevated-entry --repair-launch-task");
+    if let Some(target) = force_target {
+        parameter_text.push_str(" --force-uninstall ");
+        parameter_text.push_str(&quote_windows_argument(target));
+    }
+    let parameters = windows_string(&parameter_text);
     let result = unsafe {
         ShellExecuteW(
             None,
@@ -215,7 +276,10 @@ fn launch_with_runas(executable: &PathBuf) -> Result<(), ElevationError> {
 }
 
 #[cfg(not(windows))]
-fn launch_with_runas(_executable: &PathBuf) -> Result<(), ElevationError> {
+fn launch_with_runas(
+    _executable: &PathBuf,
+    _force_target: Option<&str>,
+) -> Result<(), ElevationError> {
     Err(ElevationError::new(
         ElevationErrorCode::ElevationLaunchFailed,
         "当前平台不支持 UAC 启动",
@@ -225,6 +289,11 @@ fn launch_with_runas(_executable: &PathBuf) -> Result<(), ElevationError> {
 #[cfg(windows)]
 fn windows_string(value: &str) -> Vec<u16> {
     value.encode_utf16().chain(Some(0)).collect()
+}
+
+#[cfg(windows)]
+fn quote_windows_argument(value: &str) -> String {
+    format!("\"{}\"", value.replace('"', "\\\""))
 }
 
 fn show_startup_error(error: ElevationError) -> bool {
@@ -326,7 +395,8 @@ mod tests {
             decide_bootstrap(
                 false,
                 InternalArgs::ElevatedEntry {
-                    repair_launch_task: false
+                    repair_launch_task: false,
+                    force_target: None,
                 },
                 admin(false),
                 true,
@@ -346,9 +416,36 @@ mod tests {
         assert_eq!(
             parse_internal_args(&args).expect("fixed args should parse"),
             InternalArgs::ElevatedEntry {
-                repair_launch_task: true
+                repair_launch_task: true,
+                force_target: None,
             }
         );
         assert!(parse_internal_args(&["RustYu.exe".to_string(), "--clean".to_string()]).is_err());
+    }
+
+    #[test]
+    fn context_menu_force_target_is_preserved_through_elevation_args() {
+        let args = vec![
+            "RustYu.exe".to_string(),
+            "--force-uninstall".to_string(),
+            "C:\\Program Files\\Demo App\\Demo.exe".to_string(),
+        ];
+        assert_eq!(
+            parse_internal_args(&args).expect("右键入口参数应可解析"),
+            InternalArgs::ForceUninstall {
+                path: "C:\\Program Files\\Demo App\\Demo.exe".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn force_target_cannot_be_combined_with_maintenance_mode() {
+        let args = vec![
+            "RustYu.exe".to_string(),
+            "--remove-launch-tasks".to_string(),
+            "--force-uninstall".to_string(),
+            "C:\\Demo".to_string(),
+        ];
+        assert!(parse_internal_args(&args).is_err());
     }
 }

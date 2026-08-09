@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-capture-hunter-target"
+description = "Enables the capture_hunter_target command without any pre-configured scope."
+commands.allow = ["capture_hunter_target"]
+
+[[permission]]
+identifier = "deny-capture-hunter-target"
+description = "Denies the capture_hunter_target command without any pre-configured scope."
+commands.deny = ["capture_hunter_target"]

@@ -189,6 +189,12 @@
           "markdownDescription": "Enables the apply_startup_action command without any pre-configured scope."
         },
         {
+          "description": "Enables the capture_hunter_target command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-capture-hunter-target",
+          "markdownDescription": "Enables the capture_hunter_target command without any pre-configured scope."
+        },
+        {
           "description": "Enables the clean_browser_data command without any pre-configured scope.",
           "type": "string",
           "const": "allow-clean-browser-data",
@@ -253,6 +259,18 @@
           "type": "string",
           "const": "allow-get-backup-session",
           "markdownDescription": "Enables the get_backup_session command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_force_uninstall_context_menu command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-force-uninstall-context-menu",
+          "markdownDescription": "Enables the get_force_uninstall_context_menu command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_force_uninstall_startup_target command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-force-uninstall-startup-target",
+          "markdownDescription": "Enables the get_force_uninstall_startup_target command without any pre-configured scope."
         },
         {
           "description": "Enables the get_install_monitor_session command without any pre-configured scope.",
@@ -393,6 +411,12 @@
           "markdownDescription": "Enables the search_programs command without any pre-configured scope."
         },
         {
+          "description": "Enables the set_force_uninstall_context_menu command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-force-uninstall-context-menu",
+          "markdownDescription": "Enables the set_force_uninstall_context_menu command without any pre-configured scope."
+        },
+        {
           "description": "Enables the start_install_monitor command without any pre-configured scope.",
           "type": "string",
           "const": "allow-start-install-monitor",
@@ -415,6 +439,12 @@
           "type": "string",
           "const": "deny-apply-startup-action",
           "markdownDescription": "Denies the apply_startup_action command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the capture_hunter_target command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-capture-hunter-target",
+          "markdownDescription": "Denies the capture_hunter_target command without any pre-configured scope."
         },
         {
           "description": "Denies the clean_browser_data command without any pre-configured scope.",
@@ -481,6 +511,18 @@
           "type": "string",
           "const": "deny-get-backup-session",
           "markdownDescription": "Denies the get_backup_session command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_force_uninstall_context_menu command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-force-uninstall-context-menu",
+          "markdownDescription": "Denies the get_force_uninstall_context_menu command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_force_uninstall_startup_target command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-force-uninstall-startup-target",
+          "markdownDescription": "Denies the get_force_uninstall_startup_target command without any pre-configured scope."
         },
         {
           "description": "Denies the get_install_monitor_session command without any pre-configured scope.",
@@ -619,6 +661,12 @@
           "type": "string",
           "const": "deny-search-programs",
           "markdownDescription": "Denies the search_programs command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_force_uninstall_context_menu command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-force-uninstall-context-menu",
+          "markdownDescription": "Denies the set_force_uninstall_context_menu command without any pre-configured scope."
         },
         {
           "description": "Denies the start_install_monitor command without any pre-configured scope.",

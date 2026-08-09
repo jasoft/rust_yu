@@ -6,13 +6,24 @@ import type {
   ForceUninstallResult,
 } from "../types";
 
+interface ContextMenuStatus {
+  enabled: boolean;
+  command: string | null;
+}
+
 interface ForceUninstallState {
   plan: ForceUninstallPlan | null;
   result: ForceUninstallResult | null;
   loading: boolean;
   error: string | null;
+  contextMenuEnabled: boolean;
+  contextMenuLoading: boolean;
+  hunterLoading: boolean;
   planTarget: (path: string, name?: string) => Promise<ForceUninstallPlan | null>;
   cleanSelected: (traceIds: string[]) => Promise<ForceUninstallResult | null>;
+  loadContextMenu: () => Promise<void>;
+  setContextMenuEnabled: (enabled: boolean) => Promise<void>;
+  captureHunterTarget: () => Promise<string | null>;
   reset: () => void;
 }
 
@@ -29,6 +40,9 @@ export const useForceUninstallStore = create<ForceUninstallState>((set, get) => 
   result: null,
   loading: false,
   error: null,
+  contextMenuEnabled: false,
+  contextMenuLoading: false,
+  hunterLoading: false,
 
   planTarget: async (path, name) => {
     set({ loading: true, error: null, result: null, plan: null });
@@ -66,6 +80,37 @@ export const useForceUninstallStore = create<ForceUninstallState>((set, get) => 
       return result;
     } catch (error) {
       set({ loading: false, error: extractErrorMessage(error) });
+      return null;
+    }
+  },
+
+  loadContextMenu: async () => {
+    try {
+      const status = await invoke<ContextMenuStatus>("get_force_uninstall_context_menu");
+      set({ contextMenuEnabled: status.enabled });
+    } catch (error) {
+      set({ error: extractErrorMessage(error) });
+    }
+  },
+
+  setContextMenuEnabled: async (enabled) => {
+    set({ contextMenuLoading: true, error: null });
+    try {
+      const status = await invoke<ContextMenuStatus>("set_force_uninstall_context_menu", { enabled });
+      set({ contextMenuEnabled: status.enabled, contextMenuLoading: false });
+    } catch (error) {
+      set({ contextMenuLoading: false, error: extractErrorMessage(error) });
+    }
+  },
+
+  captureHunterTarget: async () => {
+    set({ hunterLoading: true, error: null });
+    try {
+      const path = await invoke<string>("capture_hunter_target", { timeoutSecs: 15 });
+      set({ hunterLoading: false });
+      return path;
+    } catch (error) {
+      set({ hunterLoading: false, error: extractErrorMessage(error) });
       return null;
     }
   },

@@ -33,6 +33,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getProgramIconSrc } from "./lib/icon";
 import {
@@ -193,8 +194,14 @@ export default function App() {
   const forceResult = useForceUninstallStore((state) => state.result);
   const forceLoading = useForceUninstallStore((state) => state.loading);
   const forceError = useForceUninstallStore((state) => state.error);
+  const contextMenuEnabled = useForceUninstallStore((state) => state.contextMenuEnabled);
+  const contextMenuLoading = useForceUninstallStore((state) => state.contextMenuLoading);
+  const hunterLoading = useForceUninstallStore((state) => state.hunterLoading);
   const planForceTarget = useForceUninstallStore((state) => state.planTarget);
   const cleanForceSelected = useForceUninstallStore((state) => state.cleanSelected);
+  const loadContextMenu = useForceUninstallStore((state) => state.loadContextMenu);
+  const setContextMenuEnabled = useForceUninstallStore((state) => state.setContextMenuEnabled);
+  const captureHunterTarget = useForceUninstallStore((state) => state.captureHunterTarget);
   const resetForce = useForceUninstallStore((state) => state.reset);
   const batchItems = useBatchUninstallStore((state) => state.items);
   const batchActive = useBatchUninstallStore((state) => state.active);
@@ -208,6 +215,7 @@ export default function App() {
   const [batchSelectedIds, setBatchSelectedIds] = useState<Set<string>>(new Set());
   const [batchOpen, setBatchOpen] = useState(false);
   const [forceOpen, setForceOpen] = useState(false);
+  const [startupForceTarget, setStartupForceTarget] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isTauriRuntime()) return;
@@ -221,6 +229,23 @@ export default function App() {
       cancelled = true;
     };
   }, [reloadPrograms]);
+
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    let active = true;
+    void loadContextMenu();
+    void invoke<string | null>("get_force_uninstall_startup_target")
+      .then((target) => {
+        if (!active || !target) return;
+        setStartupForceTarget(target);
+        resetForce();
+        setForceOpen(true);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [loadContextMenu, resetForce]);
 
   useEffect(() => {
     if (!manualScanPending || tracesLoading) return;
@@ -377,6 +402,7 @@ export default function App() {
   const closeForceUninstall = () => {
     if (forceResult?.success) void reloadPrograms({ refresh: true });
     setForceOpen(false);
+    setStartupForceTarget(null);
     resetForce();
   };
 
@@ -576,13 +602,19 @@ export default function App() {
         onClose={closeBatchUninstall}
       />}
       {forceOpen && <ForceUninstallModal
-        initialPath={selectedProgram.source?.install_location ?? ""}
+        initialPath={startupForceTarget ?? selectedProgram.source?.install_location ?? ""}
         plan={forcePlan}
         result={forceResult}
         loading={forceLoading}
         error={forceError}
+        contextMenuEnabled={contextMenuEnabled}
+        contextMenuLoading={contextMenuLoading}
+        hunterLoading={hunterLoading}
         onPlan={planForceTarget}
         onClean={cleanForceSelected}
+        onReset={resetForce}
+        onContextMenu={setContextMenuEnabled}
+        onHunter={captureHunterTarget}
         onClose={closeForceUninstall}
       />}
     </div>
@@ -875,8 +907,14 @@ function ForceUninstallModal({
   result,
   loading,
   error,
+  contextMenuEnabled,
+  contextMenuLoading,
+  hunterLoading,
   onPlan,
   onClean,
+  onReset,
+  onContextMenu,
+  onHunter,
   onClose,
 }: {
   initialPath: string;
@@ -884,13 +922,60 @@ function ForceUninstallModal({
   result: import("./types").ForceUninstallResult | null;
   loading: boolean;
   error: string | null;
+  contextMenuEnabled: boolean;
+  contextMenuLoading: boolean;
+  hunterLoading: boolean;
   onPlan: (path: string, name?: string) => Promise<import("./types").ForceUninstallPlan | null>;
   onClean: (traceIds: string[]) => Promise<import("./types").ForceUninstallResult | null>;
+  onReset: () => void;
+  onContextMenu: (enabled: boolean) => Promise<void>;
+  onHunter: () => Promise<string | null>;
   onClose: () => void;
 }) {
   const [path, setPath] = useState(initialPath === "—" ? "" : initialPath);
   const [name, setName] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [dragActive, setDragActive] = useState(false);
+
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void getCurrentWindow().onDragDropEvent(({ payload }) => {
+      if (payload.type === "enter" || payload.type === "over") {
+        setDragActive(true);
+      } else if (payload.type === "leave") {
+        setDragActive(false);
+      } else if (payload.type === "drop") {
+        setDragActive(false);
+        const droppedPath = payload.paths[0];
+        if (!droppedPath) return;
+        setPath(droppedPath);
+        setName("");
+        setSelectedIds(new Set());
+        onReset();
+      }
+    }).then((stop) => {
+      if (disposed) stop();
+      else unlisten = stop;
+    }).catch(() => undefined);
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [onReset]);
+
+  const updatePath = (value: string) => {
+    setPath(value);
+    setSelectedIds(new Set());
+    onReset();
+  };
+
+  const updateName = (value: string) => {
+    setName(value);
+    setSelectedIds(new Set());
+    onReset();
+  };
 
   const submitPlan = async () => {
     if (!isTauriRuntime()) return;
@@ -911,6 +996,12 @@ function ForceUninstallModal({
     void onClean([...selectedIds]);
   };
 
+  const submitHunter = async () => {
+    const target = await onHunter();
+    if (!target) return;
+    updatePath(target);
+  };
+
   return <div className="modal-backdrop" onMouseDown={onClose}>
     <section className="force-uninstall-modal" onMouseDown={(event) => event.stopPropagation()}>
       <header>
@@ -920,8 +1011,11 @@ function ForceUninstallModal({
       {!plan && !result ? <>
         <div className="force-form">
           <div className="force-warning"><TriangleAlert size={17} /><span>强制模式不会运行原厂卸载器，而是删除你确认的目录和候选残留。请先尝试标准卸载。</span></div>
-          <label>程序目录、EXE 或快捷方式<input value={path} onChange={(event) => setPath(event.target.value)} placeholder={"例如：C:\\Program Files\\Example App"} /></label>
-          <label>程序名称（可选）<input value={name} onChange={(event) => setName(event.target.value)} placeholder="留空则从路径推断" /></label>
+          <div className={`force-drop-zone ${dragActive ? "active" : ""}`}><FolderOpen size={19} /><span><strong>{dragActive ? "释放以使用这个目标" : "拖入程序目录、EXE 或快捷方式"}</strong><small>路径仍会经过规范化、系统目录保护和计划审查</small></span></div>
+          <label>程序目录、EXE 或快捷方式<input value={path} onChange={(event) => updatePath(event.target.value)} placeholder={"例如：C:\\Program Files\\Example App"} /></label>
+          <label>程序名称（可选）<input value={name} onChange={(event) => updateName(event.target.value)} placeholder="留空则从路径推断" /></label>
+          <div className="force-entry-actions"><button type="button" className="secondary-button compact-button" disabled={loading || hunterLoading} onClick={() => void submitHunter}>{hunterLoading ? <Loader2 size={13} className="spinning" /> : <Search size={13} />}{hunterLoading ? "等待目标窗口…" : "猎手模式"}</button><button type="button" className={`secondary-button compact-button ${contextMenuEnabled ? "enabled" : ""}`} disabled={contextMenuLoading} onClick={() => void onContextMenu(!contextMenuEnabled)}>{contextMenuLoading ? <Loader2 size={13} className="spinning" /> : <ShieldCheck size={13} />}{contextMenuEnabled ? "已启用右键入口" : "启用右键入口"}</button></div>
+          <p className="force-entry-help">猎手模式只读取用户随后激活窗口的 EXE 路径；右键入口只写入当前用户注册表，禁用时会删除 Rust Yu 自己创建的菜单项。</p>
           {error && <div className="force-error" role="alert"><TriangleAlert size={15} />{error}</div>}
         </div>
         <footer><span>计划阶段只扫描，不会删除文件或注册表。</span><button className="primary-button" disabled={loading || path.trim().length === 0 || !isTauriRuntime()} onClick={() => void submitPlan()}>{loading ? <Loader2 size={14} className="spinning" /> : <Search size={14} />}分析目标</button></footer>
