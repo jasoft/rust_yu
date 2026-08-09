@@ -47,6 +47,9 @@ Write-Host "已设置 ARM64 资源编译器: $llvmBin\windres.exe"
 Write-Host "MINGW_CHOST=$env:MINGW_CHOST"
 
 if (-not $SkipFrontend) {
+    $tauriTools = Join-Path $repoRoot "src-tauri"
+    npm --prefix $tauriTools ci
+    if ($LASTEXITCODE -ne 0) { throw "Tauri CLI npm ci 失败" }
     $frontend = Join-Path $repoRoot "src-tauri\src-frontends\webui"
     npm --prefix $frontend ci
     if ($LASTEXITCODE -ne 0) { throw "WebUI npm ci 失败" }

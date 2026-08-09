@@ -26,15 +26,47 @@ powershell -File tools/release/publish-release.ps1 -DryRun -SkipBuild -SkipPush 
 
 前端构建仍会报告仓库既有的 `INEFFECTIVE_DYNAMIC_IMPORT` 信息性警告，不是失败。
 
-## 当前环境限制
+## 工作树构建诊断
 
-本机是 Windows 11 ARM checkout，Tauri 原生 bundle/check 在 `tauri-winres` 阶段被环境工具链阻断：
+本机是 Windows 11 ARM checkout。新 worktree 默认使用 PATH 中 Scoop GCC 的
+`windres`，而 `tauri-winres` 为 `aarch64-pc-windows-gnullvm` 传入的 ARM64
+资源目标无法被该工具识别，因此会报：
 
 ```text
 windres: Can't detect target endianness and architecture
 ```
 
-因此本记录不会虚构 NSIS 安装器或管理员 Task Scheduler 实机通过结果。获得可用的 ARM GNU/LLVM `windres` 或 x64 Windows 构建环境后，应运行：
+这个错误在当前功能 checkout 和干净的 `main` checkout 中均可复现，说明它不是
+worktree 文件缺失造成的。使用 LLVM-MinGW 的 `windres`，并设置：
+
+```powershell
+$env:MINGW_CHOST = "aarch64-w64-mingw32"
+$env:Path = "<llvm-mingw>\bin;$env:Path"
+```
+
+即可通过资源编译阶段。之后当前 checkout 暴露出的真实源码问题（`thiserror`
+依赖、`Win32_System_Variant` feature、提升启动错误类型和两个 Rust 安全/借用
+错误）已在 `3627d58` 修复。
+
+已验证：
+
+```text
+cargo check --workspace                         passed (LLVM-MinGW 环境)
+cargo test -p rust-yu --lib -- --test-threads=1 116 passed
+cargo test -p rust-yu-tauri --lib -- --test-threads=1 18 passed
+cargo fmt --all -- --check                      passed
+```
+
+前端 `npm ci`、`npm run test`、`npm run lint` 和 `npm run build` 也已通过。首次
+执行 Tauri 打包前还必须在 `src-tauri` 单独执行 `npm ci`，否则会出现
+`npm error could not determine executable to run`，因为 Tauri CLI 位于该目录的
+被忽略 `node_modules` 中。
+
+本机随后已用 LLVM-MinGW 启动 `npx tauri build --bundles nsis`；Rust release
+编译越过资源和源码检查后，在 ARM64 LTO 阶段超过五分钟仍未生成最终 exe，已
+停止这组当前 worktree 的构建进程。因此本记录不虚构 NSIS 安装器或管理员
+Task Scheduler 实机通过结果。获得更快的 ARM64 构建环境或 x64 Windows 构建
+环境后，应运行：
 
 ```powershell
 cargo check --workspace

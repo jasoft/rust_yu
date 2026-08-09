@@ -4,6 +4,7 @@ Git worktree 只检出 Git 中受版本控制的文件。它不会复制被 `.gi
 
 - `target/` 不复制，每个 worktree 都会重新建立 Rust 构建缓存；
 - `node_modules/`、前端 `dist/` 不复制，需要重新执行 `npm ci`；
+- `src-tauri/node_modules/` 也不复制，Tauri CLI 必须在该目录单独执行 `npm ci`；
 - `MINGW_CHOST`、`PATH` 等 PowerShell 环境变量不复制；
 - `legacy-delphi` 是 Git submodule，需要显式初始化；
 - `.env` 等本地文件如果未被 Git 跟踪，也不会出现在新 worktree。
