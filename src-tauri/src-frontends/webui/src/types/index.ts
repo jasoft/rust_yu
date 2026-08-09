@@ -175,6 +175,26 @@ export interface UninstallJobResponse {
   job: UninstallJob;
 }
 
+export type BatchUninstallItemStatus =
+  | "queued"
+  | "planning"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export interface BatchUninstallItem {
+  program: InstalledProgram;
+  status: BatchUninstallItemStatus;
+  job_id: string | null;
+  job: UninstallJob | null;
+  message: string | null;
+  error: string | null;
+  traces_found: number;
+  traces: Trace[];
+  bytes_freed: number;
+}
+
 export interface CleanupSelection {
   trace_ids: string[];
   confirm: boolean;

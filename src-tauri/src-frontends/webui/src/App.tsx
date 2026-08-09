@@ -13,9 +13,11 @@ import {
   FolderOpen,
   Grid2X2,
   Info,
+  ListChecks,
   Loader2,
   Maximize2,
   Minus,
+  Pause,
   Package,
   Play,
   RefreshCw,
@@ -41,6 +43,7 @@ import {
 } from "./lib/programFilters";
 import { useProgramsStore } from "./stores/programs";
 import { useForceUninstallStore } from "./stores/forceUninstall";
+import { useBatchUninstallStore } from "./stores/batchUninstall";
 import { StartupManager } from "./components/StartupManager";
 import { CleanerPage } from "./components/CleanerPage";
 import { BrowserPluginsPage } from "./components/BrowserPluginsPage";
@@ -51,6 +54,7 @@ import {
   summarizeTraces,
 } from "./components/uninstall/uninstallReport";
 import type {
+  BatchUninstallItem,
   CleanResult,
   InstalledProgram,
   Trace,
@@ -190,6 +194,17 @@ export default function App() {
   const planForceTarget = useForceUninstallStore((state) => state.planTarget);
   const cleanForceSelected = useForceUninstallStore((state) => state.cleanSelected);
   const resetForce = useForceUninstallStore((state) => state.reset);
+  const batchItems = useBatchUninstallStore((state) => state.items);
+  const batchActive = useBatchUninstallStore((state) => state.active);
+  const batchPaused = useBatchUninstallStore((state) => state.paused);
+  const batchError = useBatchUninstallStore((state) => state.error);
+  const startBatchQueue = useBatchUninstallStore((state) => state.startQueue);
+  const pauseBatchQueue = useBatchUninstallStore((state) => state.pauseQueue);
+  const resumeBatchQueue = useBatchUninstallStore((state) => state.resumeQueue);
+  const cancelBatchQueue = useBatchUninstallStore((state) => state.cancelQueue);
+  const resetBatchQueue = useBatchUninstallStore((state) => state.reset);
+  const [batchSelectedIds, setBatchSelectedIds] = useState<Set<string>>(new Set());
+  const [batchOpen, setBatchOpen] = useState(false);
   const [forceOpen, setForceOpen] = useState(false);
 
   useEffect(() => {
@@ -219,6 +234,14 @@ export default function App() {
     const preferred = programs.find((program) => /7-?zip/i.test(program.name)) ?? programs[0];
     if (preferred) setSelectedId(preferred.id);
   }, [programs, selectedId]);
+
+  useEffect(() => {
+    const available = new Set(programs.map((program) => program.id));
+    setBatchSelectedIds((current) => {
+      const next = new Set([...current].filter((id) => available.has(id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [programs]);
 
   useEffect(() => {
     if (!import.meta.env.DEV) return;
@@ -311,6 +334,43 @@ export default function App() {
   const sourceCounts = isTauriRuntime()
     ? countProgramsBySource(programs)
     : { all: mockPrograms.length, registry: mockPrograms.length, msi: 0, store: 0 };
+  const selectedBatchPrograms = sourcePrograms.filter((program) => batchSelectedIds.has(program.id));
+
+  const toggleBatchSelection = (programId: string) => {
+    if (batchActive) return;
+    setBatchSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(programId)) next.delete(programId);
+      else next.add(programId);
+      return next;
+    });
+  };
+
+  const openBatchUninstall = () => {
+    if (batchActive || batchPaused) {
+      setBatchOpen(true);
+      return;
+    }
+    if (batchSelectedIds.size === 0) return;
+    resetBatchQueue();
+    setBatchOpen(true);
+  };
+
+  const startBatchUninstall = async () => {
+    if (!isTauriRuntime() || selectedBatchPrograms.length === 0) return;
+    await startBatchQueue(selectedBatchPrograms);
+    if (useBatchUninstallStore.getState().items.some((item) => item.status === "completed")) {
+      void reloadPrograms({ refresh: true });
+    }
+  };
+
+  const closeBatchUninstall = () => {
+    setBatchOpen(false);
+    if (!batchActive && !batchPaused) {
+      resetBatchQueue();
+      setBatchSelectedIds(new Set());
+    }
+  };
 
   const closeForceUninstall = () => {
     if (forceResult?.success) void reloadPrograms({ refresh: true });
@@ -443,6 +503,10 @@ export default function App() {
               onScan={handleManualScan}
               onDetails={() => setDetailsOpen(true)}
               onForceUninstall={() => { resetForce(); setForceOpen(true); }}
+              batchSelectedIds={batchSelectedIds}
+              batchActive={batchActive}
+              onToggleBatch={toggleBatchSelection}
+              onOpenBatch={openBatchUninstall}
               onRefresh={() => isTauriRuntime() && void reloadPrograms({ refresh: true })}
             />
           ) : stage === "confirm" ? (
@@ -493,6 +557,18 @@ export default function App() {
         </main>
       </div>
       {detailsOpen && <ProgramInfoModal program={selectedProgram} onClose={() => setDetailsOpen(false)} />}
+      {batchOpen && <BatchUninstallModal
+        selectedPrograms={selectedBatchPrograms}
+        items={batchItems}
+        active={batchActive}
+        paused={batchPaused}
+        error={batchError}
+        onStart={() => void startBatchUninstall()}
+        onPause={pauseBatchQueue}
+        onResume={resumeBatchQueue}
+        onCancel={cancelBatchQueue}
+        onClose={closeBatchUninstall}
+      />}
       {forceOpen && <ForceUninstallModal
         initialPath={selectedProgram.source?.install_location ?? ""}
         plan={forcePlan}
@@ -589,10 +665,11 @@ function AppsStage(props: {
   onQuery: (value: string) => void; onSourceFilter: (value: ProgramSourceFilter) => void; onSelect: (id: string) => void;
   onUninstall: () => void; onScan: () => void; onDetails: () => void; onRefresh: () => void;
   onForceUninstall: () => void;
+  batchSelectedIds: Set<string>; batchActive: boolean; onToggleBatch: (id: string) => void; onOpenBatch: () => void;
 }) {
   return (
     <div className="page apps-page">
-      <SectionHeader title="已安装应用" action={<div className="header-actions"><button className="secondary-button compact-button" onClick={props.onForceUninstall}><Wrench size={14} />强制卸载</button><button className="icon-button" disabled={props.loading || props.metadataLoading} title={props.metadataLoading ? "正在生成图标缓存" : "刷新"} onClick={props.onRefresh}><RefreshCw className={props.loading || props.metadataLoading ? "spinning" : ""} size={17} /></button></div>} />
+      <SectionHeader title="已安装应用" action={<div className="header-actions"><button className="secondary-button compact-button" disabled={!props.batchActive && props.batchSelectedIds.size === 0} onClick={props.onOpenBatch}><ListChecks size={14} />{props.batchActive ? "查看队列" : `批量卸载${props.batchSelectedIds.size ? ` (${props.batchSelectedIds.size})` : ""}`}</button><button className="secondary-button compact-button" onClick={props.onForceUninstall}><Wrench size={14} />强制卸载</button><button className="icon-button" disabled={props.loading || props.metadataLoading} title={props.metadataLoading ? "正在生成图标缓存" : "刷新"} onClick={props.onRefresh}><RefreshCw className={props.loading || props.metadataLoading ? "spinning" : ""} size={17} /></button></div>} />
       <div className="toolbar">
         <label className="search-box"><Search size={16} /><input value={props.query} onChange={(event) => props.onQuery(event.target.value)} placeholder="搜索应用、发布者或关键词…" /></label>
         <div className="filter-pills">
@@ -605,16 +682,17 @@ function AppsStage(props: {
       </div>
       <div className="apps-layout">
         <div className="program-table card-surface">
-          <div className="table-head"><span>名称 <ChevronDown size={12} /></span><span>发布者</span><span>大小</span><span>安装日期 <ChevronDown size={12} /></span></div>
+          <div className="table-head"><span>选择</span><span>名称 <ChevronDown size={12} /></span><span>发布者</span><span>大小</span><span>安装日期 <ChevronDown size={12} /></span></div>
           <div className="table-body">
             {props.error ? <div className="table-message error">{props.error}</div> : props.loading && props.programs.length === 0 ? <div className="table-message">正在读取已安装程序…</div> : props.programs.length === 0 ? <div className="table-message">没有找到符合条件的程序</div> : props.programs.map((program) => (
-              <button key={program.id} className={`program-row ${props.selectedId === program.id ? "selected" : ""}`} onClick={() => props.onSelect(program.id)}>
+              <div key={program.id} className={`program-row ${props.selectedId === program.id ? "selected" : ""}`} role="button" tabIndex={0} aria-selected={props.selectedId === program.id} onClick={() => props.onSelect(program.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); props.onSelect(program.id); } }}>
+                <span className="program-select"><input type="checkbox" aria-label={`选择 ${program.name}`} checked={props.batchSelectedIds.has(program.id)} disabled={props.batchActive} onClick={(event) => event.stopPropagation()} onChange={() => props.onToggleBatch(program.id)} /></span>
                 <span className="program-name"><AppIcon program={program} /><strong>{program.name}</strong></span>
                 <span>{program.publisher}</span><span>{program.size}</span><span>{program.installed}</span>
-              </button>
+              </div>
             ))}
           </div>
-          <div className="table-footer">显示 {props.programs.length} 个应用</div>
+          <div className="table-footer">显示 {props.programs.length} 个应用{props.batchSelectedIds.size > 0 ? ` · 已选择 ${props.batchSelectedIds.size} 个` : ""}</div>
         </div>
         <aside className="program-detail card-surface">
           <div className="detail-app"><AppIcon program={props.selected} large /><h2>{props.selected.name}</h2><p>{props.selected.publisher}</p><span>{props.selected.size}</span></div>
@@ -721,6 +799,67 @@ function ScanStage({
       <div className="page-footnote"><Info size={15} /><span>我们仅显示与已卸载程序明确相关的项目，系统关键项和低置信度项目不会被自动删除。</span>{isComplete && <button onClick={onContinue}>查看扫描结果 <ChevronDown size={13} /></button>}</div>
     </div>
   );
+}
+
+function BatchUninstallModal({
+  selectedPrograms,
+  items,
+  active,
+  paused,
+  error,
+  onStart,
+  onPause,
+  onResume,
+  onCancel,
+  onClose,
+}: {
+  selectedPrograms: InstalledProgram[];
+  items: BatchUninstallItem[];
+  active: boolean;
+  paused: boolean;
+  error: string | null;
+  onStart: () => void;
+  onPause: () => void;
+  onResume: () => void;
+  onCancel: () => void;
+  onClose: () => void;
+}) {
+  const started = items.length > 0;
+  const queued = items.filter((item) => item.status === "queued").length;
+  const completed = items.filter((item) => item.status === "completed").length;
+  const failed = items.filter((item) => item.status === "failed").length;
+  const cancelled = items.filter((item) => item.status === "cancelled").length;
+  const statusLabel = {
+    queued: "排队中",
+    planning: "准备中",
+    running: "卸载中",
+    completed: "已完成",
+    failed: "失败",
+    cancelled: "已取消",
+  } as const;
+
+  return <div className="modal-backdrop" onMouseDown={onClose}>
+    <section className="batch-uninstall-modal" onMouseDown={(event) => event.stopPropagation()}>
+      <header>
+        <div><span className="batch-modal-mark"><ListChecks size={20} /></span><span><h2>批量卸载队列</h2><p>{started ? "每项独立执行，按顺序运行并保留结果" : "先确认范围，再逐项调用原厂卸载器"}</p></span></div>
+        <button aria-label="关闭批量卸载队列" onClick={onClose}><X size={17} /></button>
+      </header>
+      {!started ? <div className="batch-preview">
+        <div className="batch-warning"><TriangleAlert size={17} /><span>批量模式只运行每个程序的原厂卸载器；卸载后发现的残留会保留在结果中，不会被批量自动删除。</span></div>
+        {!isTauriRuntime() && <div className="force-error"><TriangleAlert size={15} /><span>当前是浏览器预览，不能执行真实批量卸载。</span></div>}
+        <div className="batch-preview-list"><h3>待处理程序 <small>{selectedPrograms.length} 项</small></h3>{selectedPrograms.map((program) => <div key={program.id}><span className="batch-preview-icon"><Package size={14} /></span><span><strong>{program.name}</strong><small>{program.publisher ?? "未知发布者"} · {program.install_location ?? "未记录安装路径"}</small></span></div>)}</div>
+      </div> : <div className="batch-body">
+        <div className="batch-summary"><div><strong>{items.length}</strong><small>总数</small></div><div><strong className="green">{completed}</strong><small>完成</small></div><div><strong className="orange">{failed}</strong><small>失败</small></div><div><strong>{queued + cancelled}</strong><small>待处理/取消</small></div></div>
+        {error && <div className="batch-error"><TriangleAlert size={15} /><span>{error}</span></div>}
+        <div className="batch-list">{items.map((item) => <div className="batch-row" key={item.program.id}><span className={`batch-status ${item.status}`}>{statusLabel[item.status]}</span><span><strong>{item.program.name}</strong><small>{item.message ?? "等待队列调度"}</small>{item.error && <em>{item.error}</em>}</span><b>{item.traces_found > 0 ? `保留 ${item.traces_found} 项残留` : item.status === "completed" ? "无残留" : ""}</b></div>)}</div>
+      </div>}
+      <footer>
+        <span>{started ? (active ? (paused ? "队列已暂停，可继续或取消后续项" : "正在串行处理，当前项完成后才会开始下一项") : "队列已停止，所有结果均已保留") : "失败项会单独标记，不会阻止后续项继续"}</span>
+        <button className="secondary-button" onClick={onClose}>{active ? "隐藏" : "关闭"}</button>
+        {!started ? <button className="primary-button" disabled={!isTauriRuntime() || selectedPrograms.length === 0} onClick={onStart}><Play size={14} fill="currentColor" />开始队列</button> : active && !paused ? <><button className="secondary-button" onClick={onPause}><Pause size={14} />暂停</button><button className="danger-button" onClick={onCancel}>取消后续</button></> : active && paused ? <><button className="secondary-button" onClick={onCancel}>取消队列</button><button className="primary-button" onClick={onResume}><Play size={14} fill="currentColor" />继续队列</button></> : paused && queued > 0 ? <button className="primary-button" onClick={onResume}><Play size={14} fill="currentColor" />重试队列</button> : null}
+      </footer>
+    </section>
+  </div>;
 }
 
 function ForceUninstallModal({
