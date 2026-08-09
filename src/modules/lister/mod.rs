@@ -7,6 +7,7 @@ pub mod storage;
 pub mod store;
 
 use chrono::Utc;
+use std::collections::HashMap;
 
 use crate::modules::common::error::UninstallerError;
 use crate::modules::common::utils;
@@ -61,8 +62,19 @@ pub fn list_programs_with_cache(
         }
     }
 
+    // 即使列表 TTL 已到期或用户主动刷新，也保留仍然存在的图标资产。
+    // 扫描列表与图标提取的生命周期不同，不能因刷新注册表清单而丢弃磁盘缓存索引。
+    let cached_programs = if cache_eligible {
+        storage::read_scan_cache(query.source, i64::MAX)?
+            .entries
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
     let mut all_programs = collect_programs(query.source);
     enrichment::enrich_programs(&mut all_programs);
+    restore_cached_icon_metadata(&mut all_programs, &cached_programs);
     dedupe_and_sort(&mut all_programs);
 
     if cache_eligible {
@@ -311,6 +323,28 @@ fn matches_normalized_search(program: &InstalledProgram, normalized_query: &str)
             .unwrap_or(false)
 }
 
+fn restore_cached_icon_metadata(
+    programs: &mut [InstalledProgram],
+    cached_programs: &[InstalledProgram],
+) {
+    let cached_by_key: HashMap<_, _> = cached_programs
+        .iter()
+        .map(|program| (storage::build_program_cache_key(program), program))
+        .collect();
+
+    for program in programs {
+        let key = storage::build_program_cache_key(program);
+        let Some(cached) = cached_by_key.get(&key) else {
+            continue;
+        };
+        program.icon_cache_path_32 = cached.icon_cache_path_32.clone();
+        program.icon_cache_path_48 = cached.icon_cache_path_48.clone();
+        program.icon_data_url = cached.icon_data_url.clone();
+        program.icon_data_url_32 = cached.icon_data_url_32.clone();
+        program.icon_data_url_48 = cached.icon_data_url_48.clone();
+    }
+}
+
 fn dedupe_and_sort(programs: &mut Vec<InstalledProgram>) {
     let mut seen = std::collections::HashSet::new();
     programs.retain(|program| seen.insert(program.name.to_lowercase()));
@@ -388,6 +422,31 @@ mod tests {
 
         let names: Vec<_> = programs.into_iter().map(|program| program.name).collect();
         assert_eq!(names, vec!["Alpha".to_string(), "beta".to_string()]);
+    }
+
+    #[test]
+    fn restore_cached_icon_metadata_matches_stable_program_identity() {
+        let mut cached = sample_program("Demo", Some("Acme"));
+        cached.uninstall_string = Some(r#""C:\Program Files\Demo\uninstall.exe""#.to_string());
+        cached.install_location = Some(r"C:\Program Files\Demo".to_string());
+        cached.icon_cache_path_32 = Some(r"C:\cache\demo-32.png".to_string());
+        cached.icon_cache_path_48 = Some(r"C:\cache\demo-48.png".to_string());
+
+        let mut refreshed = cached.clone();
+        refreshed.id = "new-scan-id".to_string();
+        refreshed.icon_cache_path_32 = None;
+        refreshed.icon_cache_path_48 = None;
+
+        restore_cached_icon_metadata(std::slice::from_mut(&mut refreshed), &[cached]);
+
+        assert_eq!(
+            refreshed.icon_cache_path_32.as_deref(),
+            Some(r"C:\cache\demo-32.png")
+        );
+        assert_eq!(
+            refreshed.icon_cache_path_48.as_deref(),
+            Some(r"C:\cache\demo-48.png")
+        );
     }
 
     #[test]

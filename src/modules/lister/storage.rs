@@ -196,7 +196,7 @@ fn cache_metadata_key(base_key: &str, source: InstallSourceSelector) -> String {
     format!("{base_key}:{}", source.as_str())
 }
 
-fn build_program_cache_key(program: &InstalledProgram) -> String {
+pub(crate) fn build_program_cache_key(program: &InstalledProgram) -> String {
     let mut hasher = DefaultHasher::new();
     program.name.to_lowercase().hash(&mut hasher);
     program
@@ -518,6 +518,26 @@ pub fn read_scan_cache(
             .map_err(|error| map_sqlite_error("读取缓存负载失败", error))?;
         if let Ok(mut program) = serde_json::from_str::<InstalledProgram>(&payload_json) {
             program.normalize_uninstall_kind();
+            // SQLite 中保存的是持久化索引，图标文件仍可能被用户或清理工具移除。
+            // 读取时剔除失效路径，让前端仅对真正缺失的图标触发后台补建。
+            if program
+                .icon_cache_path_32
+                .as_deref()
+                .map(PathBuf::from)
+                .map(|path| !path.is_file())
+                .unwrap_or(false)
+            {
+                program.icon_cache_path_32 = None;
+            }
+            if program
+                .icon_cache_path_48
+                .as_deref()
+                .map(PathBuf::from)
+                .map(|path| !path.is_file())
+                .unwrap_or(false)
+            {
+                program.icon_cache_path_48 = None;
+            }
             programs.push(program);
         }
     }
@@ -617,11 +637,25 @@ mod tests {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let root = with_storage_root("metadata-fields");
+        let icon_32 = root.join("icon-cache").join("32").join("demo.png");
+        let icon_48 = root.join("icon-cache").join("48").join("demo.png");
+        assert!(icon_32
+            .parent()
+            .map(std::fs::create_dir_all)
+            .transpose()
+            .is_ok());
+        assert!(icon_48
+            .parent()
+            .map(std::fs::create_dir_all)
+            .transpose()
+            .is_ok());
+        assert!(std::fs::write(&icon_32, b"png").is_ok());
+        assert!(std::fs::write(&icon_48, b"png").is_ok());
 
         let mut program =
             InstalledProgram::new("DemoCacheMeta".to_string(), InstallSource::Registry);
-        program.icon_cache_path_32 = Some(r"C:\cache\icon\32\demo.png".to_string());
-        program.icon_cache_path_48 = Some(r"C:\cache\icon\48\demo.png".to_string());
+        program.icon_cache_path_32 = Some(icon_32.to_string_lossy().to_string());
+        program.icon_cache_path_48 = Some(icon_48.to_string_lossy().to_string());
         program.size_last_updated_at = Some("2026-02-15T00:00:00Z".to_string());
         program.size = Some(4096);
         assert!(save_scan_cache(InstallSourceSelector::All, &[program]).is_ok());
@@ -636,17 +670,46 @@ mod tests {
         });
         assert_eq!(
             cached.icon_cache_path_32,
-            Some(r"C:\cache\icon\32\demo.png".to_string())
+            Some(icon_32.to_string_lossy().to_string())
         );
         assert_eq!(
             cached.icon_cache_path_48,
-            Some(r"C:\cache\icon\48\demo.png".to_string())
+            Some(icon_48.to_string_lossy().to_string())
         );
         assert_eq!(
             cached.size_last_updated_at,
             Some("2026-02-15T00:00:00Z".to_string())
         );
         assert_eq!(cached.size, Some(4096));
+
+        cleanup_storage_root(&root);
+    }
+
+    #[test]
+    fn read_scan_cache_discards_missing_icon_files() {
+        let _guard = super::TEST_STORAGE_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let root = with_storage_root("missing-icon-files");
+        let mut program =
+            InstalledProgram::new("MissingIconCache".to_string(), InstallSource::Registry);
+        program.icon_cache_path_32 =
+            Some(root.join("missing-32.png").to_string_lossy().to_string());
+        program.icon_cache_path_48 =
+            Some(root.join("missing-48.png").to_string_lossy().to_string());
+        assert!(save_scan_cache(InstallSourceSelector::All, &[program]).is_ok());
+
+        let entries = read_scan_cache(InstallSourceSelector::All, DEFAULT_CACHE_TTL_SECONDS)
+            .unwrap_or_default()
+            .entries
+            .unwrap_or_default();
+        let cached = entries.first();
+        assert!(cached
+            .and_then(|item| item.icon_cache_path_32.as_ref())
+            .is_none());
+        assert!(cached
+            .and_then(|item| item.icon_cache_path_48.as_ref())
+            .is_none());
 
         cleanup_storage_root(&root);
     }

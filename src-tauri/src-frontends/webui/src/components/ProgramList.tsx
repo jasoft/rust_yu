@@ -6,13 +6,7 @@ import { Badge } from "./ui/badge";
 import { cn, formatBytes, formatSource } from "../lib/utils";
 import { getProgramIconSrc } from "../lib/icon";
 import type { InstalledProgram } from "../types";
-
-const sourceOptions = [
-  { value: "all", label: "全部" },
-  { value: "registry", label: "注册表" },
-  { value: "msi", label: "MSI" },
-  { value: "store", label: "商店" },
-];
+import { countProgramsBySource, filterPrograms, programSourceOptions } from "../lib/programFilters";
 
 export function ProgramList() {
   const {
@@ -23,38 +17,36 @@ export function ProgramList() {
     searchQuery,
     sourceFilter,
     selectedProgram,
-    loadPrograms,
-    warmupIcons,
+    reloadPrograms,
     setSearchQuery,
     setSourceFilter,
     selectProgram,
   } = useProgramsStore();
+  const visiblePrograms = filterPrograms(programs, sourceFilter, searchQuery);
+  const sourceCounts = countProgramsBySource(programs);
 
   useEffect(() => {
     let cancelled = false;
     const initialize = async () => {
-      await loadPrograms();
+      await reloadPrograms();
       if (cancelled) return;
-      await warmupIcons();
-      if (!cancelled) await loadPrograms();
     };
 
     void initialize();
     return () => {
       cancelled = true;
     };
-  }, [loadPrograms, warmupIcons]);
+  }, [reloadPrograms]);
 
   const handleSearch = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const value = e.target.value;
       setSearchQuery(value);
-      loadPrograms({ search: value || undefined });
     },
-    [setSearchQuery, loadPrograms],
+    [setSearchQuery],
   );
 
-  const handleRefresh = () => loadPrograms({ refresh: true });
+  const handleRefresh = () => void reloadPrograms({ refresh: true });
 
   return (
     <div className="flex flex-col h-full">
@@ -79,38 +71,38 @@ export function ProgramList() {
       </div>
 
       <div className="flex gap-2 px-4 py-2 border-b border-slate-700">
-        {sourceOptions.map((opt) => (
+        {programSourceOptions.map((opt) => (
           <button
-            key={opt.value}
-            onClick={() => setSourceFilter(opt.value)}
+            key={opt.id}
+            onClick={() => setSourceFilter(opt.id)}
             className={cn(
               "rounded-md px-3 py-1 text-xs font-medium transition-colors",
-              sourceFilter === opt.value
+              sourceFilter === opt.id
                 ? "bg-blue-600 text-white"
                 : "text-slate-400 hover:bg-slate-700 hover:text-white",
             )}
           >
-            {opt.label}
+            {opt.label} ({sourceCounts[opt.id]})
           </button>
         ))}
       </div>
 
       <div className="flex-1 overflow-auto">
-        {loading && programs.length === 0 ? (
+        {loading && visiblePrograms.length === 0 ? (
           <div className="flex items-center justify-center h-32 text-slate-500">
             <Loader2 className="h-5 w-5 animate-spin mr-2" />
             加载中...
           </div>
         ) : error ? (
           <div className="p-4 text-sm text-red-400">{error}</div>
-        ) : programs.length === 0 ? (
+        ) : visiblePrograms.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-32 text-slate-500">
             <Package className="h-8 w-8 mb-2" />
             <span>未找到已安装程序</span>
           </div>
         ) : (
           <div className="divide-y divide-slate-700/50">
-            {programs.map((program) => (
+            {visiblePrograms.map((program) => (
               <ProgramItem
                 key={program.id}
                 program={program}
@@ -123,7 +115,7 @@ export function ProgramList() {
       </div>
 
       <div className="border-t border-slate-700 px-4 py-2 text-xs text-slate-500">
-        共 {programs.length} 个程序
+        共 {visiblePrograms.length} 个程序
       </div>
     </div>
   );

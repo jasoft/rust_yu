@@ -11,6 +11,8 @@ import type {
   UninstallJob,
   UninstallJobResponse,
 } from "../types";
+import type { ProgramSourceFilter } from "../lib/programFilters";
+import { hasMissingProgramIcons } from "../lib/programFilters";
 
 type ViewMode = "list" | "detail" | "uninstall" | "traces";
 
@@ -19,7 +21,7 @@ interface ProgramsState {
   loading: boolean;
   error: string | null;
   searchQuery: string;
-  sourceFilter: string;
+  sourceFilter: ProgramSourceFilter;
   selectedProgram: InstalledProgram | null;
   viewMode: ViewMode;
   traces: Trace[];
@@ -31,10 +33,11 @@ interface ProgramsState {
   uninstalling: boolean;
   uninstallJob: UninstallJob | null;
 
-  loadPrograms: (options?: { source?: string; search?: string; refresh?: boolean }) => Promise<void>;
-  warmupIcons: () => Promise<void>;
+  loadPrograms: (options?: { refresh?: boolean }) => Promise<void>;
+  reloadPrograms: (options?: { refresh?: boolean }) => Promise<void>;
+  warmupIcons: () => Promise<boolean>;
   setSearchQuery: (query: string) => void;
-  setSourceFilter: (source: string) => void;
+  setSourceFilter: (source: ProgramSourceFilter) => void;
   selectProgram: (program: InstalledProgram | null) => void;
   setViewMode: (mode: ViewMode) => void;
   scanTraces: (programName: string) => Promise<void>;
@@ -80,8 +83,10 @@ export const useProgramsStore = create<ProgramsState>((set, get) => ({
     try {
       const response = await invoke<ProgramListResponse>("list_programs", {
         options: {
-          source: options?.source ?? get().sourceFilter,
-          search: options?.search ?? (get().searchQuery || undefined),
+          // 始终保留全量列表；来源标签和搜索在前端即时筛选，
+          // 避免切换标签重新扫描后丢失已经预热的图标元数据。
+          source: "all",
+          search: undefined,
           refresh: options?.refresh ?? false,
         },
       });
@@ -91,7 +96,19 @@ export const useProgramsStore = create<ProgramsState>((set, get) => ({
     }
   },
 
+  reloadPrograms: async (options) => {
+    await get().loadPrograms(options);
+    if (get().error) return;
+
+    // 基础列表不会同步生成图标文件；等待预热完成后再读取一次列表，
+    // 确保 UI 使用最新的缓存图标路径。
+    const iconsUpdated = await get().warmupIcons();
+    if (iconsUpdated && !get().error) await get().loadPrograms();
+  },
+
   warmupIcons: async () => {
+    // 后端读取缓存时会清除已丢失的路径；只有确实缺少图标时才启动预热。
+    if (!hasMissingProgramIcons(get().programs)) return false;
     set({ metadataLoading: true, error: null });
     try {
       await invoke("warmup_program_metadata", {
@@ -103,18 +120,17 @@ export const useProgramsStore = create<ProgramsState>((set, get) => ({
           progress_event: "installed-program-metadata-progress",
         },
       });
+      return true;
     } catch (e) {
       set({ error: extractErrorMessage(e) });
+      return false;
     } finally {
       set({ metadataLoading: false });
     }
   },
 
   setSearchQuery: (query) => set({ searchQuery: query }),
-  setSourceFilter: (source) => {
-    set({ sourceFilter: source });
-    get().loadPrograms({ source });
-  },
+  setSourceFilter: (source) => set({ sourceFilter: source }),
 
   selectProgram: (program) =>
     set({ selectedProgram: program, viewMode: program ? "detail" : "list" }),
