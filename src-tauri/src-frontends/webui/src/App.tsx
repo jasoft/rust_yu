@@ -53,6 +53,7 @@ import { InstallMonitorManager } from "./components/InstallMonitorManager";
 import { ReportCenter } from "./components/ReportCenter";
 import { HealthCenter } from "./components/HealthCenter";
 import { BrowserPluginsPage } from "./components/BrowserPluginsPage";
+import { ToolboxPage } from "./components/ToolboxPage";
 import { getUninstallFailureMessage } from "./components/uninstall/uninstallFeedback";
 import {
   formatTraceType,
@@ -522,6 +523,8 @@ export default function App() {
             <HealthCenter />
           ) : activeNav === "plugins" ? (
             <BrowserPluginsPage />
+          ) : activeNav === "tools" ? (
+            <ToolboxPage onNavigate={(next) => setActiveNav(next)} />
           ) : activeNav !== "apps" ? (
             <PlaceholderPage active={activeNav} />
           ) : stage === "apps" ? (
