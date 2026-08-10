@@ -40,6 +40,8 @@ const statusMeta: Record<InstallMonitorStatus, { label: string; className: strin
   waiting: { label: "等待安装完成", className: "waiting" },
   completed: { label: "已完成", className: "completed" },
   failed: { label: "存在读取失败", className: "failed" },
+  cancelled: { label: "已停止", className: "cancelled" },
+  expired: { label: "已过期", className: "expired" },
 };
 
 const changeMeta: Record<MonitorChangeKind, { label: string; className: string }> = {
@@ -75,6 +77,8 @@ export function InstallMonitorManager() {
     planFor,
     start,
     complete,
+    cancel,
+    deleteSession,
     select,
     exportSession,
     getTraces,
@@ -83,6 +87,8 @@ export function InstallMonitorManager() {
   const [selectedProgramId, setSelectedProgramId] = useState("");
   const [extraFiles, setExtraFiles] = useState("");
   const [extraRegistry, setExtraRegistry] = useState("");
+  const [activityKind, setActivityKind] = useState<InstallMonitorStartRequest["activity_kind"]>("update");
+  const [expiresMinutes, setExpiresMinutes] = useState(1440);
   const [changeFilter, setChangeFilter] = useState<ChangeFilter>("all");
   const [query, setQuery] = useState("");
   const [evidence, setEvidence] = useState<Trace[]>([]);
@@ -98,7 +104,7 @@ export function InstallMonitorManager() {
 
   const selectedProgram = programs.find((program) => program.id === selectedProgramId) ?? null;
   const activeSession = activeSessionId ? sessions.find((session) => session.id === activeSessionId) ?? null : null;
-  const request = selectedProgram ? buildRequest(selectedProgram, extraFiles, extraRegistry) : null;
+  const request = selectedProgram ? buildRequest(selectedProgram, extraFiles, extraRegistry, activityKind, expiresMinutes) : null;
 
   const filteredChanges = useMemo(() => {
     if (!selectedSession) return [];
@@ -164,11 +170,13 @@ export function InstallMonitorManager() {
               <div className="monitor-panel-header"><div><strong>创建监控会话</strong><span>开始安装前先保存基线，安装结束后再生成差异。</span></div><ShieldCheck size={19} /></div>
               <div className="monitor-form">
                 <label className="monitor-field"><span>已安装程序</span><select value={selectedProgramId} onChange={(event) => { setSelectedProgramId(event.target.value); useInstallMonitorStore.getState().setPlan(null); }} disabled={actionLoading || programs.length === 0}><option value="">选择程序…</option>{programs.map((program) => <option key={program.id} value={program.id}>{program.name}{program.publisher ? ` · ${program.publisher}` : ""}</option>)}</select></label>
+                <label className="monitor-field"><span>会话类型</span><select value={activityKind} onChange={(event) => setActivityKind(event.target.value as InstallMonitorStartRequest["activity_kind"])} disabled={actionLoading}><option value="install">全新安装</option><option value="update">软件更新</option><option value="normal_run">正常运行</option></select></label>
+                <label className="monitor-field"><span>有效期</span><select value={expiresMinutes} onChange={(event) => setExpiresMinutes(Number(event.target.value))} disabled={actionLoading}><option value={60}>1 小时</option><option value={1440}>24 小时</option><option value={10080}>7 天</option></select></label>
                 <label className="monitor-field"><span>额外文件目录 <small>可选，每行一个</small></span><textarea value={extraFiles} onChange={(event) => { setExtraFiles(event.target.value); useInstallMonitorStore.getState().setPlan(null); }} placeholder="例如：D:\\Shared\\MyApp" rows={2} disabled={actionLoading} /></label>
                 <label className="monitor-field"><span>额外注册表键 <small>可选，每行一个</small></span><textarea value={extraRegistry} onChange={(event) => { setExtraRegistry(event.target.value); useInstallMonitorStore.getState().setPlan(null); }} placeholder="例如：HKCU\\Software\\Vendor\\Product" rows={2} disabled={actionLoading} /></label>
               </div>
               <div className="monitor-form-actions"><button type="button" className="secondary-button" disabled={!request || actionLoading} onClick={() => void handlePlan()}>{actionLoading && !activeSessionId ? <Loader2 className="spinning" size={14} /> : <Search size={14} />}生成范围预览</button><button type="button" className="primary-button" disabled={!request || !plan || actionLoading || activeSessionId !== null} onClick={() => void handleStart()}><Play size={14} />开始记录安装前快照</button></div>
-              {activeSession && <div className="monitor-active-session"><span className="monitor-live-dot" /><div><strong>正在记录：{activeSession.program_name}</strong><small>完成安装后点击右侧按钮生成差异</small></div><button type="button" className="primary-button" disabled={actionLoading} onClick={() => void handleComplete()}>{actionLoading ? <Loader2 className="spinning" size={14} /> : <Check size={14} />}安装完成</button></div>}
+              {activeSession && <div className="monitor-active-session"><span className="monitor-live-dot" /><div><strong>正在记录：{activeSession.program_name}</strong><small>{activeSession.activity_kind} · 到期 {activeSession.expires_at ? new Date(activeSession.expires_at).toLocaleString("zh-CN") : "未设置"}</small></div><button type="button" className="secondary-button" disabled={actionLoading} onClick={() => void cancel(activeSession.id)}>停止</button><button type="button" className="primary-button" disabled={actionLoading} onClick={() => void handleComplete()}>{actionLoading ? <Loader2 className="spinning" size={14} /> : <Check size={14} />}采集结束快照</button></div>}
             </section>
 
             <PlanPreview plan={plan} />
@@ -176,7 +184,7 @@ export function InstallMonitorManager() {
 
           <div className="monitor-content-grid">
             <SessionList sessions={sessions} loading={loading} selectedId={selectedSession?.id ?? null} activeId={activeSessionId} onSelect={(id) => void handleSelect(id)} />
-            <SessionDetail session={selectedSession} filteredChanges={filteredChanges} changeFilter={changeFilter} query={query} onFilter={setChangeFilter} onQuery={setQuery} evidence={evidence} onEvidence={() => void handleEvidence()} onExport={(format) => selectedSession && void exportSession(selectedSession.id, format)} busy={actionLoading} />
+            <SessionDetail session={selectedSession} filteredChanges={filteredChanges} changeFilter={changeFilter} query={query} onFilter={setChangeFilter} onQuery={setQuery} evidence={evidence} onEvidence={() => void handleEvidence()} onExport={(format) => selectedSession && void exportSession(selectedSession.id, format)} onDelete={() => selectedSession && void deleteSession(selectedSession.id)} busy={actionLoading} />
           </div>
         </>
       )}
@@ -184,11 +192,13 @@ export function InstallMonitorManager() {
   );
 }
 
-function buildRequest(program: InstallMonitorStartRequest["program"], extraFiles: string, extraRegistry: string): InstallMonitorStartRequest {
+function buildRequest(program: InstallMonitorStartRequest["program"], extraFiles: string, extraRegistry: string, activityKind: InstallMonitorStartRequest["activity_kind"], expiresMinutes: number): InstallMonitorStartRequest {
   return {
     program,
     extra_file_roots: splitLines(extraFiles),
     extra_registry_roots: splitLines(extraRegistry),
+    activity_kind: activityKind,
+    expires_after_minutes: expiresMinutes,
   };
 }
 
@@ -216,12 +226,12 @@ function SessionList({ sessions, loading, selectedId, activeId, onSelect }: { se
   return <section className="monitor-sessions card-surface"><div className="monitor-panel-header"><div><strong>监控会话</strong><span>本机保存的安装前后快照</span></div><span className="monitor-session-total">{sessions.length}</span></div><div className="monitor-session-list">{loading && sessions.length === 0 ? <div className="monitor-empty"><Loader2 className="spinning" size={18} />正在读取会话…</div> : sessions.length === 0 ? <div className="monitor-empty"><FileText size={23} /><span>还没有安装监控会话</span><small>选择程序后开始保存安装前快照。</small></div> : sessions.map((session) => <button type="button" className={`monitor-session ${selectedId === session.id ? "selected" : ""}`} key={session.id} onClick={() => onSelect(session.id)}><span className="monitor-session-icon">{activeId === session.id ? <span className="monitor-live-dot" /> : <SquareActivity size={15} />}</span><span className="monitor-session-copy"><strong>{session.program_name}</strong><small>{formatDate(session.created_at)} · {session.id.slice(0, 8)}</small></span><span className={`monitor-status ${statusMeta[session.status].className}`}>{statusMeta[session.status].label}</span><span className="monitor-session-count">{session.changes_count} 项变化</span></button>)}</div></section>;
 }
 
-function SessionDetail({ session, filteredChanges, changeFilter, query, onFilter, onQuery, evidence, onEvidence, onExport, busy }: { session: InstallMonitorSession | null; filteredChanges: MonitorChange[]; changeFilter: ChangeFilter; query: string; onFilter: (filter: ChangeFilter) => void; onQuery: (query: string) => void; evidence: Trace[]; onEvidence: () => void; onExport: (format: "json" | "csv") => void; busy: boolean }) {
+function SessionDetail({ session, filteredChanges, changeFilter, query, onFilter, onQuery, evidence, onEvidence, onExport, onDelete, busy }: { session: InstallMonitorSession | null; filteredChanges: MonitorChange[]; changeFilter: ChangeFilter; query: string; onFilter: (filter: ChangeFilter) => void; onQuery: (query: string) => void; evidence: Trace[]; onEvidence: () => void; onExport: (format: "json" | "csv") => void; onDelete: () => void; busy: boolean }) {
   if (!session) return <section className="monitor-detail card-surface monitor-detail-empty"><span><FileCode2 size={28} /></span><strong>选择会话查看安装差异</strong><p>新增与修改项目会保留证据说明；移除项目只用于审计，不会自动变成卸载删除目标。</p></section>;
   const added = session.changes.filter((change) => change.kind === "added").length;
   const removed = session.changes.filter((change) => change.kind === "removed").length;
   const modified = session.changes.filter((change) => change.kind === "modified").length;
-  return <section className="monitor-detail card-surface"><div className="monitor-detail-header"><div><strong>{session.program.name}</strong><small>{formatDate(session.created_at)}{session.completed_at ? ` → ${formatDate(session.completed_at)}` : " · 尚未完成"}</small></div><div className="monitor-detail-actions"><button type="button" className="secondary-button compact-button" disabled={busy} onClick={() => onExport("json")}><Download size={13} />JSON</button><button type="button" className="secondary-button compact-button" disabled={busy} onClick={() => onExport("csv")}><Download size={13} />CSV</button></div></div><div className="monitor-detail-summary"><MonitorStat label="新增" value={added} tone="added" /><MonitorStat label="修改" value={modified} tone="modified" /><MonitorStat label="移除" value={removed} tone="removed" /><MonitorStat label="警告" value={session.warnings.length} tone="warning" /></div>{session.warnings.length > 0 && <div className="monitor-detail-warning"><AlertTriangle size={13} /><span>{session.warnings.length} 条读取警告：{session.warnings[0]}{session.warnings.length > 1 ? " 等" : ""}</span></div>}<div className="monitor-change-toolbar"><label className="search-box"><Search size={14} /><input value={query} onChange={(event) => onQuery(event.target.value)} placeholder="搜索路径或证据说明" /></label><div className="monitor-filter-pills"><button className={changeFilter === "all" ? "active" : ""} onClick={() => onFilter("all")}>全部 {session.changes.length}</button>{(["added", "modified", "removed"] as MonitorChangeKind[]).map((kind) => <button key={kind} className={changeFilter === kind ? "active" : ""} onClick={() => onFilter(kind)}>{changeMeta[kind].label} {kind === "added" ? added : kind === "modified" ? modified : removed}</button>)}</div></div><div className="monitor-change-list">{filteredChanges.length === 0 ? <div className="monitor-empty"><Search size={22} /><span>没有符合条件的变化</span></div> : filteredChanges.map((change) => <ChangeRow change={change} key={change.id} />)}</div><div className="monitor-detail-footer"><div><span>显示 {filteredChanges.length} / {session.changes.length} 项</span><small>{evidence.length > 0 ? `已转换 ${evidence.length} 项高/中置信度 Trace` : "Trace 仅包含新增和修改项目"}</small></div><button type="button" className="primary-button" disabled={busy || session.status !== "completed"} onClick={onEvidence}><ShieldCheck size={14} />转换为卸载证据</button></div>{evidence.length > 0 && <div className="monitor-evidence"><CheckCircle2 size={14} /><span>已生成标准卸载证据，可在卸载审查阶段复核：</span>{evidence.slice(0, 3).map((trace) => <code key={trace.id}>{trace.path}</code>)}{evidence.length > 3 && <small>等 {evidence.length} 项</small>}</div>}</section>;
+  return <section className="monitor-detail card-surface"><div className="monitor-detail-header"><div><strong>{session.program.name}</strong><small>{session.activity_kind} · {formatDate(session.created_at)}{session.completed_at ? ` → ${formatDate(session.completed_at)}` : " · 尚未完成"}</small></div><div className="monitor-detail-actions"><button type="button" className="secondary-button compact-button" disabled={busy} onClick={() => onExport("json")}><Download size={13} />JSON</button><button type="button" className="secondary-button compact-button" disabled={busy} onClick={() => onExport("csv")}><Download size={13} />CSV</button><button type="button" className="danger-button compact-button" disabled={busy || session.status === "waiting"} onClick={onDelete}>删除</button></div></div><div className="monitor-detail-summary"><MonitorStat label="新增" value={added} tone="added" /><MonitorStat label="修改" value={modified} tone="modified" /><MonitorStat label="移除" value={removed} tone="removed" /><MonitorStat label="证据事件" value={session.evidence_events.length} tone="warning" /></div>{session.warnings.length > 0 && <div className="monitor-detail-warning"><AlertTriangle size={13} /><span>{session.warnings.length} 条读取警告：{session.warnings[0]}{session.warnings.length > 1 ? " 等" : ""}</span></div>}<div className="monitor-change-toolbar"><label className="search-box"><Search size={14} /><input value={query} onChange={(event) => onQuery(event.target.value)} placeholder="搜索路径或证据说明" /></label><div className="monitor-filter-pills"><button className={changeFilter === "all" ? "active" : ""} onClick={() => onFilter("all")}>全部 {session.changes.length}</button>{(["added", "modified", "removed"] as MonitorChangeKind[]).map((kind) => <button key={kind} className={changeFilter === kind ? "active" : ""} onClick={() => onFilter(kind)}>{changeMeta[kind].label} {kind === "added" ? added : kind === "modified" ? modified : removed}</button>)}</div></div><div className="monitor-change-list">{filteredChanges.length === 0 ? <div className="monitor-empty"><Search size={22} /><span>没有符合条件的变化</span></div> : filteredChanges.map((change) => <ChangeRow change={change} key={change.id} />)}</div><div className="monitor-detail-footer"><div><span>显示 {filteredChanges.length} / {session.changes.length} 项 · 事件图 {session.evidence_events.length} 条</span><small>{evidence.length > 0 ? `已转换 ${evidence.length} 项高/中置信度 Trace` : "Trace 仅包含新增和修改项目"}</small></div><button type="button" className="primary-button" disabled={busy || session.status !== "completed"} onClick={onEvidence}><ShieldCheck size={14} />转换为卸载证据</button></div>{evidence.length > 0 && <div className="monitor-evidence"><CheckCircle2 size={14} /><span>已生成标准卸载证据，可在卸载审查阶段复核：</span>{evidence.slice(0, 3).map((trace) => <code key={trace.id}>{trace.path}</code>)}{evidence.length > 3 && <small>等 {evidence.length} 项</small>}</div>}</section>;
 }
 
 function ChangeRow({ change }: { change: MonitorChange }) {

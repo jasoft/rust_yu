@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-plan-program-hibernation"
+description = "Enables the plan_program_hibernation command without any pre-configured scope."
+commands.allow = ["plan_program_hibernation"]
+
+[[permission]]
+identifier = "deny-plan-program-hibernation"
+description = "Denies the plan_program_hibernation command without any pre-configured scope."
+commands.deny = ["plan_program_hibernation"]

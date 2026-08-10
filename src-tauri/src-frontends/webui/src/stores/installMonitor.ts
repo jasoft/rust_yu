@@ -23,6 +23,8 @@ interface InstallMonitorState {
   planFor: (request: InstallMonitorStartRequest) => Promise<InstallMonitorPlan | null>;
   start: (request: InstallMonitorStartRequest) => Promise<InstallMonitorSessionInfo | null>;
   complete: (sessionId: string) => Promise<InstallMonitorSession | null>;
+  cancel: (sessionId: string) => Promise<void>;
+  deleteSession: (sessionId: string) => Promise<void>;
   select: (sessionId: string | null) => Promise<void>;
   exportSession: (sessionId: string, format: "json" | "csv") => Promise<MonitorExport | null>;
   getTraces: (sessionId: string) => Promise<Trace[]>;
@@ -94,6 +96,24 @@ export const useInstallMonitorStore = create<InstallMonitorState>((set, get) => 
       set({ actionLoading: false, error: errorMessage(error) });
       return null;
     }
+  },
+
+  cancel: async (sessionId) => {
+    set({ actionLoading: true, error: null, notice: null });
+    try {
+      const session = await invoke<InstallMonitorSession>("cancel_install_monitor", { sessionId });
+      set({ actionLoading: false, activeSessionId: null, selectedSession: session, notice: "监控会话已停止，未生成结束差异。" });
+      await get().load();
+    } catch (error) { set({ actionLoading: false, error: errorMessage(error) }); }
+  },
+
+  deleteSession: async (sessionId) => {
+    set({ actionLoading: true, error: null, notice: null });
+    try {
+      await invoke<boolean>("delete_install_monitor", { sessionId });
+      set({ actionLoading: false, selectedSession: null, notice: "监控会话已从本机删除。" });
+      await get().load();
+    } catch (error) { set({ actionLoading: false, error: errorMessage(error) }); }
   },
 
   select: async (sessionId) => {

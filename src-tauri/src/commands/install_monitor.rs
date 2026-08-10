@@ -1,6 +1,7 @@
 use rust_yu_lib::install_monitor::{
     self, InstallMonitorPlan, InstallMonitorSession, InstallMonitorSessionInfo,
-    InstallMonitorStartRequest, MonitorExport, MonitorExportFormat,
+    InstallMonitorStartRequest, MonitorEvidenceEvent, MonitorExport, MonitorExportFormat,
+    MonitorProcessEventInput,
 };
 use rust_yu_lib::scanner::models::Trace;
 
@@ -25,10 +26,35 @@ pub async fn plan_install_monitor(
 pub async fn start_install_monitor(
     request: InstallMonitorStartRequest,
 ) -> Result<InstallMonitorSessionInfo, CommandError> {
-    tauri::async_runtime::spawn_blocking(move || install_monitor::start_monitor(request))
-        .await
-        .map_err(|error| CommandError::new(format!("开始安装监控任务失败: {error}")))?
-        .map_err(CommandError::from)
+    let session =
+        tauri::async_runtime::spawn_blocking(move || install_monitor::start_monitor(request))
+            .await
+            .map_err(|error| CommandError::new(format!("开始安装监控任务失败: {error}")))?
+            .map_err(CommandError::from)?;
+    let session_id = session.id.clone();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            let id = session_id.clone();
+            let keep_running = tauri::async_runtime::spawn_blocking(move || {
+                install_monitor::observe_monitor_processes(&id)
+            })
+            .await;
+            match keep_running {
+                Ok(Ok(true)) => {}
+                Ok(Ok(false)) => break,
+                Ok(Err(error)) => {
+                    tracing::warn!("安装监控进程采样失败: {error}");
+                    break;
+                }
+                Err(error) => {
+                    tracing::warn!("安装监控进程采样任务失败: {error}");
+                    break;
+                }
+            }
+        }
+    });
+    Ok(session)
 }
 
 #[tauri::command]
@@ -39,6 +65,45 @@ pub async fn complete_install_monitor(
         .await
         .map_err(|error| CommandError::new(format!("完成安装监控任务失败: {error}")))?
         .map_err(CommandError::from)
+}
+
+#[tauri::command]
+pub async fn cancel_install_monitor(
+    session_id: String,
+) -> Result<InstallMonitorSession, CommandError> {
+    tauri::async_runtime::spawn_blocking(move || install_monitor::cancel_monitor(&session_id))
+        .await
+        .map_err(|error| CommandError::new(format!("停止安装监控任务失败: {error}")))?
+        .map_err(CommandError::from)
+}
+
+#[tauri::command]
+pub async fn delete_install_monitor(session_id: String) -> Result<bool, CommandError> {
+    tauri::async_runtime::spawn_blocking(move || install_monitor::delete_monitor(&session_id))
+        .await
+        .map_err(|error| CommandError::new(format!("删除安装监控任务失败: {error}")))?
+        .map_err(CommandError::from)
+}
+
+#[tauri::command]
+pub async fn expire_install_monitor_sessions() -> Result<usize, CommandError> {
+    tauri::async_runtime::spawn_blocking(install_monitor::expire_monitor_sessions_now)
+        .await
+        .map_err(|error| CommandError::new(format!("过期安装监控任务失败: {error}")))?
+        .map_err(CommandError::from)
+}
+
+#[tauri::command]
+pub async fn record_install_monitor_process(
+    session_id: String,
+    event: MonitorProcessEventInput,
+) -> Result<MonitorEvidenceEvent, CommandError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        install_monitor::record_process_event(&session_id, event)
+    })
+    .await
+    .map_err(|error| CommandError::new(format!("记录安装进程事件失败: {error}")))?
+    .map_err(CommandError::from)
 }
 
 #[tauri::command]

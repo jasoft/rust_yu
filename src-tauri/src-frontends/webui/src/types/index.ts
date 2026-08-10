@@ -214,7 +214,9 @@ export interface BackupRestoreResult {
 
 export type MonitorChangeKind = "added" | "removed" | "modified";
 export type MonitorItemKind = "file" | "directory" | "registry_key" | "registry_value";
-export type InstallMonitorStatus = "waiting" | "completed" | "failed";
+export type InstallMonitorStatus = "waiting" | "completed" | "failed" | "cancelled" | "expired";
+export type MonitorActivityKind = "install" | "update" | "normal_run";
+export type MonitorEvidenceKind = "process" | "file" | "registry" | "service" | "scheduled_task" | "driver";
 export type MonitorConfidence = "high" | "medium";
 
 export interface MonitorRootInfo {
@@ -243,6 +245,8 @@ export interface InstallMonitorStartRequest {
   program: InstalledProgram;
   extra_file_roots: string[];
   extra_registry_roots: string[];
+  activity_kind: MonitorActivityKind;
+  expires_after_minutes: number | null;
 }
 
 export interface MonitorFileRecord {
@@ -296,11 +300,16 @@ export interface InstallMonitorSession {
   created_at: string;
   completed_at: string | null;
   status: InstallMonitorStatus;
+  activity_kind: MonitorActivityKind;
+  expires_at: string | null;
   before: MonitorSnapshot;
   after: MonitorSnapshot | null;
   before_summary: MonitorSnapshotSummary;
   after_summary: MonitorSnapshotSummary | null;
   changes: MonitorChange[];
+  evidence_events: MonitorEvidenceEvent[];
+  system_before: Trace[];
+  system_after: Trace[];
   warnings: string[];
 }
 
@@ -311,11 +320,81 @@ export interface InstallMonitorSessionInfo {
   created_at: string;
   completed_at: string | null;
   status: InstallMonitorStatus;
+  activity_kind: MonitorActivityKind;
+  expires_at: string | null;
   changes_count: number;
   added_count: number;
   removed_count: number;
   modified_count: number;
   warning_count: number;
+}
+
+export interface MonitorEvidenceEvent {
+  id: string;
+  occurred_at: string;
+  source: string;
+  target: string;
+  kind: MonitorEvidenceKind;
+  operation: string;
+  confidence: MonitorConfidence;
+  parent_event_id: string | null;
+  process_id: number | null;
+  parent_process_id: number | null;
+  note: string;
+}
+
+export type EvidenceConfidence = "high" | "medium" | "low" | "unknown";
+
+export interface EvidenceRecord {
+  id: string; category: string; target: string; source: string; observed_at: string;
+  confidence: EvidenceConfidence; exists: boolean | null; result: string;
+  destructive_eligible: boolean; note: string;
+}
+
+export interface ReconstructedEvidencePacket {
+  id: string; schema_version: number; generated_at: string; program: InstalledProgram;
+  inference_notice: string; vendor: string | null; signature_status: string;
+  signature_subject: string | null; evidence: EvidenceRecord[]; warnings: string[];
+  immutable_sha256: string;
+}
+
+export type CleanupPolicyKind = "audit" | "safe" | "recovery";
+export interface CleanupPolicyProfile {
+  kind: CleanupPolicyKind; title: string; description: string; analyze_only: boolean;
+  require_confirmation: boolean; require_backup: boolean; allowed_confidence: EvidenceConfidence[];
+  allowed_actions: string[]; irreversible_actions: string[];
+}
+
+export interface HibernationCandidate {
+  item_id: string; name: string; source: string; command: string | null;
+  association: EvidenceConfidence; reversible: boolean; prohibited: boolean; reason: string;
+}
+export interface HibernationPlan {
+  id: string; program: InstalledProgram; created_at: string; last_used: string | null;
+  times_used: number | null; candidates: HibernationCandidate[]; selected_item_ids: string[]; warnings: string[];
+}
+export interface HibernationResult { plan_id: string; applied: boolean; change_ids: string[]; errors: string[]; }
+
+export interface InventoryEntry {
+  program_id: string; name: string; publisher: string | null; version: string | null;
+  source: string; install_location: string | null; uninstall_capability: string; signature_status: string;
+}
+export interface InventoryBaseline {
+  id: string; schema_version: number; captured_at: string; machine_label: string;
+  entries: InventoryEntry[]; sha256: string;
+}
+export interface InventoryDifference {
+  key: string; name: string; status: "missing" | "added" | "version_changed";
+  baseline_version: string | null; current_version: string | null; note: string;
+}
+export interface InventoryComparison {
+  compared_at: string; baseline_id: string; baseline_captured_at: string;
+  differences: InventoryDifference[]; read_only_notice: string;
+}
+
+export interface EvidenceBundleExport {
+  report_id: string; path: string; generated_at: string; file_count: number;
+  immutable_snapshot_sha256: string;
 }
 
 export interface MonitorExport {

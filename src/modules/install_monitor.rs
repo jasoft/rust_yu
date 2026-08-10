@@ -10,7 +10,7 @@ use crate::modules::common::utils;
 use crate::modules::lister::models::InstalledProgram;
 use crate::modules::lister::storage;
 use crate::modules::scanner::models::{Confidence, Trace, TraceType};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
@@ -18,6 +18,7 @@ use std::hash::Hasher;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
+use sysinfo::System;
 use uuid::Uuid;
 use walkdir::WalkDir;
 use winreg::enums::*;
@@ -33,6 +34,13 @@ const MAX_REGISTRY_NODES: usize = 30_000;
 const MAX_REGISTRY_DEPTH: usize = 64;
 const MAX_REGISTRY_BYTES: u64 = 128 * 1024 * 1024;
 const MAX_ROOTS: usize = 32;
+static MONITOR_SESSION_WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn session_write_guard() -> std::sync::MutexGuard<'static, ()> {
+    MONITOR_SESSION_WRITE_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -57,6 +65,52 @@ pub enum InstallMonitorStatus {
     Waiting,
     Completed,
     Failed,
+    Cancelled,
+    Expired,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum MonitorActivityKind {
+    Install,
+    #[default]
+    Update,
+    NormalRun,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MonitorEvidenceKind {
+    Process,
+    File,
+    Registry,
+    Service,
+    ScheduledTask,
+    Driver,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MonitorEvidenceEvent {
+    pub id: String,
+    pub occurred_at: DateTime<Utc>,
+    pub source: String,
+    pub target: String,
+    pub kind: MonitorEvidenceKind,
+    pub operation: String,
+    pub confidence: MonitorConfidence,
+    pub parent_event_id: Option<String>,
+    pub process_id: Option<u32>,
+    pub parent_process_id: Option<u32>,
+    pub note: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MonitorProcessEventInput {
+    pub executable: String,
+    pub process_id: u32,
+    pub parent_process_id: Option<u32>,
+    pub parent_event_id: Option<String>,
+    pub operation: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -122,6 +176,11 @@ pub struct InstallMonitorStartRequest {
     pub extra_file_roots: Vec<String>,
     #[serde(default)]
     pub extra_registry_roots: Vec<String>,
+    #[serde(default)]
+    pub activity_kind: MonitorActivityKind,
+    /// 最长会话时间；默认 24 小时，范围 5 分钟到 7 天。
+    #[serde(default)]
+    pub expires_after_minutes: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -182,11 +241,21 @@ pub struct InstallMonitorSession {
     pub created_at: DateTime<Utc>,
     pub completed_at: Option<DateTime<Utc>>,
     pub status: InstallMonitorStatus,
+    #[serde(default)]
+    pub activity_kind: MonitorActivityKind,
+    #[serde(default)]
+    pub expires_at: Option<DateTime<Utc>>,
     pub before: MonitorSnapshot,
     pub after: Option<MonitorSnapshot>,
     pub before_summary: MonitorSnapshotSummary,
     pub after_summary: Option<MonitorSnapshotSummary>,
     pub changes: Vec<MonitorChange>,
+    #[serde(default)]
+    pub evidence_events: Vec<MonitorEvidenceEvent>,
+    #[serde(default)]
+    pub system_before: Vec<Trace>,
+    #[serde(default)]
+    pub system_after: Vec<Trace>,
     pub warnings: Vec<String>,
 }
 
@@ -198,6 +267,8 @@ pub struct InstallMonitorSessionInfo {
     pub created_at: DateTime<Utc>,
     pub completed_at: Option<DateTime<Utc>>,
     pub status: InstallMonitorStatus,
+    pub activity_kind: MonitorActivityKind,
+    pub expires_at: Option<DateTime<Utc>>,
     pub changes_count: usize,
     pub added_count: usize,
     pub removed_count: usize,
@@ -340,18 +411,29 @@ pub fn start_monitor(
         warnings
             .push("范围包含系统级目录或注册表；未提权时只能记录当前账户可访问的项目".to_string());
     }
+    let created_at = Utc::now();
+    let expires_after = request
+        .expires_after_minutes
+        .unwrap_or(24 * 60)
+        .clamp(5, 7 * 24 * 60);
+    let system_before = crate::modules::system_integration::scan_traces(&request.program);
     let session = InstallMonitorSession {
         id,
         program: request.program,
         scope: plan.scope,
-        created_at: Utc::now(),
+        created_at,
         completed_at: None,
         status: InstallMonitorStatus::Waiting,
+        activity_kind: request.activity_kind,
+        expires_at: Some(created_at + Duration::minutes(i64::from(expires_after))),
         before_summary: snapshot_summary(&before),
         after_summary: None,
         before,
         after: None,
         changes: Vec::new(),
+        evidence_events: Vec::new(),
+        system_before,
+        system_after: Vec::new(),
         warnings,
     };
     write_session(&session)?;
@@ -360,14 +442,36 @@ pub fn start_monitor(
 
 /// 捕获安装后快照并生成差异；会话完成后仍可多次读取和导出，不重复改写差异。
 pub fn complete_monitor(session_id: &str) -> Result<InstallMonitorSession, UninstallerError> {
+    let _guard = session_write_guard();
     let mut session = load_session(session_id)?;
     if session.status != InstallMonitorStatus::Waiting {
         return Err(UninstallerError::Other(
             "该安装监控会话已经完成".to_string(),
         ));
     }
+    if session
+        .expires_at
+        .is_some_and(|expires_at| expires_at < Utc::now())
+    {
+        session.status = InstallMonitorStatus::Expired;
+        session.completed_at = Some(Utc::now());
+        session
+            .warnings
+            .push("会话超过有效期，未采集结束快照。".to_string());
+        write_session(&session)?;
+        return Err(UninstallerError::Other("安装监控会话已过期。".to_string()));
+    }
     let after = capture_scope(&session.scope)?;
     session.changes = diff_snapshots(&session.program, &session.before, &after);
+    session.system_after = crate::modules::system_integration::scan_traces(&session.program);
+    session
+        .evidence_events
+        .extend(change_events(&session.changes, after.captured_at));
+    session.evidence_events.extend(system_change_events(
+        &session.system_before,
+        &session.system_after,
+        after.captured_at,
+    ));
     session.warnings.extend(after.warnings.iter().cloned());
     session.after_summary = Some(snapshot_summary(&after));
     session.after = Some(after);
@@ -375,6 +479,201 @@ pub fn complete_monitor(session_id: &str) -> Result<InstallMonitorSession, Unins
     session.status = InstallMonitorStatus::Completed;
     write_session(&session)?;
     Ok(session)
+}
+
+/// 停止等待中的会话。取消只更新清单，不采集结束快照。
+pub fn cancel_monitor(session_id: &str) -> Result<InstallMonitorSession, UninstallerError> {
+    let _guard = session_write_guard();
+    let mut session = load_session(session_id)?;
+    if session.status != InstallMonitorStatus::Waiting {
+        return Err(UninstallerError::Other(
+            "只有等待中的监控会话可以停止。".to_string(),
+        ));
+    }
+    session.status = InstallMonitorStatus::Cancelled;
+    session.completed_at = Some(Utc::now());
+    session
+        .warnings
+        .push("会话由用户停止，未生成结束差异。".to_string());
+    write_session(&session)?;
+    Ok(session)
+}
+
+/// 删除已结束的会话；等待中的会话必须先停止，避免误删正在使用的基线。
+pub fn delete_monitor(session_id: &str) -> Result<bool, UninstallerError> {
+    let _guard = session_write_guard();
+    let session = load_session(session_id)?;
+    if session.status == InstallMonitorStatus::Waiting {
+        return Err(UninstallerError::Other(
+            "请先停止监控会话再删除。".to_string(),
+        ));
+    }
+    let directory = session_directory(session_id)?;
+    let metadata = fs::symlink_metadata(&directory)?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err(UninstallerError::PermissionDenied(
+            "监控会话目录不安全。".to_string(),
+        ));
+    }
+    fs::remove_dir_all(directory)?;
+    Ok(true)
+}
+
+pub fn expire_monitor_sessions(now: DateTime<Utc>) -> Result<usize, UninstallerError> {
+    let _guard = session_write_guard();
+    let mut expired = 0usize;
+    for info in list_sessions()? {
+        if info.status == InstallMonitorStatus::Waiting
+            && info.expires_at.is_some_and(|value| value <= now)
+        {
+            let mut session = load_session(&info.id)?;
+            session.status = InstallMonitorStatus::Expired;
+            session.completed_at = Some(now);
+            session
+                .warnings
+                .push("会话达到有效期，已自动停止。".to_string());
+            write_session(&session)?;
+            expired += 1;
+        }
+    }
+    Ok(expired)
+}
+
+pub fn expire_monitor_sessions_now() -> Result<usize, UninstallerError> {
+    expire_monitor_sessions(Utc::now())
+}
+
+pub fn record_process_event(
+    session_id: &str,
+    input: MonitorProcessEventInput,
+) -> Result<MonitorEvidenceEvent, UninstallerError> {
+    let _guard = session_write_guard();
+    let mut session = load_session(session_id)?;
+    if session.status != InstallMonitorStatus::Waiting {
+        return Err(UninstallerError::Other(
+            "只有等待中的会话可以追加进程事件。".to_string(),
+        ));
+    }
+    if input.executable.trim().is_empty() || input.operation.trim().is_empty() {
+        return Err(UninstallerError::Other(
+            "进程事件缺少目标或操作。".to_string(),
+        ));
+    }
+    let event = MonitorEvidenceEvent {
+        id: Uuid::new_v4().to_string(),
+        occurred_at: Utc::now(),
+        source: "process_observer".to_string(),
+        target: input.executable,
+        kind: MonitorEvidenceKind::Process,
+        operation: input.operation,
+        confidence: MonitorConfidence::High,
+        parent_event_id: input.parent_event_id,
+        process_id: Some(input.process_id),
+        parent_process_id: input.parent_process_id,
+        note: "由安装会话进程观察器记录；父子关系保留原始 PID。".to_string(),
+    };
+    session.evidence_events.push(event.clone());
+    write_session(&session)?;
+    Ok(event)
+}
+
+/// 对等待中的会话执行一次只读进程采样。Tauri 层周期调用本函数，确保短生命周期
+/// 安装器也能留下 PID/父 PID；启发式安装器只记为中置信度，不自动转为删除证据。
+pub fn observe_monitor_processes(session_id: &str) -> Result<bool, UninstallerError> {
+    let _guard = session_write_guard();
+    let mut session = load_session(session_id)?;
+    if session.status != InstallMonitorStatus::Waiting {
+        return Ok(false);
+    }
+    if session.expires_at.is_some_and(|value| value <= Utc::now()) {
+        session.status = InstallMonitorStatus::Expired;
+        session.completed_at = Some(Utc::now());
+        session
+            .warnings
+            .push("会话达到有效期，进程观察已停止。".to_string());
+        write_session(&session)?;
+        return Ok(false);
+    }
+    let known = session
+        .evidence_events
+        .iter()
+        .filter_map(|event| event.process_id)
+        .collect::<HashSet<_>>();
+    let parent_events = session
+        .evidence_events
+        .iter()
+        .filter_map(|event| event.process_id.map(|pid| (pid, event.id.clone())))
+        .collect::<HashMap<_, _>>();
+    let created_epoch = session.created_at.timestamp().max(0) as u64;
+    let roots = session
+        .scope
+        .file_roots
+        .iter()
+        .map(|root| root.replace('/', "\\").to_ascii_lowercase())
+        .collect::<Vec<_>>();
+    let program_terms = [
+        session.program.name.as_str(),
+        session.program.publisher.as_deref().unwrap_or_default(),
+    ]
+    .into_iter()
+    .map(|value| value.to_ascii_lowercase())
+    .filter(|value| value.len() >= 3)
+    .collect::<Vec<_>>();
+    let mut system = System::new_all();
+    system.refresh_all();
+    let observed_at = Utc::now();
+    for (pid, process) in system.processes() {
+        let pid = pid.as_u32();
+        if known.contains(&pid) || process.start_time() + 2 < created_epoch {
+            continue;
+        }
+        let executable = process
+            .exe()
+            .map(|path| path.to_string_lossy().to_string())
+            .unwrap_or_else(|| process.name().to_string_lossy().to_string());
+        let command = process
+            .cmd()
+            .iter()
+            .map(|part| part.to_string_lossy())
+            .collect::<Vec<_>>()
+            .join(" ");
+        let haystack = format!("{} {}", executable, command).to_ascii_lowercase();
+        let exact_root = roots
+            .iter()
+            .any(|root| haystack.starts_with(root) || haystack.contains(&format!("\"{root}")));
+        let installer_keyword = ["setup", "install", "update", "msiexec", "unins"]
+            .iter()
+            .any(|term| haystack.contains(term));
+        let program_match = program_terms.iter().any(|term| haystack.contains(term));
+        if !exact_root && !(installer_keyword && program_match) {
+            continue;
+        }
+        let parent_pid = process.parent().map(|value| value.as_u32());
+        session.evidence_events.push(MonitorEvidenceEvent {
+            id: Uuid::new_v4().to_string(),
+            occurred_at: observed_at,
+            source: "periodic_process_observer".to_string(),
+            target: executable,
+            kind: MonitorEvidenceKind::Process,
+            operation: "observed".to_string(),
+            confidence: if exact_root {
+                MonitorConfidence::High
+            } else {
+                MonitorConfidence::Medium
+            },
+            parent_event_id: parent_pid.and_then(|value| parent_events.get(&value).cloned()),
+            process_id: Some(pid),
+            parent_process_id: parent_pid,
+            note: if exact_root {
+                "进程命令位于监控根目录。"
+            } else {
+                "安装器关键词与程序标识同时匹配；仅作为中置信度时间线证据。"
+            }
+            .to_string(),
+        });
+    }
+    write_session(&session)?;
+    Ok(true)
 }
 
 pub fn list_sessions() -> Result<Vec<InstallMonitorSessionInfo>, UninstallerError> {
@@ -789,6 +1088,94 @@ fn diff_snapshots(
     changes
 }
 
+fn change_events(
+    changes: &[MonitorChange],
+    occurred_at: DateTime<Utc>,
+) -> Vec<MonitorEvidenceEvent> {
+    changes
+        .iter()
+        .map(|change| MonitorEvidenceEvent {
+            id: Uuid::new_v4().to_string(),
+            occurred_at,
+            source: "before_after_snapshot".to_string(),
+            target: change.path.clone(),
+            kind: if matches!(
+                change.item_kind,
+                MonitorItemKind::RegistryKey | MonitorItemKind::RegistryValue
+            ) {
+                MonitorEvidenceKind::Registry
+            } else {
+                MonitorEvidenceKind::File
+            },
+            operation: match change.kind {
+                MonitorChangeKind::Added => "added",
+                MonitorChangeKind::Removed => "removed",
+                MonitorChangeKind::Modified => "modified",
+            }
+            .to_string(),
+            confidence: change.confidence,
+            parent_event_id: None,
+            process_id: None,
+            parent_process_id: None,
+            note: change.evidence.clone(),
+        })
+        .collect()
+}
+
+fn system_change_events(
+    before: &[Trace],
+    after: &[Trace],
+    occurred_at: DateTime<Utc>,
+) -> Vec<MonitorEvidenceEvent> {
+    let before_keys = before.iter().map(system_identity).collect::<HashSet<_>>();
+    let after_keys = after.iter().map(system_identity).collect::<HashSet<_>>();
+    let mut events = Vec::new();
+    for trace in after {
+        if !before_keys.contains(&system_identity(trace)) {
+            events.push(system_event(trace, "added", occurred_at));
+        }
+    }
+    for trace in before {
+        if !after_keys.contains(&system_identity(trace)) {
+            events.push(system_event(trace, "removed", occurred_at));
+        }
+    }
+    events
+}
+
+fn system_identity(trace: &Trace) -> String {
+    format!("{}|{}", trace.trace_type, trace.path.to_ascii_lowercase())
+}
+
+fn system_event(
+    trace: &Trace,
+    operation: &str,
+    occurred_at: DateTime<Utc>,
+) -> MonitorEvidenceEvent {
+    let kind = match trace.trace_type {
+        TraceType::Service => MonitorEvidenceKind::Service,
+        TraceType::ScheduledTask => MonitorEvidenceKind::ScheduledTask,
+        TraceType::Driver => MonitorEvidenceKind::Driver,
+        _ => MonitorEvidenceKind::File,
+    };
+    MonitorEvidenceEvent {
+        id: Uuid::new_v4().to_string(),
+        occurred_at,
+        source: "system_integration_snapshot".to_string(),
+        target: trace.path.clone(),
+        kind,
+        operation: operation.to_string(),
+        confidence: match trace.confidence {
+            Confidence::High => MonitorConfidence::High,
+            Confidence::Medium | Confidence::Low => MonitorConfidence::Medium,
+        },
+        parent_event_id: None,
+        process_id: None,
+        parent_process_id: None,
+        note: trace.description.clone(),
+    }
+}
+
 fn file_identity(record: &MonitorFileRecord) -> String {
     format!(
         "file|{}|{}",
@@ -996,6 +1383,8 @@ fn session_info(session: &InstallMonitorSession) -> InstallMonitorSessionInfo {
         created_at: session.created_at,
         completed_at: session.completed_at,
         status: session.status,
+        activity_kind: session.activity_kind,
+        expires_at: session.expires_at,
         changes_count: session.changes.len(),
         added_count: session
             .changes
@@ -1023,7 +1412,10 @@ struct ExportDocument<'a> {
     created_at: DateTime<Utc>,
     completed_at: Option<DateTime<Utc>>,
     status: InstallMonitorStatus,
+    activity_kind: MonitorActivityKind,
+    expires_at: Option<DateTime<Utc>>,
     changes: &'a [MonitorChange],
+    evidence_events: &'a [MonitorEvidenceEvent],
     warnings: &'a [String],
 }
 
@@ -1035,7 +1427,10 @@ impl<'a> From<&'a InstallMonitorSession> for ExportDocument<'a> {
             created_at: session.created_at,
             completed_at: session.completed_at,
             status: session.status,
+            activity_kind: session.activity_kind,
+            expires_at: session.expires_at,
             changes: &session.changes,
+            evidence_events: &session.evidence_events,
             warnings: &session.warnings,
         }
     }
@@ -1370,6 +1765,8 @@ mod tests {
                 program: program.clone(),
                 extra_file_roots: vec![monitored.to_string_lossy().into_owned()],
                 extra_registry_roots: Vec::new(),
+                activity_kind: MonitorActivityKind::Update,
+                expires_after_minutes: Some(60),
             };
             let info = start_monitor(request).expect("开始监控不应失败");
             fs::write(&changed, b"after-").expect("测试文件应可写入");

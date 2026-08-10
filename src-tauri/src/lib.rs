@@ -174,6 +174,13 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            reconstruct_installation,
+            list_cleanup_policy_profiles,
+            plan_program_hibernation,
+            apply_program_hibernation,
+            wake_program_hibernation,
+            create_inventory_baseline,
+            compare_inventory_baseline,
             plan_backup,
             list_backup_sessions,
             get_backup_session,
@@ -181,6 +188,10 @@ pub fn run() {
             plan_install_monitor,
             start_install_monitor,
             complete_install_monitor,
+            cancel_install_monitor,
+            delete_install_monitor,
+            expire_install_monitor_sessions,
+            record_install_monitor_process,
             list_install_monitor_sessions,
             get_install_monitor_session,
             get_install_monitor_traces,
@@ -210,6 +221,7 @@ pub fn run() {
             get_reports,
             get_report,
             export_report,
+            export_evidence_bundle,
             delete_report,
             list_startup_items,
             get_startup_item,

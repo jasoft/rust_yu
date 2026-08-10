@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { create } from "zustand";
 import type {
   CommandError,
+  EvidenceBundleExport,
   ReportExport,
   ReportExportFormat,
   ReportInfo,
@@ -18,6 +19,7 @@ interface ReportsState {
   load: () => Promise<void>;
   open: (reportId: string) => Promise<void>;
   exportReport: (reportId: string, format: ReportExportFormat) => Promise<ReportExport | null>;
+  exportEvidenceBundle: (reportId: string) => Promise<EvidenceBundleExport | null>;
   deleteReport: (reportId: string) => Promise<boolean>;
   clearMessages: () => void;
 }
@@ -61,6 +63,18 @@ export const useReportsStore = create<ReportsState>((set) => ({
     try {
       const result = await invoke<ReportExport>("export_report", { reportId, format });
       set({ actionLoading: false, notice: `报告已导出：${result.path}` });
+      return result;
+    } catch (error) {
+      set({ actionLoading: false, error: errorMessage(error) });
+      return null;
+    }
+  },
+
+  exportEvidenceBundle: async (reportId) => {
+    set({ actionLoading: true, error: null, notice: null });
+    try {
+      const result = await invoke<EvidenceBundleExport>("export_evidence_bundle", { reportId });
+      set({ actionLoading: false, notice: `专业证据包已导出（${result.file_count} 个文件）：${result.path}` });
       return result;
     } catch (error) {
       set({ actionLoading: false, error: errorMessage(error) });

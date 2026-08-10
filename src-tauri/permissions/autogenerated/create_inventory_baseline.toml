@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-create-inventory-baseline"
+description = "Enables the create_inventory_baseline command without any pre-configured scope."
+commands.allow = ["create_inventory_baseline"]
+
+[[permission]]
+identifier = "deny-create-inventory-baseline"
+description = "Denies the create_inventory_baseline command without any pre-configured scope."
+commands.deny = ["create_inventory_baseline"]

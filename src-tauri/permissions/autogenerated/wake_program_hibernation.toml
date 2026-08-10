@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-wake-program-hibernation"
+description = "Enables the wake_program_hibernation command without any pre-configured scope."
+commands.allow = ["wake_program_hibernation"]
+
+[[permission]]
+identifier = "deny-wake-program-hibernation"
+description = "Denies the wake_program_hibernation command without any pre-configured scope."
+commands.deny = ["wake_program_hibernation"]

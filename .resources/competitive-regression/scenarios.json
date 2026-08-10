@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "fixture": "RustYu Competitive Regression Fixture",
+  "scenarios": [
+    { "id": "install-monitor", "expects": ["file_added", "registry_added", "process_parent_child"] },
+    { "id": "service-task", "expects": ["owned_service_detected", "owned_task_detected", "shared_item_retained"] },
+    { "id": "update-overwrite", "expects": ["file_modified", "before_fingerprint", "after_fingerprint"] },
+    { "id": "abnormal-exit", "expects": ["exit_code_23", "session_stoppable", "partial_evidence_retained"] },
+    { "id": "restore-consistency", "expects": ["backup_manifest_readable", "target_not_overwritten", "retry_supported"] },
+    { "id": "report-consistency", "expects": ["immutable_snapshot", "per_file_source_result", "sha256_summary"] }
+  ],
+  "metrics": ["detection_rate", "false_association_count", "wait_correctness", "restore_success_rate"]
+}

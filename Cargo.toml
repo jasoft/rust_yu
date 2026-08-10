@@ -73,6 +73,8 @@ fuzzy-matcher = "0.3"
 uuid = { version = "1.0", features = ["v4"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 sysinfo = "0.33"
+sha2 = "0.10"
+zip = { version = "2.2", default-features = false, features = ["deflate"] }
 
 [lib]
 name = "rust_yu_lib"

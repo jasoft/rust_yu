@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-export-evidence-bundle"
+description = "Enables the export_evidence_bundle command without any pre-configured scope."
+commands.allow = ["export_evidence_bundle"]
+
+[[permission]]
+identifier = "deny-export-evidence-bundle"
+description = "Denies the export_evidence_bundle command without any pre-configured scope."
+commands.deny = ["export_evidence_bundle"]

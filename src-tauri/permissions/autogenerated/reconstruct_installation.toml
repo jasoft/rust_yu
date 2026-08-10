@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-reconstruct-installation"
+description = "Enables the reconstruct_installation command without any pre-configured scope."
+commands.allow = ["reconstruct_installation"]
+
+[[permission]]
+identifier = "deny-reconstruct-installation"
+description = "Denies the reconstruct_installation command without any pre-configured scope."
+commands.deny = ["reconstruct_installation"]

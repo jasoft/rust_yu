@@ -30,6 +30,11 @@ pub async fn clean_traces(
             "需要确认才能执行清理".to_string(),
         ));
     }
+    crate::modules::advanced::validate_cleanup_selection(
+        crate::modules::advanced::CleanupPolicyKind::Safe,
+        &traces,
+        confirm,
+    )?;
 
     let backup_traces = traces.clone();
     let backup_result = tokio::task::spawn_blocking(move || {
@@ -130,6 +135,21 @@ pub async fn clean_traces(
 
         match result {
             Ok(mut result) => {
+                if crate::modules::backup::requires_backup(&trace) {
+                    match crate::modules::backup::verify_trace_removed(&trace) {
+                        Ok(true) => {}
+                        Ok(false) => {
+                            result.success = false;
+                            result.error = Some("删除命令返回成功，但目标仍然存在。".to_string());
+                            result.bytes_freed = 0;
+                        }
+                        Err(error) => {
+                            result.success = false;
+                            result.error = Some(format!("删除后校验失败：{error}"));
+                            result.bytes_freed = 0;
+                        }
+                    }
+                }
                 if let Some(session_id) = backup_id.as_deref() {
                     result.backup_id = Some(session_id.to_string());
                     if let Err(error) = crate::modules::backup::record_cleanup_result(
@@ -198,7 +218,8 @@ mod tests {
             "Demo App".to_string(),
             TraceType::File,
             target.to_string_lossy().into_owned(),
-        );
+        )
+        .with_confidence(crate::modules::scanner::models::Confidence::High);
 
         let results = clean_traces(vec![trace], true)
             .await

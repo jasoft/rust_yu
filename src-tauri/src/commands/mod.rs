@@ -1,3 +1,4 @@
+pub mod advanced;
 pub mod backup;
 pub mod browser_cleaner;
 pub mod clean;
@@ -13,6 +14,7 @@ pub mod search;
 pub mod startup;
 pub mod uninstall;
 
+pub use advanced::*;
 pub use backup::*;
 pub use browser_cleaner::*;
 pub use clean::*;

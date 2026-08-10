@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-expire-install-monitor-sessions"
+description = "Enables the expire_install_monitor_sessions command without any pre-configured scope."
+commands.allow = ["expire_install_monitor_sessions"]
+
+[[permission]]
+identifier = "deny-expire-install-monitor-sessions"
+description = "Denies the expire_install_monitor_sessions command without any pre-configured scope."
+commands.deny = ["expire_install_monitor_sessions"]

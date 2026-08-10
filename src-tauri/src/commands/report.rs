@@ -1,3 +1,4 @@
+use rust_yu_lib::reporter::evidence::{self, EvidenceBundleExport};
 use rust_yu_lib::reporter::history::{self, ReportExport, ReportExportFormat};
 use rust_yu_lib::reporter::models::UninstallerReport;
 use serde::Serialize;
@@ -55,6 +56,16 @@ pub async fn delete_report(report_id: String) -> Result<bool, CommandError> {
     tauri::async_runtime::spawn_blocking(move || history::delete_report(&report_id))
         .await
         .map_err(|error| CommandError::new(format!("删除报告任务失败: {error}")))?
+        .map_err(CommandError::from)
+}
+
+#[tauri::command]
+pub async fn export_evidence_bundle(
+    report_id: String,
+) -> Result<EvidenceBundleExport, CommandError> {
+    tauri::async_runtime::spawn_blocking(move || evidence::export_evidence_bundle(&report_id))
+        .await
+        .map_err(|error| CommandError::new(format!("导出专业证据包任务失败: {error}")))?
         .map_err(CommandError::from)
 }
 

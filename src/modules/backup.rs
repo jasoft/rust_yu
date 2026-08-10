@@ -12,6 +12,7 @@ use crate::modules::lister::storage;
 use crate::modules::scanner::models::{Trace, TraceType};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
@@ -87,6 +88,8 @@ pub struct BackupItem {
     pub kind: BackupItemKind,
     pub payload: Option<String>,
     pub bytes: u64,
+    #[serde(default)]
+    pub fingerprint: Option<String>,
     pub state: BackupItemState,
     pub error: Option<String>,
 }
@@ -156,7 +159,11 @@ impl BackupPreparation {
         let matches_snapshot = match item.state {
             BackupItemState::Missing => !current.exists,
             BackupItemState::Ready => {
-                current.exists && current.kind == item.kind && current.bytes == item.bytes
+                current.exists
+                    && current.kind == item.kind
+                    && current.bytes == item.bytes
+                    && item.fingerprint.is_some()
+                    && current.fingerprint == item.fingerprint
             }
             _ => false,
         };
@@ -175,6 +182,7 @@ struct PlanInspection {
     kind: BackupItemKind,
     exists: bool,
     bytes: u64,
+    fingerprint: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -367,6 +375,7 @@ pub fn prepare_for_traces(
             kind,
             payload: None,
             bytes: plan_item.estimated_bytes,
+            fingerprint: None,
             state: BackupItemState::BackupFailed,
             error: plan_item.reason.clone(),
         };
@@ -376,7 +385,10 @@ pub fn prepare_for_traces(
                 Ok(current)
                     if current.kind == kind
                         && current.exists == plan_item.exists
-                        && current.bytes == plan_item.estimated_bytes => {}
+                        && current.bytes == plan_item.estimated_bytes =>
+                {
+                    item.fingerprint = current.fingerprint;
+                }
                 Ok(_) => {
                     item.error = Some("目标在备份前发生变化，拒绝生成不匹配的快照".to_string());
                     session.items.push(item);
@@ -444,6 +456,12 @@ pub fn record_cleanup_result(
     }
     item.error = error;
     write_session(&session)
+}
+
+/// 删除完成后的独立校验。调用方只有在目标确实不存在时才能把结果标记为成功。
+pub fn verify_trace_removed(trace: &Trace) -> Result<bool, UninstallerError> {
+    crate::modules::cleaner::safety::pre_delete_check(trace)?;
+    Ok(!inspect_trace(trace)?.exists)
 }
 
 /// 列出恢复中心可用的备份会话。
@@ -588,6 +606,7 @@ fn inspect_filesystem_path(path: &str) -> Result<PlanInspection, UninstallerErro
                 kind: BackupItemKind::File,
                 exists: false,
                 bytes: 0,
+                fingerprint: None,
             })
         }
         Err(error) => return Err(UninstallerError::FileSystem(error)),
@@ -603,6 +622,7 @@ fn inspect_filesystem_path(path: &str) -> Result<PlanInspection, UninstallerErro
             kind: BackupItemKind::Directory,
             exists: true,
             bytes: stats.bytes,
+            fingerprint: Some(filesystem_fingerprint(source)?),
         })
     } else if metadata.is_file() {
         if metadata.len() > MAX_BACKUP_BYTES {
@@ -614,6 +634,7 @@ fn inspect_filesystem_path(path: &str) -> Result<PlanInspection, UninstallerErro
             kind: BackupItemKind::File,
             exists: true,
             bytes: metadata.len(),
+            fingerprint: Some(filesystem_fingerprint(source)?),
         })
     } else {
         Err(UninstallerError::Other(
@@ -655,6 +676,64 @@ fn filesystem_stats(path: &Path) -> Result<TreeStats, UninstallerError> {
     Ok(stats)
 }
 
+fn filesystem_fingerprint(path: &Path) -> Result<String, UninstallerError> {
+    let mut hasher = Sha256::new();
+    if path.is_file() {
+        hash_file(path, &mut hasher)?;
+    } else {
+        let mut entries = WalkDir::new(path)
+            .follow_links(false)
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| UninstallerError::Other(format!("遍历指纹目录失败: {error}")))?;
+        entries.sort_by(|left, right| left.path().cmp(right.path()));
+        for entry in entries {
+            if entry.file_type().is_symlink() {
+                return Err(UninstallerError::PermissionDenied(
+                    "指纹计算不会跟随符号链接。".to_string(),
+                ));
+            }
+            let relative = entry.path().strip_prefix(path).unwrap_or(entry.path());
+            hasher.update(relative.to_string_lossy().as_bytes());
+            hasher.update(if entry.file_type().is_dir() {
+                b"D"
+            } else {
+                b"F"
+            });
+            if entry.file_type().is_file() {
+                hash_file(entry.path(), &mut hasher)?;
+            }
+        }
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn hash_file(path: &Path, hasher: &mut Sha256) -> Result<(), UninstallerError> {
+    let mut file = File::open(path)?;
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(())
+}
+
+fn hash_serializable<T: Serialize>(value: &T) -> Result<String, UninstallerError> {
+    let bytes =
+        serde_json::to_vec(value).map_err(|error| UninstallerError::Serde(error.to_string()))?;
+    Ok(format!("{:x}", Sha256::digest(bytes)))
+}
+
+fn hash_bytes_with_type(value_type: u32, bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(value_type.to_le_bytes());
+    hasher.update(bytes);
+    format!("{:x}", hasher.finalize())
+}
+
 #[derive(Debug, Default, Clone, Copy)]
 struct TreeStats {
     entries: usize,
@@ -671,6 +750,7 @@ fn inspect_registry_key_path(path: &str) -> Result<PlanInspection, UninstallerEr
                 kind: BackupItemKind::RegistryKey,
                 exists: false,
                 bytes: 0,
+                fingerprint: None,
             })
         }
         Err(error) => return Err(UninstallerError::Registry(error.to_string())),
@@ -681,6 +761,7 @@ fn inspect_registry_key_path(path: &str) -> Result<PlanInspection, UninstallerEr
         kind: BackupItemKind::RegistryKey,
         exists: true,
         bytes: registry_node_bytes(&node),
+        fingerprint: Some(hash_serializable(&node)?),
     })
 }
 
@@ -694,6 +775,7 @@ fn inspect_registry_value_path(path: &str) -> Result<PlanInspection, Uninstaller
                 kind: BackupItemKind::RegistryValue,
                 exists: false,
                 bytes: 0,
+                fingerprint: None,
             })
         }
         Err(error) => return Err(UninstallerError::Registry(error.to_string())),
@@ -703,11 +785,16 @@ fn inspect_registry_value_path(path: &str) -> Result<PlanInspection, Uninstaller
             kind: BackupItemKind::RegistryValue,
             exists: true,
             bytes: value.bytes.len() as u64,
+            fingerprint: Some(hash_bytes_with_type(
+                value.vtype.clone() as isize as u32,
+                &value.bytes,
+            )),
         }),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(PlanInspection {
             kind: BackupItemKind::RegistryValue,
             exists: false,
             bytes: 0,
+            fingerprint: None,
         }),
         Err(error) => Err(UninstallerError::Registry(error.to_string())),
     }

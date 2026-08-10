@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-delete-install-monitor"
+description = "Enables the delete_install_monitor command without any pre-configured scope."
+commands.allow = ["delete_install_monitor"]
+
+[[permission]]
+identifier = "deny-delete-install-monitor"
+description = "Denies the delete_install_monitor command without any pre-configured scope."
+commands.deny = ["delete_install_monitor"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-compare-inventory-baseline"
+description = "Enables the compare_inventory_baseline command without any pre-configured scope."
+commands.allow = ["compare_inventory_baseline"]
+
+[[permission]]
+identifier = "deny-compare-inventory-baseline"
+description = "Denies the compare_inventory_baseline command without any pre-configured scope."
+commands.deny = ["compare_inventory_baseline"]
