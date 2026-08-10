@@ -11,6 +11,17 @@ $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 Set-Location $repoRoot
 
+function Use-X64RustupShim {
+    $rustupBin = Join-Path $env:USERPROFILE ".cargo\bin"
+    $rustupExecutable = Join-Path $rustupBin "rustup.exe"
+    if (-not (Test-Path -LiteralPath $rustupExecutable -PathType Leaf)) {
+        throw "未找到 Rustup X64 toolchain。请安装 stable-x86_64-pc-windows-msvc，并确保 $rustupExecutable 存在。"
+    }
+    # 提权后的 PowerShell 可能继承旧的 ARM GNU Rust PATH；将 Rustup shim 放在最前面，
+    # 让仓库根目录的 rust-toolchain.toml 强制选择 X64 MSVC 编译器。
+    $env:Path = "$rustupBin;$env:Path"
+}
+
 function Import-VsX64Environment {
     $vcVarsAll = Get-ChildItem "C:\Program Files (x86)\Microsoft Visual Studio" -Filter "vcvarsall.bat" -Recurse -File -ErrorAction SilentlyContinue |
         Select-Object -First 1 -ExpandProperty FullName
@@ -32,6 +43,7 @@ if ($InitSubmodules) {
 }
 
 $target = "x86_64-pc-windows-msvc"
+Use-X64RustupShim
 Import-VsX64Environment
 $linker = Get-Command link.exe -ErrorAction SilentlyContinue
 if ($null -eq $linker) {
