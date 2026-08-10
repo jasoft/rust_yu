@@ -49,6 +49,15 @@
 - **Separation of Concerns:** UI 组件只负责渲染，逻辑处理通过 Custom Hooks 调用 Tauri Commands。
 - **Type Safety:** 所有的 Tauri Command 参数和返回值必须在 TypeScript 中定义对应的 Interface/Type，最好使用工具自动生成类型定义。
 
+### C. 国际化（强制）
+
+- **禁止硬编码界面文字：** 修改界面或增加任何用户可见文字时，严禁把文案直接写在 HTML、JSX、TSX 或组件属性中。按钮、标题、说明、占位符、无障碍标签、确认提示、错误、状态和日志等文案都必须通过国际化函数读取。
+- **每种语言独立文件：** 所有静态界面文案必须保存在 `src-tauri/src-frontends/webui/src/i18n/locales/` 下对应的独立语言文件中，并通过 `t("translation.key")` 使用。
+- **语言文件必须同步：** 新增或修改翻译键时，必须同步更新所有已支持语言，且各语言的键和插值占位符必须完全一致；不得只更新某一种语言或依赖运行时回退掩盖缺失翻译。
+- **动态文案使用插值：** 包含程序名、数量、路径等动态内容的文案必须使用翻译占位符传参，不能通过在组件中拼接硬编码句子生成。
+- **非翻译标识也要集中管理：** 品牌名、文件格式、协议名等即使各语言内容相同，只要会显示在界面中，也应放入语言文件统一管理。
+- **验收要求：** 界面文案变更后必须运行 WebUI 的 `npm test`、`npm run build` 和 `npm run lint`；其中 `test:i18n` 必须通过，以验证语言键、占位符、引用和硬编码约束。
+
 ## 5. Specific Implementation Guidelines (The "Uninstaller" Logic)
 
 ### A. Scanning Logic (The "Leftovers" Finder)
