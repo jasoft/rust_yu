@@ -687,6 +687,45 @@ export interface CleanerCleanResult {
   bytes_freed: number;
 }
 
+export type ShredMethod = "quick" | "standard" | "thorough";
+
+export interface ShredTargetPlan {
+  path: string;
+  kind: "file" | "directory" | "missing";
+  file_count: number;
+  size: number;
+  blocked_reason: string | null;
+}
+
+export interface ShredPlan {
+  method: ShredMethod;
+  targets: ShredTargetPlan[];
+  total_files: number;
+  total_bytes: number;
+  overwrite_bytes: number;
+  confirmation_token: string;
+  confirmation_text: string;
+  warnings: string[];
+}
+
+export interface ShredProgress {
+  stage: "overwriting" | "completed";
+  current_path: string;
+  processed_bytes: number;
+  total_bytes: number;
+  pass: number;
+  total_passes: number;
+  message: string;
+}
+
+export interface ShredResult {
+  dry_run: boolean;
+  shredded_files: number;
+  deleted_directories: number;
+  bytes_overwritten: number;
+  failures: Array<{ path: string; error: string }>;
+}
+
 export type BrowserCleanupKind = "cache" | "extension";
 
 export interface BrowserInfo {

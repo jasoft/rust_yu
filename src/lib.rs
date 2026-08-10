@@ -6,6 +6,7 @@ pub use modules::browser_cleaner;
 pub use modules::cleaner;
 pub use modules::common::error::UninstallerError;
 pub use modules::common::utils;
+pub use modules::file_shredder;
 pub use modules::fluent_cleaner;
 pub use modules::health;
 pub use modules::install_monitor;

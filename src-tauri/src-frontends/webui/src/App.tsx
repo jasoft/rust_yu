@@ -10,6 +10,7 @@ import {
   Database,
   FileCode2,
   FileText,
+  FileWarning,
   Folder,
   FolderOpen,
   Grid2X2,
@@ -48,6 +49,7 @@ import { useForceUninstallStore } from "./stores/forceUninstall";
 import { useBatchUninstallStore } from "./stores/batchUninstall";
 import { StartupManager } from "./components/StartupManager";
 import { CleanerPage } from "./components/CleanerPage";
+import { FileShredderPage } from "./components/FileShredderPage";
 import { BackupCenter } from "./components/BackupCenter";
 import { InstallMonitorManager } from "./components/InstallMonitorManager";
 import { ReportCenter } from "./components/ReportCenter";
@@ -71,7 +73,7 @@ import type {
 } from "./types";
 
 type Stage = "apps" | "confirm" | "progress" | "scan" | "review" | "complete";
-type NavKey = "apps" | "health" | "startup" | "cleaner" | "backups" | "traces" | "monitor" | "evidence" | "reports" | "plugins" | "tools" | "settings" | "about";
+type NavKey = "apps" | "health" | "startup" | "cleaner" | "shredder" | "backups" | "traces" | "monitor" | "evidence" | "reports" | "plugins" | "tools" | "settings" | "about";
 
 interface UiProgram {
   id: string;
@@ -514,6 +516,8 @@ export default function App() {
             <StartupManager />
           ) : activeNav === "cleaner" ? (
             <CleanerPage />
+          ) : activeNav === "shredder" ? (
+            <FileShredderPage />
           ) : activeNav === "backups" ? (
             <BackupCenter />
           ) : activeNav === "monitor" ? (
@@ -682,6 +686,7 @@ const navItems: { id: NavKey; label: string; icon: typeof Package }[] = [
   { id: "health", label: "软件健康", icon: Activity },
   { id: "startup", label: "自启动管理", icon: Zap },
   { id: "cleaner", label: "系统清理", icon: Sparkles },
+  { id: "shredder", label: "文件粉碎", icon: FileWarning },
   { id: "backups", label: "备份与恢复", icon: ShieldCheck },
   { id: "traces", label: "软件残留", icon: Archive },
   { id: "monitor", label: "安装监控", icon: SquareActivity },
@@ -1155,6 +1160,6 @@ function ProgramInfoModal({ program, onClose }: { program: UiProgram; onClose: (
 }
 
 function PlaceholderPage({ active }: { active: NavKey }) {
-  const names: Record<NavKey, string> = { apps: "已安装应用", health: "软件健康", startup: "自启动管理", cleaner: "系统清理", backups: "备份与恢复", traces: "软件残留", monitor: "安装监控", evidence: "证据与策略", reports: "卸载记录", plugins: "浏览器插件", tools: "工具箱", settings: "设置", about: "关于" };
+  const names: Record<NavKey, string> = { apps: "已安装应用", health: "软件健康", startup: "自启动管理", cleaner: "系统清理", shredder: "文件粉碎", backups: "备份与恢复", traces: "软件残留", monitor: "安装监控", evidence: "证据与策略", reports: "卸载记录", plugins: "浏览器插件", tools: "工具箱", settings: "设置", about: "关于" };
   return <div className="placeholder-page"><span><Sparkles size={30} /></span><h1>{names[active]}</h1><p>该模块将在后续版本中提供。</p></div>;
 }
