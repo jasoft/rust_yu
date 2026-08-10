@@ -216,7 +216,7 @@ function Assert-GhAuthenticated { Invoke-ExternalCommand gh @("auth", "status") 
 
 function Find-NsisInstaller {
     param([Parameter(Mandatory = $true)][string]$RepoRoot)
-    $bundle = Join-Path $RepoRoot "src-tauri\target\release\bundle\nsis"
+    $bundle = Join-Path $RepoRoot "src-tauri\target\x86_64-pc-windows-msvc\release\bundle\nsis"
     $files = @(Get-ChildItem -LiteralPath $bundle -Filter "*.exe" -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -notmatch "uninstall" })
     if ($files.Count -ne 1) { throw "NSIS bundle 中应有且只有一个安装器，实际为 $($files.Count)：$bundle" }
     return $files[0].FullName
@@ -230,7 +230,7 @@ function New-ReleaseAsset {
     if (-not $script:SkipBuildMode) {
         Write-Step "构建 Tauri NSIS GUI 安装器"
         Push-Location (Join-Path $RepoRoot "src-tauri")
-        try { Invoke-ExternalCommand npx @("tauri", "build", "--bundles", "nsis") } finally { Pop-Location }
+        try { Invoke-ExternalCommand npx @("tauri", "build", "--target", "x86_64-pc-windows-msvc", "--bundles", "nsis") } finally { Pop-Location }
     }
     if ($script:DryRunMode) { Write-Host "[dry-run] copy NSIS installer to $assetPath"; return $assetPath }
     $installer = Find-NsisInstaller $RepoRoot

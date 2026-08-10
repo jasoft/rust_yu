@@ -1,0 +1,9 @@
+[build]
+# Rust Yu 面向普通 AMD64/x64 Windows 发布。即使在 ARM64 Windows 开发机上，
+# 也必须默认生成 x86_64 Windows 二进制，避免误产出 ARM64 程序。
+target = "x86_64-pc-windows-msvc"
+
+[target.x86_64-pc-windows-msvc]
+# 使用 Visual C++ 的 x64 linker。它可以在 ARM64 Windows 上通过兼容层运行，
+# 但生成的程序是标准 x64 PE，可直接发布到 AMD64 Windows。
+linker = "link.exe"

@@ -1,0 +1,5 @@
+[toolchain]
+# 开发机是 ARM64 Windows，但 Rust Yu 只构建和发布 AMD64/x64 Windows 程序。
+channel = "stable-x86_64-pc-windows-msvc"
+profile = "minimal"
+

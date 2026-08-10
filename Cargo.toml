@@ -3,9 +3,8 @@ members = ["src-tauri"]
 resolver = "2"
 
 [patch.crates-io]
-# tauri-winres 0.3.5 通过 embed-resource 调用 windres，但该路径不支持
-# ARM64 GNU 的 pe-aarch64-little；本地补丁使用 LLVM Resource 工具链生成
-# ARM64 COFF 资源，同时保持其他目标继续走上游实现。
+# 保留项目内的 Windows 资源编译实现；默认目标由 .cargo/config.toml 固定为
+# x86_64-pc-windows-msvc，因此不会使用 ARM64 GNU 的资源编译分支。
 tauri-winres = { path = "vendor/tauri-winres" }
 
 [package]

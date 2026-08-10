@@ -1,7 +1,7 @@
 # Rust Yu 便携版打包脚本。兼容 Windows PowerShell 5.1。
 [CmdletBinding()]
 param(
-    [string]$BinaryPath = (Join-Path $PSScriptRoot "..\..\src-tauri\target\release\rust-yu-tauri.exe"),
+    [string]$BinaryPath = (Join-Path $PSScriptRoot "..\..\src-tauri\target\x86_64-pc-windows-msvc\release\rust-yu-tauri.exe"),
     [string]$OutputDirectory = (Join-Path $PSScriptRoot "..\..\dist\portable"),
     [string]$PackageName = "rust-yu-portable",
     [switch]$SkipArchive
