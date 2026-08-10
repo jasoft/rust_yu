@@ -1,3 +1,4 @@
+import { t } from "../i18n/index.ts";
 import { Package, FileText, Settings, Trash2, Zap } from "lucide-react";
 import { cn } from "../lib/utils";
 
@@ -9,10 +10,10 @@ interface SidebarProps {
 }
 
 const navItems = [
-  { id: "programs" as NavItem, label: "软件列表", icon: Package },
-  { id: "startup" as NavItem, label: "自启动管理", icon: Zap },
-  { id: "reports" as NavItem, label: "卸载记录", icon: FileText },
-  { id: "settings" as NavItem, label: "设置", icon: Settings },
+  { id: "programs" as NavItem, label: t("components.sidebar.message_001"), icon: Package },
+  { id: "startup" as NavItem, label: t("app.message_034"), icon: Zap },
+  { id: "reports" as NavItem, label: t("app.message_040"), icon: FileText },
+  { id: "settings" as NavItem, label: t("app.message_043"), icon: Settings },
 ];
 
 export function Sidebar({ active, onNavigate }: SidebarProps) {
@@ -20,7 +21,7 @@ export function Sidebar({ active, onNavigate }: SidebarProps) {
     <aside className="flex w-56 flex-col border-r border-slate-700 bg-slate-900">
       <div className="flex items-center gap-2 px-4 py-4 border-b border-slate-700">
         <Trash2 className="h-6 w-6 text-blue-500" />
-        <span className="text-lg font-semibold text-white">Rust Yu</span>
+        <span className="text-lg font-semibold text-white">{t("common.brand.name")}</span>
       </div>
 
       <nav className="flex-1 px-2 py-3 space-y-1">
@@ -42,7 +43,7 @@ export function Sidebar({ active, onNavigate }: SidebarProps) {
       </nav>
 
       <div className="border-t border-slate-700 px-4 py-3">
-        <p className="text-xs text-slate-500">Rust Yu v0.1.3</p>
+        <p className="text-xs text-slate-500">{t("common.brand.version")}</p>
       </div>
     </aside>
   );

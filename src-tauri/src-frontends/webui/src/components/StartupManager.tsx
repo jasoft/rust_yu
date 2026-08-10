@@ -1,3 +1,4 @@
+import { getLanguage, t } from "../i18n/index.ts";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
@@ -22,12 +23,12 @@ type SourceFilter = "all" | StartupSource;
 type StateFilter = "all" | StartupState;
 
 const sourceMeta: Record<StartupSource, { label: string; shortLabel: string }> = {
-  registry_run: { label: "注册表 Run", shortLabel: "Run" },
-  registry_run_once: { label: "注册表 RunOnce", shortLabel: "RunOnce" },
-  registry_policy_run: { label: "策略启动项", shortLabel: "策略" },
-  startup_folder: { label: "启动文件夹", shortLabel: "文件夹" },
-  scheduled_task: { label: "计划任务", shortLabel: "任务" },
-  service: { label: "Windows 服务", shortLabel: "服务" },
+  registry_run: { label: t("components.startupmanager.message_001"), shortLabel: "Run" },
+  registry_run_once: { label: t("components.startupmanager.message_002"), shortLabel: "RunOnce" },
+  registry_policy_run: { label: t("components.startupmanager.message_003"), shortLabel: t("components.startupmanager.message_004") },
+  startup_folder: { label: t("components.startupmanager.message_005"), shortLabel: t("components.startupmanager.message_006") },
+  scheduled_task: { label: t("components.startupmanager.message_007"), shortLabel: t("components.startupmanager.message_008") },
+  service: { label: t("components.startupmanager.message_009"), shortLabel: t("components.startupmanager.message_010") },
 };
 
 export function StartupManager() {
@@ -58,7 +59,7 @@ export function StartupManager() {
   }, [loadItems]);
 
   const filteredItems = useMemo(() => {
-    const normalized = search.trim().toLocaleLowerCase("zh-CN");
+    const normalized = search.trim().toLocaleLowerCase(getLanguage());
     return items.filter((item) => {
       if (!showSystemItems && isProtectedSystemItem(item)) return false;
       if (source !== "all" && item.source !== source) return false;
@@ -66,7 +67,7 @@ export function StartupManager() {
       if (!normalized) return true;
       return [item.name, item.command, item.locator.location, item.description]
         .filter(Boolean)
-        .some((value) => value?.toLocaleLowerCase("zh-CN").includes(normalized));
+        .some((value) => value?.toLocaleLowerCase(getLanguage()).includes(normalized));
     });
   }, [items, search, showSystemItems, source, state]);
 
@@ -81,13 +82,13 @@ export function StartupManager() {
     <section className="page startup-page">
       <div className="section-header startup-header">
         <div>
-          <h1><Zap size={20} />自启动管理</h1>
-          <p>管理登录项、启动文件夹、计划任务与自动服务。所有变更均先预演并保留回滚快照。</p>
+          <h1><Zap size={20} />{t("app.message_034")}</h1>
+          <p>{t("components.startupmanager.message_012")}</p>
         </div>
         <button
           type="button"
           className="icon-button startup-refresh"
-          title="重新扫描"
+          title={t("app.message_229")}
           onClick={() => void loadItems()}
           disabled={loading || actionLoading}
         >
@@ -96,20 +97,20 @@ export function StartupManager() {
       </div>
 
       <div className="startup-summary">
-        <SummaryCard label="全部项目" value={items.length} />
-        <SummaryCard label="已启用" value={enabledCount} tone="success" />
-        <SummaryCard label="已禁用" value={disabledCount} />
-        <SummaryCard label="目标异常" value={brokenCount} tone="warning" />
+        <SummaryCard label={t("components.startupmanager.message_014")} value={items.length} />
+        <SummaryCard label={t("components.startupmanager.message_015")} value={enabledCount} tone="success" />
+        <SummaryCard label={t("components.startupmanager.message_016")} value={disabledCount} />
+        <SummaryCard label={t("components.startupmanager.message_017")} value={brokenCount} tone="warning" />
       </div>
 
       {lastResult?.change_id && (
         <div className="startup-notice success">
           <CheckCircle2 size={15} />
-          <span>变更已完成，并已保存回滚快照。</span>
+          <span>{t("components.startupmanager.message_018")}</span>
           <button type="button" onClick={() => void rollbackLastAction()} disabled={actionLoading}>
-            <RotateCcw size={13} />撤销
+            <RotateCcw size={13} />{t("components.startupmanager.message_019")}
           </button>
-          <button type="button" onClick={clearResult} aria-label="关闭提示"><X size={14} /></button>
+          <button type="button" onClick={clearResult} aria-label={t("components.startupmanager.message_020")}><X size={14} /></button>
         </div>
       )}
 
@@ -117,7 +118,7 @@ export function StartupManager() {
         <div className="startup-notice warning">
           <AlertTriangle size={15} />
           <span>
-            {error ?? `${failedSources.length} 个来源读取失败，其余结果仍可使用`}
+            {error ?? t("components.startupmanager.message_021", { value0: failedSources.length })}
             {failedSources.length > 0 && <small>{failedSources.map(([key]) => sourceMeta[key].label).join("、")}</small>}
           </span>
         </div>
@@ -128,32 +129,33 @@ export function StartupManager() {
           <div className="startup-toolbar">
             <label className="search-box startup-search">
               <Search size={15} />
-              <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索名称、命令或位置" />
+              <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("components.startupmanager.message_022")} />
             </label>
             <FilterSelect value={source} onChange={(value) => setSource(value as SourceFilter)}>
-              <option value="all">全部来源</option>
+              <option value="all">{t("components.startupmanager.message_023")}</option>
               {Object.entries(sourceMeta).map(([value, meta]) => <option key={value} value={value}>{meta.label}</option>)}
             </FilterSelect>
             <FilterSelect value={state} onChange={(value) => setState(value as StateFilter)}>
-              <option value="all">全部状态</option>
-              <option value="enabled">已启用</option>
-              <option value="disabled">已禁用</option>
-              <option value="broken">目标异常</option>
+              <option value="all">{t("components.startupmanager.message_024")}</option>
+              <option value="enabled">{t("components.startupmanager.message_015")}</option>
+              <option value="disabled">{t("components.startupmanager.message_016")}</option>
+              <option value="broken">{t("components.startupmanager.message_017")}</option>
             </FilterSelect>
             <label className="startup-system-toggle">
               <input type="checkbox" checked={showSystemItems} onChange={(event) => setShowSystemItems(event.target.checked)} />
-              显示系统项 ({protectedCount})
+
+              {t("components.startupmanager.message_028")}{protectedCount})
             </label>
           </div>
 
           <div className="startup-table-head">
-            <span>名称与命令</span><span>来源</span><span>范围</span><span>状态</span><span />
+            <span>{t("components.startupmanager.message_029")}</span><span>{t("components.evidencecenter.message_030")}</span><span>{t("components.startupmanager.message_031")}</span><span>{t("components.startupmanager.message_032")}</span><span />
           </div>
           <div className="startup-table-body">
             {loading && items.length === 0 ? (
-              <EmptyList icon={<Loader2 className="spinning" size={19} />} text="正在并行扫描 6 类启动来源…" />
+              <EmptyList icon={<Loader2 className="spinning" size={19} />} text={t("components.startupmanager.message_033")} />
             ) : filteredItems.length === 0 ? (
-              <EmptyList icon={<SlidersHorizontal size={22} />} text="没有符合筛选条件的项目" />
+              <EmptyList icon={<SlidersHorizontal size={22} />} text={t("components.startupmanager.message_034")} />
             ) : filteredItems.map((item) => (
               <StartupRow
                 key={item.id}
@@ -165,7 +167,7 @@ export function StartupManager() {
               />
             ))}
           </div>
-          <div className="startup-table-footer">显示 {filteredItems.length} / {items.length} 项</div>
+          <div className="startup-table-footer">{t("app.message_060")} {filteredItems.length} / {items.length}  {t("app.message_167")}</div>
         </div>
 
         <StartupDetail
@@ -215,13 +217,13 @@ function StartupRow({ item, selected, busy, onSelect, onAction }: { item: Startu
         <strong>{item.name}</strong><small>{item.command ?? item.locator.location}</small>
       </button>
       <span>{sourceMeta[item.source].shortLabel}</span>
-      <span>{item.scope === "user" ? "当前用户" : "所有用户"}</span>
+      <span>{item.scope === "user" ? t("components.startupmanager.message_037") : t("components.startupmanager.message_038")}</span>
       <StateBadge state={item.state} />
       <button
         type="button"
         role="switch"
         aria-checked={currentlyEnabled}
-        aria-label={`${currentlyEnabled ? "禁用" : "启用"} ${item.name}`}
+        aria-label={t("components.startupmanager.message_039", { value0: currentlyEnabled ? t("components.startupmanager.message_067") : t("components.startupmanager.message_068"), value1: item.name })}
         disabled={busy || !canToggle}
         onClick={() => onAction(action)}
         className={`startup-switch ${currentlyEnabled ? "on" : ""}`}
@@ -231,35 +233,35 @@ function StartupRow({ item, selected, busy, onSelect, onAction }: { item: Startu
 }
 
 function StateBadge({ state }: { state: StartupState }) {
-  const labels: Record<StartupState, string> = { enabled: "已启用", disabled: "已禁用", broken: "异常" };
+  const labels: Record<StartupState, string> = { enabled: t("components.startupmanager.message_015"), disabled: t("components.startupmanager.message_016"), broken: t("components.startupmanager.message_042") };
   return <span className={`startup-state ${state}`}>{labels[state]}</span>;
 }
 
 function StartupDetail({ item, busy, onClose, onAction }: { item: StartupItem | null; busy: boolean; onClose: () => void; onAction: (action: StartupAction) => void }) {
   if (!item) {
-    return <aside className="startup-detail card-surface empty"><FileInput size={30} /><p>选择一项查看启动命令与来源</p></aside>;
+    return <aside className="startup-detail card-surface empty"><FileInput size={30} /><p>{t("components.startupmanager.message_043")}</p></aside>;
   }
   return (
     <aside className="startup-detail card-surface">
       <header>
         <div><span>{sourceMeta[item.source].label}</span><h2>{item.name}</h2></div>
-        <button type="button" onClick={onClose} aria-label="关闭详情"><X size={15} /></button>
+        <button type="button" onClick={onClose} aria-label={t("components.reportcenter.message_025")}><X size={15} /></button>
       </header>
       <div className="startup-detail-fields">
-        <DetailField label="状态"><StateBadge state={item.state} /></DetailField>
-        <DetailField label="作用范围">{item.scope === "user" ? "仅当前用户" : "所有用户（需要管理员权限）"}</DetailField>
-        <DetailField label="启动命令"><code>{item.command ?? "未提供"}</code></DetailField>
-        <DetailField label="来源位置"><span className="startup-path">{item.locator.location}</span></DetailField>
-        {item.description && <DetailField label="说明">{item.description}</DetailField>}
+        <DetailField label={t("components.startupmanager.message_032")}><StateBadge state={item.state} /></DetailField>
+        <DetailField label={t("components.startupmanager.message_046")}>{item.scope === "user" ? t("components.startupmanager.message_047") : t("components.startupmanager.message_048")}</DetailField>
+        <DetailField label={t("components.startupmanager.message_049")}><code>{item.command ?? t("components.startupmanager.message_050")}</code></DetailField>
+        <DetailField label={t("components.startupmanager.message_051")}><span className="startup-path">{item.locator.location}</span></DetailField>
+        {item.description && <DetailField label={t("components.startupmanager.message_052")}>{item.description}</DetailField>}
         {item.warnings.map((warning) => <div key={warning} className="startup-inline-warning"><AlertTriangle size={14} />{warning}</div>)}
       </div>
       <div className="startup-detail-actions">
         {item.state === "disabled" ? (
-          <ActionButton label="启用此启动项" disabled={busy || !item.capabilities.can_enable} onClick={() => onAction("enable")} />
+          <ActionButton label={t("components.startupmanager.message_053")} disabled={busy || !item.capabilities.can_enable} onClick={() => onAction("enable")} />
         ) : (
-          <ActionButton label="禁用此启动项" disabled={busy || !item.capabilities.can_disable} onClick={() => onAction("disable")} />
+          <ActionButton label={t("components.startupmanager.message_054")} disabled={busy || !item.capabilities.can_disable} onClick={() => onAction("disable")} />
         )}
-        {item.capabilities.can_delete && <ActionButton label="删除启动项…" danger disabled={busy} onClick={() => onAction("delete")} />}
+        {item.capabilities.can_delete && <ActionButton label={t("components.startupmanager.message_055")} danger disabled={busy} onClick={() => onAction("delete")} />}
       </div>
     </aside>
   );
@@ -275,29 +277,29 @@ function ActionButton({ label, disabled, danger = false, onClick }: { label: str
 
 function ActionConfirmation({ item, plan, busy, onCancel, onConfirm }: { item: StartupItem | null; plan: { action: StartupAction; requires_admin: boolean; operations: string[]; warnings: string[]; snapshot_available: boolean }; busy: boolean; onCancel: () => void; onConfirm: () => void }) {
   const destructive = plan.action === "delete";
-  const actionLabel = plan.action === "enable" ? "启用" : plan.action === "disable" ? "禁用" : "删除";
+  const actionLabel = plan.action === "enable" ? t("components.startupmanager.message_056") : plan.action === "disable" ? t("components.startupmanager.message_057") : t("components.installmonitormanager.message_066");
   return (
     <div className="modal-backdrop startup-modal-backdrop">
       <section role="dialog" aria-modal="true" aria-labelledby="startup-confirm-title" className="startup-modal">
         <header>
           <span className={destructive ? "danger" : ""}>{destructive ? <Trash2 size={20} /> : <CirclePower size={20} />}</span>
-          <div><h2 id="startup-confirm-title">确认{actionLabel}“{item?.name ?? "该启动项"}”</h2><p>以下是后端生成的模拟执行计划，确认后才会修改系统。</p></div>
+          <div><h2 id="startup-confirm-title">{t("components.startupmanager.message_059")}{actionLabel}“{item?.name ?? t("components.startupmanager.message_060")}”</h2><p>{t("components.startupmanager.message_061")}</p></div>
         </header>
         <div className="startup-plan">
-          <span>将执行</span>
+          <span>{t("components.startupmanager.message_062")}</span>
           <ul>{plan.operations.map((operation) => <li key={operation}><CheckCircle2 size={14} />{operation}</li>)}</ul>
         </div>
         <div className="startup-plan-tags">
-          {plan.snapshot_available && <span className="success"><RotateCcw size={12} />支持回滚</span>}
-          {plan.requires_admin && <span className="warning"><ShieldAlert size={12} />需要管理员权限</span>}
-          <span>{item ? sourceMeta[item.source].label : "自启动项"}</span>
+          {plan.snapshot_available && <span className="success"><RotateCcw size={12} />{t("components.startupmanager.message_063")}</span>}
+          {plan.requires_admin && <span className="warning"><ShieldAlert size={12} />{t("components.startupmanager.message_064")}</span>}
+          <span>{item ? sourceMeta[item.source].label : t("components.startupmanager.message_065")}</span>
         </div>
-        {destructive && <div className="startup-delete-warning"><AlertTriangle size={14} />删除会移除原始启动配置，建议优先使用“禁用”。</div>}
+        {destructive && <div className="startup-delete-warning"><AlertTriangle size={14} />{t("components.startupmanager.message_066")}</div>}
         {plan.warnings.map((warning) => <p key={warning} className="startup-plan-warning">{warning}</p>)}
         <footer>
-          <button type="button" className="secondary-button" onClick={onCancel} disabled={busy}>取消</button>
+          <button type="button" className="secondary-button" onClick={onCancel} disabled={busy}>{t("app.message_089")}</button>
           <button type="button" className={destructive ? "danger-button" : "primary-button"} onClick={onConfirm} disabled={busy}>
-            {busy && <Loader2 className="spinning" size={14} />}确认{actionLabel}
+            {busy && <Loader2 className="spinning" size={14} />}{t("components.startupmanager.message_059")}{actionLabel}
           </button>
         </footer>
       </section>

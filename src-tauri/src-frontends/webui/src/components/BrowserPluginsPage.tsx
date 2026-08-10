@@ -1,3 +1,4 @@
+import { t } from "../i18n/index.ts";
 import {
   AlertTriangle,
   AppWindow,
@@ -39,28 +40,28 @@ export function BrowserPluginsPage() {
     <div className="page browser-cleaner-page">
       <div className="section-header browser-cleaner-header">
         <div>
-          <h1><AppWindow size={20} />浏览器插件</h1>
-          <p>管理 Chrome、Edge、Brave 的扩展，并清理可安全重建的缓存数据</p>
+          <h1><AppWindow size={20} />{t("app.message_041")}</h1>
+          <p>{t("components.browserpluginspage.message_002")}</p>
         </div>
-        <button className="icon-button" title="重新扫描" disabled={store.scanning || store.cleaning} onClick={() => void store.scanData()}>
+        <button className="icon-button" title={t("app.message_229")} disabled={store.scanning || store.cleaning} onClick={() => void store.scanData()}>
           <RefreshCw className={store.scanning ? "spinning" : ""} size={17} />
         </button>
       </div>
 
       {!isTauri() ? (
-        <div className="browser-runtime-note card-surface"><Info size={18} /><div><strong>请在 Rust Yu 桌面应用中使用浏览器清理</strong><p>网页预览不会读取或修改本机浏览器数据。</p></div></div>
+        <div className="browser-runtime-note card-surface"><Info size={18} /><div><strong>{t("components.browserpluginspage.message_004")}</strong><p>{t("components.browserpluginspage.message_005")}</p></div></div>
       ) : (
-        <div className="browser-safety-note"><ShieldCheck size={17} /><span><strong>安全模式：</strong>缓存默认选中，扩展必须手动选择；执行前会重新验证目标。</span></div>
+        <div className="browser-safety-note"><ShieldCheck size={17} /><span><strong>{t("components.browserpluginspage.message_006")}</strong>{t("components.browserpluginspage.message_007")}</span></div>
       )}
 
       {store.error && <div className="browser-cleaner-error"><AlertTriangle size={15} />{store.error}</div>}
-      {store.result && <div className="browser-cleaner-success"><CheckCircle2 size={15} />成功处理 {store.result.outcomes.filter((item) => item.success).length} 项，释放 {formatBytes(store.result.bytes_freed)}</div>}
+      {store.result && <div className="browser-cleaner-success"><CheckCircle2 size={15} />{t("components.browserpluginspage.message_008")} {store.result.outcomes.filter((item) => item.success).length}  {t("components.browserpluginspage.message_009")} {formatBytes(store.result.bytes_freed)}</div>}
 
       <div className="browser-cleaner-body card-surface">
         {store.scanning ? (
-          <div className="browser-cleaner-empty"><Loader2 className="spinning" size={20} />正在后台扫描浏览器配置…</div>
+          <div className="browser-cleaner-empty"><Loader2 className="spinning" size={20} />{t("components.browserpluginspage.message_010")}</div>
         ) : !store.scan?.browsers.length ? (
-          <div className="browser-cleaner-empty"><AppWindow size={30} /><strong>{isTauri() ? "未发现受支持的浏览器配置" : "等待桌面运行时"}</strong></div>
+          <div className="browser-cleaner-empty"><AppWindow size={30} /><strong>{isTauri() ? t("components.browserpluginspage.message_011") : t("components.browserpluginspage.message_012")}</strong></div>
         ) : (
           <div className="browser-list">
             {store.scan.browsers.map((browser) => {
@@ -70,29 +71,29 @@ export function BrowserPluginsPage() {
               return <section className="browser-card" key={browser.id}>
                 <div className="browser-card-head">
                   <span className="browser-mark"><AppWindow size={17} /></span>
-                  <div><strong>{browser.name}</strong><small>{browser.profile_count} 个配置文件 · {extensions.length} 个扩展</small></div>
-                  <b className={browser.running ? "running" : "closed"}>{browser.running ? "正在运行" : "已退出"}</b>
+                  <div><strong>{browser.name}</strong><small>{browser.profile_count}  {t("components.browserpluginspage.message_013")} {extensions.length}  {t("components.browserpluginspage.message_014")}</small></div>
+                  <b className={browser.running ? "running" : "closed"}>{browser.running ? t("components.browserpluginspage.message_015") : t("components.browserpluginspage.message_016")}</b>
                 </div>
-                <BrowserItemGroup title="缓存与临时文件" icon="cache" items={caches} />
-                <BrowserItemGroup title="已安装扩展" icon="extension" items={extensions} />
+                <BrowserItemGroup title={t("components.browserpluginspage.message_017")} icon="cache" items={caches} />
+                <BrowserItemGroup title={t("components.browserpluginspage.message_018")} icon="extension" items={extensions} />
               </section>;
             })}
           </div>
         )}
         {!!store.scan?.browsers.length && <div className="browser-cleaner-foot">
-          <div><span>已选 {selectedItems.length} 项</span><strong>预计释放 {formatBytes(selectedBytes)}</strong></div>
-          <button onClick={store.selectCaches}>选择缓存</button><button onClick={store.clearSelection}>清空</button>
+          <div><span>{t("components.browserpluginspage.message_019")} {selectedItems.length}  {t("app.message_167")}</span><strong>{t("components.browserpluginspage.message_021")} {formatBytes(selectedBytes)}</strong></div>
+          <button onClick={store.selectCaches}>{t("components.browserpluginspage.message_022")}</button><button onClick={store.clearSelection}>{t("app.message_110")}</button>
           <button className="danger-button" disabled={!selectedItems.length || runningSelected || store.cleaning} onClick={() => setConfirmOpen(true)}>
-            {store.cleaning ? <Loader2 className="spinning" size={15} /> : <Trash2 size={15} />}{runningSelected ? "请先退出浏览器" : "清理所选"}
+            {store.cleaning ? <Loader2 className="spinning" size={15} /> : <Trash2 size={15} />}{runningSelected ? t("components.browserpluginspage.message_024") : t("app.message_240")}
           </button>
         </div>}
       </div>
 
       {confirmOpen && <div className="modal-backdrop"><div className="safety-modal">
         <span className="modal-icon"><AlertTriangle size={24} /></span>
-        <h2>确认清理 {selectedItems.length} 项？</h2>
-        <p>预计释放 {formatBytes(selectedBytes)}。扩展和本地数据删除后不可自动撤销，启用同步的扩展可能被重新安装。</p>
-        <div><button className="secondary-button" onClick={() => setConfirmOpen(false)}>取消</button><button className="danger-button" onClick={() => { setConfirmOpen(false); void store.cleanSelected(); }}><Trash2 size={15} />确认清理</button></div>
+        <h2>{t("app.message_245")} {selectedItems.length}  {t("components.browserpluginspage.message_027")}</h2>
+        <p>{t("components.browserpluginspage.message_021")} {formatBytes(selectedBytes)}{t("components.browserpluginspage.message_029")}</p>
+        <div><button className="secondary-button" onClick={() => setConfirmOpen(false)}>{t("app.message_089")}</button><button className="danger-button" onClick={() => { setConfirmOpen(false); void store.cleanSelected(); }}><Trash2 size={15} />{t("app.message_245")}</button></div>
       </div></div>}
     </div>
   );

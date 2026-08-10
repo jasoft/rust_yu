@@ -1,3 +1,4 @@
+import { t } from "../i18n/index.ts";
 import {
   AlertTriangle,
   Check,
@@ -47,14 +48,14 @@ export function CleanerPage() {
       {isTauri() && <CleanerLogListener />}
       <div className="section-header cleaner-header">
         <div>
-          <h1><Sparkles size={20} />系统清理</h1>
-          <p>基于 FluentCleaner / Winapp2 规则库，先分析、再确认、最后清理</p>
+          <h1><Sparkles size={20} />{t("app.message_035")}</h1>
+          <p>{t("components.cleanerpage.message_002")}</p>
         </div>
-        {catalog && <div className="cleaner-database">数据库 {catalog.database_version}<span>检测到 {catalog.detected_rule_count} / {catalog.total_rule_count} 条规则</span></div>}
+        {catalog && <div className="cleaner-database">{t("components.cleanerpage.message_003")} {catalog.database_version}<span>{t("components.cleanerpage.message_004")} {catalog.detected_rule_count} / {catalog.total_rule_count}  {t("components.cleanerpage.message_005")}</span></div>}
       </div>
 
       {!isTauri() ? (
-        <div className="cleaner-runtime-note card-surface"><Info size={18} /><div><strong>请在 Rust Yu 桌面应用中使用系统清理</strong><p>浏览器预览不会调用文件系统或注册表，因此不会显示本机规则。</p></div></div>
+        <div className="cleaner-runtime-note card-surface"><Info size={18} /><div><strong>{t("components.cleanerpage.message_006")}</strong><p>{t("components.cleanerpage.message_007")}</p></div></div>
       ) : store.error ? (
         <div className="cleaner-error"><AlertTriangle size={16} />{store.error}</div>
       ) : null}
@@ -62,37 +63,37 @@ export function CleanerPage() {
       <div className="cleaner-layout">
         <aside className="cleaner-rules card-surface">
           <div className="cleaner-filters">
-            <label className="search-box"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索清理规则…" /></label>
+            <label className="search-box"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("components.cleanerpage.message_008")} /></label>
             <select value={category} onChange={(event) => setCategory(event.target.value)}>
-              <option value="all">全部分类</option>
+              <option value="all">{t("components.cleanerpage.message_009")}</option>
               {categories.map((item) => <option key={item} value={item}>{item}</option>)}
             </select>
-            <div><span>已选 {store.selectedEntries.size} 条规则</span><button onClick={store.selectRecommended}>选择推荐项</button><button onClick={store.clearEntries}>清空</button></div>
+            <div><span>{t("components.browserpluginspage.message_019")} {store.selectedEntries.size}  {t("components.cleanerpage.message_005")}</span><button onClick={store.selectRecommended}>{t("components.cleanerpage.message_012")}</button><button onClick={store.clearEntries}>{t("app.message_110")}</button></div>
           </div>
           <div className="cleaner-rule-list">
-            {store.loadingCatalog ? <CleanerLoading text="正在检测本机规则…" /> : entries.length === 0 ? (
-              <div className="cleaner-empty">{isTauri() ? "没有检测到匹配规则" : "桌面运行时可显示本机规则"}</div>
+            {store.loadingCatalog ? <CleanerLoading text={t("components.cleanerpage.message_014")} /> : entries.length === 0 ? (
+              <div className="cleaner-empty">{isTauri() ? t("components.cleanerpage.message_015") : t("components.cleanerpage.message_016")}</div>
             ) : entries.map((entry) => (
               <button key={entry.id} className={`cleaner-rule ${store.selectedEntries.has(entry.id) ? "selected" : ""}`} onClick={() => store.toggleEntry(entry.id)}>
                 <span className="cleaner-check">{store.selectedEntries.has(entry.id) && <Check size={11} />}</span>
-                <span><strong>{entry.name}</strong><small>{entry.category} · {entry.file_rule_count} 文件规则 · {entry.registry_rule_count} 注册表规则</small>{entry.warning && <em>注意：{entry.warning}</em>}</span>
+                <span><strong>{entry.name}</strong><small>{entry.category} · {entry.file_rule_count}  {t("components.cleanerpage.message_017")} {entry.registry_rule_count}  {t("components.cleanerpage.message_018")}</small>{entry.warning && <em>{t("components.cleanerpage.message_019")}{entry.warning}</em>}</span>
               </button>
             ))}
           </div>
           <div className="cleaner-rule-action">
             <button className="primary-button" disabled={!isTauri() || store.selectedEntries.size === 0 || store.scanning} onClick={() => void store.analyze()}>
-              {store.scanning ? <Loader2 className="spinning" size={15} /> : <Search size={15} />}{store.scanning ? "正在分析…" : "分析选中规则"}
+              {store.scanning ? <Loader2 className="spinning" size={15} /> : <Search size={15} />}{store.scanning ? t("components.cleanerpage.message_020") : t("components.cleanerpage.message_021")}
             </button>
           </div>
         </aside>
 
         <section className="cleaner-results card-surface">
-          {store.scanning ? <CleanerLoading text="正在后台读取文件系统和注册表…" /> : store.scan ? (
+          {store.scanning ? <CleanerLoading text={t("components.cleanerpage.message_022")} /> : store.scan ? (
             <CleanerResults confirmOpen={confirmOpen} onConfirmOpen={setConfirmOpen} />
           ) : (
-            <div className="cleaner-welcome"><span><ShieldCheck size={34} /></span><h2>选择规则并进行安全分析</h2><p>分析阶段只读取文件系统和注册表，不会修改任何内容。发现的目标默认不勾选。</p></div>
+            <div className="cleaner-welcome"><span><ShieldCheck size={34} /></span><h2>{t("components.cleanerpage.message_023")}</h2><p>{t("components.cleanerpage.message_024")}</p></div>
           )}
-          {store.logs.length > 0 && <div className="cleaner-log"><strong>实时日志</strong>{store.logs.slice(-7).map((line, index) => <p key={`${index}-${line}`}>{line}</p>)}</div>}
+          {store.logs.length > 0 && <div className="cleaner-log"><strong>{t("app.message_109")}</strong>{store.logs.slice(-7).map((line, index) => <p key={`${index}-${line}`}>{line}</p>)}</div>}
         </section>
       </div>
     </div>
@@ -107,16 +108,16 @@ function CleanerResults({ confirmOpen, onConfirmOpen }: { confirmOpen: boolean; 
   const selectedBytes = chosen.reduce((sum, target) => sum + target.size, 0);
   return <div className="cleaner-result-content">
     <div className="cleaner-result-head">
-      <div><strong>发现 {scan.targets.length} 个目标</strong><span>预计可释放 {formatCleanerBytes(scan.total_bytes)}</span></div>
-      <button onClick={store.selectAllSafeTargets}>选择全部安全项</button><button onClick={store.clearTargets}>取消全选</button>
+      <div><strong>{t("components.cleanerpage.message_026")} {scan.targets.length}  {t("components.cleanerpage.message_027")}</strong><span>{t("components.cleanerpage.message_028")} {formatCleanerBytes(scan.total_bytes)}</span></div>
+      <button onClick={store.selectAllSafeTargets}>{t("components.cleanerpage.message_029")}</button><button onClick={store.clearTargets}>{t("components.cleanerpage.message_030")}</button>
     </div>
-    {scan.truncated && <div className="cleaner-warning"><AlertTriangle size={14} />结果超过 30,000 项，请缩小规则范围。</div>}
-    {store.result && <div className="cleaner-success"><CheckCircle2 size={15} />成功处理 {store.result.items.filter((item) => item.success).length} 项，释放 {formatCleanerBytes(store.result.bytes_freed)}</div>}
+    {scan.truncated && <div className="cleaner-warning"><AlertTriangle size={14} />{t("components.cleanerpage.message_031")}</div>}
+    {store.result && <div className="cleaner-success"><CheckCircle2 size={15} />{t("components.browserpluginspage.message_008")} {store.result.items.filter((item) => item.success).length}  {t("components.browserpluginspage.message_009")} {formatCleanerBytes(store.result.bytes_freed)}</div>}
     <div className="cleaner-target-list">
-      {scan.targets.length === 0 ? <div className="cleaner-empty">没有发现可清理内容</div> : scan.targets.map((target) => <CleanerTargetRow key={target.id} target={target} />)}
+      {scan.targets.length === 0 ? <div className="cleaner-empty">{t("components.cleanerpage.message_034")}</div> : scan.targets.map((target) => <CleanerTargetRow key={target.id} target={target} />)}
     </div>
-    <div className="cleaner-result-foot"><span>已选 {store.selectedTargets.size} 项 · {formatCleanerBytes(selectedBytes)}</span><button className="danger-button" disabled={store.selectedTargets.size === 0 || store.cleaning} onClick={() => onConfirmOpen(true)}><Trash2 size={15} />清理所选</button></div>
-    {confirmOpen && <div className="modal-backdrop"><div className="safety-modal"><span className="modal-icon"><AlertTriangle size={24} /></span><h2>确认清理 {store.selectedTargets.size} 个目标？</h2><p>预计释放 {formatCleanerBytes(selectedBytes)}。删除文件和注册表项不可自动撤销，后端会在执行前重新验证全部目标。</p><div><button className="secondary-button" onClick={() => onConfirmOpen(false)}>取消</button><button className="danger-button" disabled={store.cleaning} onClick={() => { onConfirmOpen(false); void store.clean(); }}>{store.cleaning ? <Loader2 className="spinning" size={15} /> : <Trash2 size={15} />}确认清理</button></div></div></div>}
+    <div className="cleaner-result-foot"><span>{t("components.browserpluginspage.message_019")} {store.selectedTargets.size}  {t("components.cleanerpage.message_036")} {formatCleanerBytes(selectedBytes)}</span><button className="danger-button" disabled={store.selectedTargets.size === 0 || store.cleaning} onClick={() => onConfirmOpen(true)}><Trash2 size={15} />{t("app.message_240")}</button></div>
+    {confirmOpen && <div className="modal-backdrop"><div className="safety-modal"><span className="modal-icon"><AlertTriangle size={24} /></span><h2>{t("app.message_245")} {store.selectedTargets.size}  {t("components.cleanerpage.message_039")}</h2><p>{t("components.browserpluginspage.message_021")} {formatCleanerBytes(selectedBytes)}{t("components.cleanerpage.message_041")}</p><div><button className="secondary-button" onClick={() => onConfirmOpen(false)}>{t("app.message_089")}</button><button className="danger-button" disabled={store.cleaning} onClick={() => { onConfirmOpen(false); void store.clean(); }}>{store.cleaning ? <Loader2 className="spinning" size={15} /> : <Trash2 size={15} />}{t("app.message_245")}</button></div></div></div>}
   </div>;
 }
 
@@ -126,8 +127,8 @@ function CleanerTargetRow({ target }: { target: CleanerTarget }) {
   const Icon = target.kind === "file" ? FileCode2 : Database;
   return <button className={`cleaner-target ${selected ? "selected" : ""} ${target.blocked_reason ? "blocked" : ""}`} disabled={Boolean(target.blocked_reason)} onClick={() => toggle(target.id)}>
     <span className="cleaner-check">{selected && <Check size={11} />}</span><Icon size={15} />
-    <span><strong>{target.entry_name}</strong><small>{target.value_name ? `${target.path} → ${target.value_name}` : target.path}</small>{target.blocked_reason && <em>已阻止：{target.blocked_reason}</em>}</span>
-    <span className="cleaner-target-meta">{target.requires_admin && <b>管理员</b>}{target.size > 0 && formatCleanerBytes(target.size)}</span>
+    <span><strong>{target.entry_name}</strong><small>{target.value_name ? `${target.path} → ${target.value_name}` : target.path}</small>{target.blocked_reason && <em>{t("components.cleanerpage.message_044")}{target.blocked_reason}</em>}</span>
+    <span className="cleaner-target-meta">{target.requires_admin && <b>{t("components.cleanerpage.message_045")}</b>}{target.size > 0 && formatCleanerBytes(target.size)}</span>
   </button>;
 }
 

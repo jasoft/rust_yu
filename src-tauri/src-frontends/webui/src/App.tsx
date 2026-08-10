@@ -1,3 +1,4 @@
+import { getLanguage, setLanguage, supportedLanguages, t, type Language } from "./i18n/index.ts";
 import { useEffect, useRef, useState } from "react";
 import {
   Activity,
@@ -98,24 +99,24 @@ const mockPrograms: UiProgram[] = [
 ];
 
 const demoTraces: Trace[] = [
-  { id: "t1", program_name: "7-Zip 24.09", trace_type: "file", path: "C:\\Program Files\\7-Zip\\", exists: true, size: 5_570_560, confidence: "high", description: "程序安装目录" },
-  { id: "t2", program_name: "7-Zip 24.09", trace_type: "appdata", path: "C:\\Users\\Admin\\AppData\\Roaming\\7-Zip\\", exists: true, size: 3_276_800, confidence: "high", description: "用户配置文件" },
-  { id: "t3", program_name: "7-Zip 24.09", trace_type: "appdata", path: "C:\\Users\\Admin\\AppData\\Local\\7-Zip\\", exists: true, size: 1_310_720, confidence: "medium", description: "本地缓存" },
-  { id: "t4", program_name: "7-Zip 24.09", trace_type: "file", path: "C:\\Users\\Admin\\AppData\\Local\\Temp\\7zFM\\", exists: true, size: 430_080, confidence: "low", description: "临时目录，可能被其他程序使用" },
-  { id: "t5", program_name: "7-Zip 24.09", trace_type: "shortcut", path: "C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\7-Zip.lnk", exists: true, size: 379_000, confidence: "medium", description: "开始菜单快捷方式" },
-  { id: "t6", program_name: "7-Zip 24.09", trace_type: "registry_key", path: "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\7zFM.exe", exists: true, size: 3_200, confidence: "high", description: "应用程序注册项" },
-  { id: "t7", program_name: "7-Zip 24.09", trace_type: "registry_key", path: "HKCU\\Software\\Classes\\7z.*", exists: true, size: 196_000, confidence: "medium", description: "文件关联" },
-  { id: "t8", program_name: "7-Zip 24.09", trace_type: "registry_key", path: "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\.7z", exists: true, size: 56_000, confidence: "low", description: "用户文件关联历史" },
+  { id: "t1", program_name: "7-Zip 24.09", trace_type: "file", path: "C:\\Program Files\\7-Zip\\", exists: true, size: 5_570_560, confidence: "high", description: t("app.message_001") },
+  { id: "t2", program_name: "7-Zip 24.09", trace_type: "appdata", path: "C:\\Users\\Admin\\AppData\\Roaming\\7-Zip\\", exists: true, size: 3_276_800, confidence: "high", description: t("app.message_002") },
+  { id: "t3", program_name: "7-Zip 24.09", trace_type: "appdata", path: "C:\\Users\\Admin\\AppData\\Local\\7-Zip\\", exists: true, size: 1_310_720, confidence: "medium", description: t("app.message_003") },
+  { id: "t4", program_name: "7-Zip 24.09", trace_type: "file", path: "C:\\Users\\Admin\\AppData\\Local\\Temp\\7zFM\\", exists: true, size: 430_080, confidence: "low", description: t("app.message_004") },
+  { id: "t5", program_name: "7-Zip 24.09", trace_type: "shortcut", path: "C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\7-Zip.lnk", exists: true, size: 379_000, confidence: "medium", description: t("app.message_005") },
+  { id: "t6", program_name: "7-Zip 24.09", trace_type: "registry_key", path: "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\7zFM.exe", exists: true, size: 3_200, confidence: "high", description: t("app.message_006") },
+  { id: "t7", program_name: "7-Zip 24.09", trace_type: "registry_key", path: "HKCU\\Software\\Classes\\7z.*", exists: true, size: 196_000, confidence: "medium", description: t("app.message_007") },
+  { id: "t8", program_name: "7-Zip 24.09", trace_type: "registry_key", path: "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\.7z", exists: true, size: 56_000, confidence: "low", description: t("app.message_008") },
 ];
 
 const initialLogs = [
-  "[10:24:31] 创建系统还原点…",
-  "[10:24:33] 还原点创建成功",
-  "[10:24:34] 启动卸载程序：C:\\Program Files\\7-Zip\\Uninstall.exe",
-  "[10:24:35] 正在停止相关服务…",
-  "[10:24:36] 删除文件：C:\\Program Files\\7-Zip\\7z.exe",
-  "[10:24:36] 删除文件：C:\\Program Files\\7-Zip\\7zFM.exe",
-  "[10:24:37] 删除文件：C:\\Program Files\\7-Zip\\7-zip.chm",
+  t("app.message_009"),
+  t("app.message_010"),
+  t("app.message_011"),
+  t("app.message_012"),
+  t("app.message_013"),
+  t("app.message_014"),
+  t("app.message_015"),
 ];
 
 function getInitialStage(): Stage {
@@ -131,7 +132,7 @@ function toUiProgram(program: InstalledProgram): UiProgram {
   return {
     id: program.id,
     name: program.name,
-    publisher: program.publisher ?? "未知发布者",
+    publisher: program.publisher ?? t("app.message_016"),
     version: program.display_version ?? program.version ?? "—",
     size: formatBytes(program.size ?? program.estimated_size),
     installed: program.install_date ?? "—",
@@ -155,7 +156,7 @@ function formatBytes(bytes: number | null | undefined) {
 }
 
 function formatLocalLog(message: string) {
-  return `[${new Date().toLocaleTimeString("zh-CN", { hour12: false })}] ${message}`;
+  return `[${new Date().toLocaleTimeString(getLanguage(), { hour12: false })}] ${message}`;
 }
 
 export default function App() {
@@ -309,10 +310,10 @@ export default function App() {
           scanStartedAtRef.current = Date.now();
           setLogs((current) => [
             ...current,
-            formatLocalLog("[残留扫描] 检查安装目录、程序文件与快捷方式"),
-            formatLocalLog("[残留扫描] 检查 APPDATA / LOCALAPPDATA 用户数据"),
-            formatLocalLog("[残留扫描] 检查 HKCU / HKLM 注册表与文件关联"),
-            formatLocalLog("[残留扫描] 检查明确关联的服务、任务与系统集成"),
+            formatLocalLog(t("app.message_017")),
+            formatLocalLog(t("app.message_018")),
+            formatLocalLog(t("app.message_019")),
+            formatLocalLog(t("app.message_020")),
           ]);
           setStage("scan");
         } else if (payload.phase === "awaiting_cleanup_confirmation") {
@@ -440,7 +441,7 @@ export default function App() {
     setStage("progress");
     setProgress(8);
     setTraces([]);
-    setLogs([`[${new Date().toLocaleTimeString("zh-CN", { hour12: false })}] [准备] 正在生成卸载快照…`]);
+    setLogs([t("app.message_021", { value0: new Date().toLocaleTimeString(getLanguage(), { hour12: false }) })]);
     setScanStatus("idle");
     scanStartedAtRef.current = null;
     if (isTauriRuntime() && selectedProgram.source) {
@@ -452,10 +453,10 @@ export default function App() {
         const residueItems = executed.residue_review.traces;
         setTraces(residueItems);
         setSelectedTraceIds(new Set());
-        const categoryLabels = { files: "文件系统", user_data: "用户数据", registry: "注册表", system: "系统集成" };
+        const categoryLabels = { files: t("app.message_022"), user_data: t("app.message_023"), registry: t("app.message_024"), system: t("app.message_025") };
         const scanSummaryLogs = summarizeTraces(residueItems)
           .filter((summary) => summary.count > 0)
-          .map((summary) => formatLocalLog(`[扫描结果] ${categoryLabels[summary.category]}：${summary.count} 项，${formatBytes(summary.bytes)}`));
+          .map((summary) => formatLocalLog(t("app.message_026", { value0: categoryLabels[summary.category], value1: summary.count, value2: formatBytes(summary.bytes) })));
         setLogs((current) => [...current, ...scanSummaryLogs]);
         setScanStatus("complete");
         const scanElapsed = scanStartedAtRef.current === null ? 1_000 : Date.now() - scanStartedAtRef.current;
@@ -528,6 +529,8 @@ export default function App() {
             <BrowserPluginsPage />
           ) : activeNav === "tools" ? (
             <ToolboxPage onNavigate={(next) => setActiveNav(next)} />
+          ) : activeNav === "settings" ? (
+            <SettingsPage />
           ) : activeNav !== "apps" ? (
             <PlaceholderPage active={activeNav} />
           ) : stage === "apps" ? (
@@ -643,7 +646,7 @@ function TitleBar() {
       else if (name === "maximize") await appWindow.toggleMaximize();
       else await appWindow.close();
     } catch (error) {
-      console.error(`窗口操作失败: ${name}`, error);
+      console.error(t("app.message_027", { value0: name }), error);
     }
   };
 
@@ -653,7 +656,7 @@ function TitleBar() {
     try {
       await getCurrentWindow().startDragging();
     } catch (error) {
-      console.error("启动窗口拖动失败", error);
+      console.error(t("app.message_028"), error);
     }
   };
 
@@ -666,29 +669,29 @@ function TitleBar() {
     >
       <div className="brand" data-tauri-drag-region>
         <span className="brand-mark"><ShieldCheck size={16} /></span>
-        <span>RustYu</span>
+        <span>{t("common.brand.compact")}</span>
       </div>
       <div className="window-actions">
-        <button aria-label="最小化" onClick={() => void act("minimize")}><Minus size={15} /></button>
-        <button aria-label="最大化" onClick={() => void act("maximize")}><Maximize2 size={12} /></button>
-        <button aria-label="关闭" className="close" onClick={() => void act("close")}><X size={15} /></button>
+        <button aria-label={t("app.message_029")} onClick={() => void act("minimize")}><Minus size={15} /></button>
+        <button aria-label={t("app.message_030")} onClick={() => void act("maximize")}><Maximize2 size={12} /></button>
+        <button aria-label={t("app.message_031")} className="close" onClick={() => void act("close")}><X size={15} /></button>
       </div>
     </header>
   );
 }
 
 const navItems: { id: NavKey; label: string; icon: typeof Package }[] = [
-  { id: "apps", label: "已安装应用", icon: Grid2X2 },
-  { id: "health", label: "软件健康", icon: Activity },
-  { id: "startup", label: "自启动管理", icon: Zap },
-  { id: "cleaner", label: "系统清理", icon: Sparkles },
-  { id: "backups", label: "备份与恢复", icon: ShieldCheck },
-  { id: "traces", label: "软件残留", icon: Archive },
-  { id: "monitor", label: "安装监控", icon: SquareActivity },
-  { id: "evidence", label: "证据与策略", icon: FileCode2 },
-  { id: "reports", label: "卸载记录", icon: FileText },
-  { id: "plugins", label: "浏览器插件", icon: AppWindow },
-  { id: "tools", label: "工具箱", icon: Wrench },
+  { id: "apps", label: t("app.message_032"), icon: Grid2X2 },
+  { id: "health", label: t("app.message_033"), icon: Activity },
+  { id: "startup", label: t("app.message_034"), icon: Zap },
+  { id: "cleaner", label: t("app.message_035"), icon: Sparkles },
+  { id: "backups", label: t("app.message_036"), icon: ShieldCheck },
+  { id: "traces", label: t("app.message_037"), icon: Archive },
+  { id: "monitor", label: t("app.message_038"), icon: SquareActivity },
+  { id: "evidence", label: t("app.message_039"), icon: FileCode2 },
+  { id: "reports", label: t("app.message_040"), icon: FileText },
+  { id: "plugins", label: t("app.message_041"), icon: AppWindow },
+  { id: "tools", label: t("app.message_042"), icon: Wrench },
 ];
 
 function Sidebar({ active, onNavigate }: { active: NavKey; onNavigate: (key: NavKey) => void }) {
@@ -698,8 +701,8 @@ function Sidebar({ active, onNavigate }: { active: NavKey; onNavigate: (key: Nav
         {navItems.map((item) => <NavButton key={item.id} {...item} active={active === item.id} onClick={() => onNavigate(item.id)} />)}
       </nav>
       <nav className="sidebar-bottom">
-        <NavButton id="settings" label="设置" icon={Settings} active={active === "settings"} onClick={() => onNavigate("settings")} />
-        <NavButton id="about" label="关于" icon={CircleHelp} active={active === "about"} onClick={() => onNavigate("about")} />
+        <NavButton id="settings" label={t("app.message_043")} icon={Settings} active={active === "settings"} onClick={() => onNavigate("settings")} />
+        <NavButton id="about" label={t("app.message_044")} icon={CircleHelp} active={active === "about"} onClick={() => onNavigate("about")} />
       </nav>
     </aside>
   );
@@ -724,9 +727,9 @@ function AppsStage(props: {
 }) {
   return (
     <div className="page apps-page">
-      <SectionHeader title="已安装应用" action={<div className="header-actions"><button className="secondary-button compact-button" disabled={!props.batchActive && props.batchSelectedIds.size === 0} onClick={props.onOpenBatch}><ListChecks size={14} />{props.batchActive ? "查看队列" : `批量卸载${props.batchSelectedIds.size ? ` (${props.batchSelectedIds.size})` : ""}`}</button><button className="secondary-button compact-button" onClick={props.onForceUninstall}><Wrench size={14} />强制卸载</button><button className="icon-button" disabled={props.loading || props.metadataLoading} title={props.metadataLoading ? "正在生成图标缓存" : "刷新"} onClick={props.onRefresh}><RefreshCw className={props.loading || props.metadataLoading ? "spinning" : ""} size={17} /></button></div>} />
+      <SectionHeader title={t("app.message_032")} action={<div className="header-actions"><button className="secondary-button compact-button" disabled={!props.batchActive && props.batchSelectedIds.size === 0} onClick={props.onOpenBatch}><ListChecks size={14} />{props.batchActive ? t("app.message_046") : t("app.message_047", { value0: props.batchSelectedIds.size ? ` (${props.batchSelectedIds.size})` : "" })}</button><button className="secondary-button compact-button" onClick={props.onForceUninstall}><Wrench size={14} />{t("app.message_048")}</button><button className="icon-button" disabled={props.loading || props.metadataLoading} title={props.metadataLoading ? t("app.message_049") : t("app.message_050")} onClick={props.onRefresh}><RefreshCw className={props.loading || props.metadataLoading ? "spinning" : ""} size={17} /></button></div>} />
       <div className="toolbar">
-        <label className="search-box"><Search size={16} /><input value={props.query} onChange={(event) => props.onQuery(event.target.value)} placeholder="搜索应用、发布者或关键词…" /></label>
+        <label className="search-box"><Search size={16} /><input value={props.query} onChange={(event) => props.onQuery(event.target.value)} placeholder={t("app.message_051")} /></label>
         <div className="filter-pills">
           {programSourceOptions.map((option) => (
             <button key={option.id} className={props.sourceFilter === option.id ? "selected" : ""} onClick={() => props.onSourceFilter(option.id)}>
@@ -737,28 +740,28 @@ function AppsStage(props: {
       </div>
       <div className="apps-layout">
         <div className="program-table card-surface">
-          <div className="table-head"><span>选择</span><span>名称 <ChevronDown size={12} /></span><span>发布者</span><span>大小</span><span>安装日期 <ChevronDown size={12} /></span></div>
+          <div className="table-head"><span>{t("app.message_052")}</span><span>{t("app.message_053")} <ChevronDown size={12} /></span><span>{t("app.message_054")}</span><span>{t("app.message_055")}</span><span>{t("app.message_056")} <ChevronDown size={12} /></span></div>
           <div className="table-body">
-            {props.error ? <div className="table-message error">{props.error}</div> : props.loading && props.programs.length === 0 ? <div className="table-message">正在读取已安装程序…</div> : props.programs.length === 0 ? <div className="table-message">没有找到符合条件的程序</div> : props.programs.map((program) => (
+            {props.error ? <div className="table-message error">{props.error}</div> : props.loading && props.programs.length === 0 ? <div className="table-message">{t("app.message_057")}</div> : props.programs.length === 0 ? <div className="table-message">{t("app.message_058")}</div> : props.programs.map((program) => (
               <div key={program.id} className={`program-row ${props.selectedId === program.id ? "selected" : ""}`} role="button" tabIndex={0} aria-selected={props.selectedId === program.id} onClick={() => props.onSelect(program.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); props.onSelect(program.id); } }}>
-                <span className="program-select"><input type="checkbox" aria-label={`选择 ${program.name}`} checked={props.batchSelectedIds.has(program.id)} disabled={props.batchActive} onClick={(event) => event.stopPropagation()} onChange={() => props.onToggleBatch(program.id)} /></span>
+                <span className="program-select"><input type="checkbox" aria-label={t("app.message_059", { value0: program.name })} checked={props.batchSelectedIds.has(program.id)} disabled={props.batchActive} onClick={(event) => event.stopPropagation()} onChange={() => props.onToggleBatch(program.id)} /></span>
                 <span className="program-name"><AppIcon program={program} /><strong>{program.name}</strong></span>
                 <span>{program.publisher}</span><span>{program.size}</span><span>{program.installed}</span>
               </div>
             ))}
           </div>
-          <div className="table-footer">显示 {props.programs.length} 个应用{props.batchSelectedIds.size > 0 ? ` · 已选择 ${props.batchSelectedIds.size} 个` : ""}</div>
+          <div className="table-footer">{t("app.message_060")} {props.programs.length}  {t("app.message_061")}{props.batchSelectedIds.size > 0 ? t("app.message_062", { value0: props.batchSelectedIds.size }) : ""}</div>
         </div>
         <aside className="program-detail card-surface">
           <div className="detail-app"><AppIcon program={props.selected} large /><h2>{props.selected.name}</h2><p>{props.selected.publisher}</p><span>{props.selected.size}</span></div>
-          <dl><div><dt>版本</dt><dd>{props.selected.version}</dd></div><div><dt>安装日期</dt><dd>{props.selected.installed}</dd></div><div><dt>启动次数</dt><dd>82</dd></div><div><dt>启动项</dt><dd>无</dd></div></dl>
+          <dl><div><dt>{t("app.message_063")}</dt><dd>{props.selected.version}</dd></div><div><dt>{t("app.message_056")}</dt><dd>{props.selected.installed}</dd></div><div><dt>{t("app.message_065")}</dt><dd>82</dd></div><div><dt>{t("app.message_066")}</dt><dd>{t("app.message_067")}</dd></div></dl>
           <p className="install-path">{props.selected.location}</p>
           <div className="detail-actions">
-            <button onClick={props.onDetails}><Info size={14} />详细信息</button>
-            <button onClick={props.onScan}><Search size={14} />扫描残留</button>
-            <button onClick={props.onForceUninstall}><Wrench size={14} />强制卸载</button>
+            <button onClick={props.onDetails}><Info size={14} />{t("app.message_068")}</button>
+            <button onClick={props.onScan}><Search size={14} />{t("app.message_069")}</button>
+            <button onClick={props.onForceUninstall}><Wrench size={14} />{t("app.message_048")}</button>
           </div>
-          <button className="primary-button uninstall-button" onClick={props.onUninstall}><Trash2 size={16} />卸载</button>
+          <button className="primary-button uninstall-button" onClick={props.onUninstall}><Trash2 size={16} />{t("app.message_071")}</button>
         </aside>
       </div>
     </div>
@@ -778,13 +781,13 @@ function ConfirmStage(props: {
 }) {
   return (
     <div className="page focused-page">
-      <SectionHeader title="确认卸载" subtitle="请在继续前检查卸载范围和安全选项" />
+      <SectionHeader title={t("app.message_072")} subtitle={t("app.message_073")} />
       <div className="confirm-card card-surface">
         <div className="confirm-program"><AppIcon program={props.program} large /><div><h2>{props.program.name}</h2><p>{props.program.publisher}<span>·</span>{props.program.size}</p></div></div>
-        <div className="warning-banner"><TriangleAlert size={21} /><div><strong>检测到中等风险</strong><p>程序包含系统级组件。建议创建系统还原点，以便出现问题时恢复。</p></div></div>
-        <div className="risk-box"><h3>风险影响</h3><div><span>程序文件将被删除</span><b className="risk-medium">中等</b></div><div><span>注册表项将被修改</span><b className="risk-medium">中等</b></div><div><span>可能影响其他程序</span><b className="risk-low">低</b></div><div><span>个人数据影响</span><b>无</b></div></div>
-        <div className="option-list"><CheckOption checked={props.restorePoint} onChange={props.onRestorePoint} title="创建系统还原点" hint="推荐" /><CheckOption checked={props.scanAfter} onChange={props.onScanAfter} title="卸载后扫描残留" hint="推荐" /></div>
-        <div className="dialog-actions"><button className="secondary-button" onClick={props.onCancel}>取消</button><button className="primary-button" onClick={props.onStart}><Play size={15} fill="currentColor" />开始卸载</button></div>
+        <div className="warning-banner"><TriangleAlert size={21} /><div><strong>{t("app.message_074")}</strong><p>{t("app.message_075")}</p></div></div>
+        <div className="risk-box"><h3>{t("app.message_076")}</h3><div><span>{t("app.message_077")}</span><b className="risk-medium">{t("app.message_078")}</b></div><div><span>{t("app.message_079")}</span><b className="risk-medium">{t("app.message_078")}</b></div><div><span>{t("app.message_081")}</span><b className="risk-low">{t("app.message_082")}</b></div><div><span>{t("app.message_083")}</span><b>{t("app.message_067")}</b></div></div>
+        <div className="option-list"><CheckOption checked={props.restorePoint} onChange={props.onRestorePoint} title={t("app.message_085")} hint={t("app.message_086")} /><CheckOption checked={props.scanAfter} onChange={props.onScanAfter} title={t("app.message_087")} hint={t("app.message_086")} /></div>
+        <div className="dialog-actions"><button className="secondary-button" onClick={props.onCancel}>{t("app.message_089")}</button><button className="primary-button" onClick={props.onStart}><Play size={15} fill="currentColor" />{t("app.message_090")}</button></div>
       </div>
     </div>
   );
@@ -798,21 +801,21 @@ function ProgressStage({ program, progress, logs, error, onContinue }: { program
   const nativeWorkflow = isTauriRuntime();
   const failed = Boolean(error);
   const steps = [
-    ["创建系统还原点", "done"], ["分析卸载程序", "done"], ["运行内置卸载程序", failed ? "failed" : "active"], ["删除程序文件", "todo"], ["清理注册表项", "todo"], ["卸载完成", "todo"],
+    [t("app.message_085"), "done"], [t("app.message_092"), "done"], [t("app.message_093"), failed ? "failed" : "active"], [t("app.message_094"), "todo"], [t("app.message_095"), "todo"], [t("app.message_096"), "todo"],
   ];
   return (
     <div className="page progress-page">
-      <SectionHeader title={failed ? `${program.name} 卸载失败` : `正在卸载 ${program.name}`} subtitle={failed ? "卸载没有继续，请查看下方错误信息。" : "请保持应用开启，我们会在任务完成后通知你"} />
+      <SectionHeader title={failed ? t("app.message_097", { value0: program.name }) : t("app.message_098", { value0: program.name })} subtitle={failed ? t("app.message_099") : t("app.message_100")} />
       <div className="progress-top">
-        <div className={`progress-ring ${failed ? "failed" : nativeWorkflow ? "indeterminate" : "preview-progress"}`}><div><strong>{failed ? "!" : nativeWorkflow ? "…" : `${progress}%`}</strong><span>{failed ? "卸载失败" : nativeWorkflow ? "等待真实卸载状态…" : "正在删除文件…"}</span><small>{failed ? "请查看下方错误信息" : nativeWorkflow ? "请保持窗口开启" : "00:00:28"}</small></div></div>
-        <div className="steps-list">{steps.map(([label, state]) => <div key={label} className={`step ${state}`}><span>{state === "done" ? <Check size={12} /> : state === "failed" ? <TriangleAlert size={11} /> : ""}</span><strong>{label}</strong><em>{state === "done" ? "完成" : state === "active" ? "进行中" : state === "failed" ? "失败" : ""}</em></div>)}</div>
+        <div className={`progress-ring ${failed ? "failed" : nativeWorkflow ? "indeterminate" : "preview-progress"}`}><div><strong>{failed ? "!" : nativeWorkflow ? "…" : `${progress}%`}</strong><span>{failed ? t("app.message_101") : nativeWorkflow ? t("app.message_102") : t("app.message_103")}</span><small>{failed ? t("app.message_104") : nativeWorkflow ? t("app.message_105") : "00:00:28"}</small></div></div>
+        <div className="steps-list">{steps.map(([label, state]) => <div key={label} className={`step ${state}`}><span>{state === "done" ? <Check size={12} /> : state === "failed" ? <TriangleAlert size={11} /> : ""}</span><strong>{label}</strong><em>{state === "done" ? t("app.message_106") : state === "active" ? t("app.message_107") : state === "failed" ? t("app.message_108") : ""}</em></div>)}</div>
       </div>
       <div className={`log-panel card-surface${failed ? " error-state" : ""}`}>
-        <div className="panel-title"><span>实时日志</span><button>清空</button></div>
-        {error && <div className="uninstall-error" role="alert"><TriangleAlert size={16} /><div><strong>卸载失败</strong><span>{error}</span></div></div>}
-        <div className="log-content">{error && <div className="error-log">[错误] {error}</div>}{logs.map((log, index) => <div key={`${log}-${index}`}>{log}</div>)}</div>
+        <div className="panel-title"><span>{t("app.message_109")}</span><button>{t("app.message_110")}</button></div>
+        {error && <div className="uninstall-error" role="alert"><TriangleAlert size={16} /><div><strong>{t("app.message_101")}</strong><span>{error}</span></div></div>}
+        <div className="log-content">{error && <div className="error-log">{t("app.message_112")} {error}</div>}{logs.map((log, index) => <div key={`${log}-${index}`}>{log}</div>)}</div>
       </div>
-      <div className="page-footnote"><Info size={15} /><span>该过程可能需要一些时间，请耐心等待。</span>{!isTauriRuntime() && <button onClick={onContinue}>预览下一阶段</button>}</div>
+      <div className="page-footnote"><Info size={15} /><span>{t("app.message_113")}</span>{!isTauriRuntime() && <button onClick={onContinue}>{t("app.message_114")}</button>}</div>
     </div>
   );
 }
@@ -832,26 +835,26 @@ function ScanStage({
 }) {
   const summaries = summarizeTraces(traces);
   const locationMeta = [
-    { category: "files" as const, icon: Folder, title: "程序文件", path: program.location || "Program Files / 安装目录", hint: "安装目录、缓存与快捷方式" },
-    { category: "user_data" as const, icon: Box, title: "用户数据", path: "%APPDATA% · %LOCALAPPDATA%", hint: "配置、缓存与用户级数据" },
-    { category: "registry" as const, icon: Database, title: "注册表", path: "HKCU · HKLM\\Software", hint: "卸载项、设置与文件关联" },
-    { category: "system" as const, icon: ShieldCheck, title: "系统集成", path: "服务 · 任务 · 驱动", hint: "仅检查明确关联的系统项" },
+    { category: "files" as const, icon: Folder, title: t("app.message_115"), path: program.location || t("app.message_116"), hint: t("app.message_117") },
+    { category: "user_data" as const, icon: Box, title: t("app.message_023"), path: "%APPDATA% · %LOCALAPPDATA%", hint: t("app.message_119") },
+    { category: "registry" as const, icon: Database, title: t("app.message_024"), path: "HKCU · HKLM\\Software", hint: t("app.message_121") },
+    { category: "system" as const, icon: ShieldCheck, title: t("app.message_025"), path: t("app.message_123"), hint: t("app.message_124") },
   ];
   const isComplete = status === "complete";
   const latestLogs = logs.slice(-4);
   return (
     <div className={`page scan-page ${isComplete ? "scan-complete" : "scan-running"}`}>
-      <SectionHeader title={isComplete ? "扫描完成" : "正在扫描残留"} subtitle={`${program.name} · ${isComplete ? "扫描结果已经准备好，请检查后再决定清理范围" : "正在保守地查找与该程序明确关联的项目"}`} />
+      <SectionHeader title={isComplete ? t("app.message_125") : t("app.message_126")} subtitle={t("app.message_127", { value0: program.name, value1: isComplete ? t("app.message_325") : t("app.message_326") })} />
       <div className="scan-main">
-        <div className={`radar ${isComplete ? "done" : ""}`}><div className="radar-sweep" /><span className="radar-dot one" /><span className="radar-dot two" /><span className="radar-dot three" /><div className="radar-center"><strong>{isComplete ? traces.length : "…"}</strong><span>{isComplete ? "发现项目" : "分析中"}</span></div></div>
-        <div className="scan-locations"><h3>扫描位置 <span>{isComplete ? "4 个区域已完成" : "实时扫描中"}</span></h3>{locationMeta.map(({ category, icon: Icon, title, path, hint }) => {
+        <div className={`radar ${isComplete ? "done" : ""}`}><div className="radar-sweep" /><span className="radar-dot one" /><span className="radar-dot two" /><span className="radar-dot three" /><div className="radar-center"><strong>{isComplete ? traces.length : "…"}</strong><span>{isComplete ? t("app.message_128") : t("app.message_129")}</span></div></div>
+        <div className="scan-locations"><h3>{t("app.message_130")} <span>{isComplete ? t("app.message_131") : t("app.message_132")}</span></h3>{locationMeta.map(({ category, icon: Icon, title, path, hint }) => {
           const summary = summaries.find((item) => item.category === category);
-          return <div className={`scan-location ${isComplete ? "done" : "active"}`} key={category}><Icon size={20} /><div><strong>{title}</strong><span>{path}</span><small>{hint}</small></div><em>{isComplete ? "已完成" : "正在扫描…"}</em><b>{isComplete ? `${summary?.count ?? 0} 项` : "探测中"}</b></div>;
+          return <div className={`scan-location ${isComplete ? "done" : "active"}`} key={category}><Icon size={20} /><div><strong>{title}</strong><span>{path}</span><small>{hint}</small></div><em>{isComplete ? t("app.message_133") : t("app.message_134")}</em><b>{isComplete ? t("app.message_135", { value0: summary?.count ?? 0 }) : t("app.message_136")}</b></div>;
         })}</div>
       </div>
-      <div className="scan-stats card-surface"><h3>扫描统计 <span>{isComplete ? "已生成可审查快照" : "扫描引擎正在建立快照"}</span></h3><div><span>扫描区域<strong>4 / 4</strong></span><span>发现项目<strong className="blue">{isComplete ? traces.length : "分析中"}</strong></span><span>预计大小<strong className="blue">{isComplete ? formatBytes(traces.reduce((sum, trace) => sum + (trace.size ?? 0), 0)) : "计算中"}</strong></span><span>扫描策略<strong>{isComplete ? "保守匹配" : "安全筛选"}</strong></span></div></div>
-      <div className="scan-live-log card-surface"><div className="panel-title"><span><Loader2 size={13} className={isComplete ? "" : "spinning"} />扫描引擎实时日志</span><strong>{isComplete ? "扫描结果已锁定" : "正在工作"}</strong></div><div>{latestLogs.length > 0 ? latestLogs.map((log, index) => <p key={`${log}-${index}`}>{log}</p>) : <p>正在初始化扫描器…</p>}</div></div>
-      <div className="page-footnote"><Info size={15} /><span>我们仅显示与已卸载程序明确相关的项目，系统关键项和低置信度项目不会被自动删除。</span>{isComplete && <button onClick={onContinue}>查看扫描结果 <ChevronDown size={13} /></button>}</div>
+      <div className="scan-stats card-surface"><h3>{t("app.message_137")} <span>{isComplete ? t("app.message_138") : t("app.message_139")}</span></h3><div><span>{t("app.message_140")}<strong>4 / 4</strong></span><span>{t("app.message_128")}<strong className="blue">{isComplete ? traces.length : t("app.message_129")}</strong></span><span>{t("app.message_143")}<strong className="blue">{isComplete ? formatBytes(traces.reduce((sum, trace) => sum + (trace.size ?? 0), 0)) : t("app.message_144")}</strong></span><span>{t("app.message_145")}<strong>{isComplete ? t("app.message_146") : t("app.message_147")}</strong></span></div></div>
+      <div className="scan-live-log card-surface"><div className="panel-title"><span><Loader2 size={13} className={isComplete ? "" : "spinning"} />{t("app.message_148")}</span><strong>{isComplete ? t("app.message_149") : t("app.message_150")}</strong></div><div>{latestLogs.length > 0 ? latestLogs.map((log, index) => <p key={`${log}-${index}`}>{log}</p>) : <p>{t("app.message_151")}</p>}</div></div>
+      <div className="page-footnote"><Info size={15} /><span>{t("app.message_152")}</span>{isComplete && <button onClick={onContinue}>{t("app.message_153")} <ChevronDown size={13} /></button>}</div>
     </div>
   );
 }
@@ -885,33 +888,33 @@ function BatchUninstallModal({
   const failed = items.filter((item) => item.status === "failed").length;
   const cancelled = items.filter((item) => item.status === "cancelled").length;
   const statusLabel = {
-    queued: "排队中",
-    planning: "准备中",
-    running: "卸载中",
-    completed: "已完成",
-    failed: "失败",
-    cancelled: "已取消",
+    queued: t("app.message_154"),
+    planning: t("app.message_155"),
+    running: t("app.message_156"),
+    completed: t("app.message_133"),
+    failed: t("app.message_108"),
+    cancelled: t("app.message_159"),
   } as const;
 
   return <div className="modal-backdrop" onMouseDown={onClose}>
     <section className="batch-uninstall-modal" onMouseDown={(event) => event.stopPropagation()}>
       <header>
-        <div><span className="batch-modal-mark"><ListChecks size={20} /></span><span><h2>批量卸载队列</h2><p>{started ? "每项独立执行，按顺序运行并保留结果" : "先确认范围，再逐项调用原厂卸载器"}</p></span></div>
-        <button aria-label="关闭批量卸载队列" onClick={onClose}><X size={17} /></button>
+        <div><span className="batch-modal-mark"><ListChecks size={20} /></span><span><h2>{t("app.message_160")}</h2><p>{started ? t("app.message_161") : t("app.message_162")}</p></span></div>
+        <button aria-label={t("app.message_163")} onClick={onClose}><X size={17} /></button>
       </header>
       {!started ? <div className="batch-preview">
-        <div className="batch-warning"><TriangleAlert size={17} /><span>批量模式只运行每个程序的原厂卸载器；卸载后发现的残留会保留在结果中，不会被批量自动删除。</span></div>
-        {!isTauriRuntime() && <div className="force-error"><TriangleAlert size={15} /><span>当前是浏览器预览，不能执行真实批量卸载。</span></div>}
-        <div className="batch-preview-list"><h3>待处理程序 <small>{selectedPrograms.length} 项</small></h3>{selectedPrograms.map((program) => <div key={program.id}><span className="batch-preview-icon"><Package size={14} /></span><span><strong>{program.name}</strong><small>{program.publisher ?? "未知发布者"} · {program.install_location ?? "未记录安装路径"}</small></span></div>)}</div>
+        <div className="batch-warning"><TriangleAlert size={17} /><span>{t("app.message_164")}</span></div>
+        {!isTauriRuntime() && <div className="force-error"><TriangleAlert size={15} /><span>{t("app.message_165")}</span></div>}
+        <div className="batch-preview-list"><h3>{t("app.message_166")} <small>{selectedPrograms.length}  {t("app.message_167")}</small></h3>{selectedPrograms.map((program) => <div key={program.id}><span className="batch-preview-icon"><Package size={14} /></span><span><strong>{program.name}</strong><small>{program.publisher ?? t("app.message_016")} · {program.install_location ?? t("app.message_169")}</small></span></div>)}</div>
       </div> : <div className="batch-body">
-        <div className="batch-summary"><div><strong>{items.length}</strong><small>总数</small></div><div><strong className="green">{completed}</strong><small>完成</small></div><div><strong className="orange">{failed}</strong><small>失败</small></div><div><strong>{queued + cancelled}</strong><small>待处理/取消</small></div></div>
+        <div className="batch-summary"><div><strong>{items.length}</strong><small>{t("app.message_170")}</small></div><div><strong className="green">{completed}</strong><small>{t("app.message_106")}</small></div><div><strong className="orange">{failed}</strong><small>{t("app.message_108")}</small></div><div><strong>{queued + cancelled}</strong><small>{t("app.message_173")}</small></div></div>
         {error && <div className="batch-error"><TriangleAlert size={15} /><span>{error}</span></div>}
-        <div className="batch-list">{items.map((item) => <div className="batch-row" key={item.program.id}><span className={`batch-status ${item.status}`}>{statusLabel[item.status]}</span><span><strong>{item.program.name}</strong><small>{item.message ?? "等待队列调度"}</small>{item.error && <em>{item.error}</em>}</span><b>{item.traces_found > 0 ? `保留 ${item.traces_found} 项残留` : item.status === "completed" ? "无残留" : ""}</b></div>)}</div>
+        <div className="batch-list">{items.map((item) => <div className="batch-row" key={item.program.id}><span className={`batch-status ${item.status}`}>{statusLabel[item.status]}</span><span><strong>{item.program.name}</strong><small>{item.message ?? t("app.message_174")}</small>{item.error && <em>{item.error}</em>}</span><b>{item.traces_found > 0 ? t("app.message_175", { value0: item.traces_found }) : item.status === "completed" ? t("app.message_176") : ""}</b></div>)}</div>
       </div>}
       <footer>
-        <span>{started ? (active ? (paused ? "队列已暂停，可继续或取消后续项" : "正在串行处理，当前项完成后才会开始下一项") : "队列已停止，所有结果均已保留") : "失败项会单独标记，不会阻止后续项继续"}</span>
-        <button className="secondary-button" onClick={onClose}>{active ? "隐藏" : "关闭"}</button>
-        {!started ? <button className="primary-button" disabled={!isTauriRuntime() || selectedPrograms.length === 0} onClick={onStart}><Play size={14} fill="currentColor" />开始队列</button> : active && !paused ? <><button className="secondary-button" onClick={onPause}><Pause size={14} />暂停</button><button className="danger-button" onClick={onCancel}>取消后续</button></> : active && paused ? <><button className="secondary-button" onClick={onCancel}>取消队列</button><button className="primary-button" onClick={onResume}><Play size={14} fill="currentColor" />继续队列</button></> : paused && queued > 0 ? <button className="primary-button" onClick={onResume}><Play size={14} fill="currentColor" />重试队列</button> : null}
+        <span>{started ? (active ? (paused ? t("app.message_177") : t("app.message_178")) : t("app.message_179")) : t("app.message_180")}</span>
+        <button className="secondary-button" onClick={onClose}>{active ? t("app.message_181") : t("app.message_031")}</button>
+        {!started ? <button className="primary-button" disabled={!isTauriRuntime() || selectedPrograms.length === 0} onClick={onStart}><Play size={14} fill="currentColor" />{t("app.message_183")}</button> : active && !paused ? <><button className="secondary-button" onClick={onPause}><Pause size={14} />{t("app.message_184")}</button><button className="danger-button" onClick={onCancel}>{t("app.message_185")}</button></> : active && paused ? <><button className="secondary-button" onClick={onCancel}>{t("app.message_186")}</button><button className="primary-button" onClick={onResume}><Play size={14} fill="currentColor" />{t("app.message_187")}</button></> : paused && queued > 0 ? <button className="primary-button" onClick={onResume}><Play size={14} fill="currentColor" />{t("app.message_188")}</button> : null}
       </footer>
     </section>
   </div>;
@@ -1021,32 +1024,32 @@ function ForceUninstallModal({
   return <div className="modal-backdrop" onMouseDown={onClose}>
     <section className="force-uninstall-modal" onMouseDown={(event) => event.stopPropagation()}>
       <header>
-        <div><span className="force-modal-mark"><Wrench size={19} /></span><span><h2>强制 / 自定义卸载</h2><p>适用于卸载器损坏、程序不在列表中或残留无法清理的情况。</p></span></div>
-        <button aria-label="关闭强制卸载" onClick={onClose}><X size={17} /></button>
+        <div><span className="force-modal-mark"><Wrench size={19} /></span><span><h2>{t("app.message_189")}</h2><p>{t("app.message_190")}</p></span></div>
+        <button aria-label={t("app.message_191")} onClick={onClose}><X size={17} /></button>
       </header>
       {!plan && !result ? <>
         <div className="force-form">
-          <div className="force-warning"><TriangleAlert size={17} /><span>强制模式不会运行原厂卸载器，而是删除你确认的目录和候选残留。请先尝试标准卸载。</span></div>
-          <div className={`force-drop-zone ${dragActive ? "active" : ""}`}><FolderOpen size={19} /><span><strong>{dragActive ? "释放以使用这个目标" : "拖入程序目录、EXE 或快捷方式"}</strong><small>路径仍会经过规范化、系统目录保护和计划审查</small></span></div>
-          <label>程序目录、EXE 或快捷方式<input value={path} onChange={(event) => updatePath(event.target.value)} placeholder={"例如：C:\\Program Files\\Example App"} /></label>
-          <label>程序名称（可选）<input value={name} onChange={(event) => updateName(event.target.value)} placeholder="留空则从路径推断" /></label>
-          <div className="force-entry-actions"><button type="button" className="secondary-button compact-button" disabled={loading || hunterLoading} onClick={() => void submitHunter}>{hunterLoading ? <Loader2 size={13} className="spinning" /> : <Search size={13} />}{hunterLoading ? "等待目标窗口…" : "猎手模式"}</button><button type="button" className={`secondary-button compact-button ${contextMenuEnabled ? "enabled" : ""}`} disabled={contextMenuLoading} onClick={() => void onContextMenu(!contextMenuEnabled)}>{contextMenuLoading ? <Loader2 size={13} className="spinning" /> : <ShieldCheck size={13} />}{contextMenuEnabled ? "已启用右键入口" : "启用右键入口"}</button></div>
-          <p className="force-entry-help">猎手模式只读取用户随后激活窗口的 EXE 路径；右键入口只写入当前用户注册表，禁用时会删除 Rust Yu 自己创建的菜单项。</p>
+          <div className="force-warning"><TriangleAlert size={17} /><span>{t("app.message_192")}</span></div>
+          <div className={`force-drop-zone ${dragActive ? "active" : ""}`}><FolderOpen size={19} /><span><strong>{dragActive ? t("app.message_193") : t("app.message_194")}</strong><small>{t("app.message_195")}</small></span></div>
+          <label>{t("app.message_196")}<input value={path} onChange={(event) => updatePath(event.target.value)} placeholder={t("app.message_197")} /></label>
+          <label>{t("app.message_198")}<input value={name} onChange={(event) => updateName(event.target.value)} placeholder={t("app.message_199")} /></label>
+          <div className="force-entry-actions"><button type="button" className="secondary-button compact-button" disabled={loading || hunterLoading} onClick={() => void submitHunter}>{hunterLoading ? <Loader2 size={13} className="spinning" /> : <Search size={13} />}{hunterLoading ? t("app.message_200") : t("app.message_201")}</button><button type="button" className={`secondary-button compact-button ${contextMenuEnabled ? "enabled" : ""}`} disabled={contextMenuLoading} onClick={() => void onContextMenu(!contextMenuEnabled)}>{contextMenuLoading ? <Loader2 size={13} className="spinning" /> : <ShieldCheck size={13} />}{contextMenuEnabled ? t("app.message_202") : t("app.message_203")}</button></div>
+          <p className="force-entry-help">{t("app.message_204")}</p>
           {error && <div className="force-error" role="alert"><TriangleAlert size={15} />{error}</div>}
         </div>
-        <footer><span>计划阶段只扫描，不会删除文件或注册表。</span><button className="primary-button" disabled={loading || path.trim().length === 0 || !isTauriRuntime()} onClick={() => void submitPlan()}>{loading ? <Loader2 size={14} className="spinning" /> : <Search size={14} />}分析目标</button></footer>
+        <footer><span>{t("app.message_205")}</span><button className="primary-button" disabled={loading || path.trim().length === 0 || !isTauriRuntime()} onClick={() => void submitPlan()}>{loading ? <Loader2 size={14} className="spinning" /> : <Search size={14} />}{t("app.message_206")}</button></footer>
       </> : result ? <>
-        <div className={`force-result ${result.success ? "success" : "partial"}`}><span>{result.success ? <Check size={25} /> : <TriangleAlert size={25} />}</span><h2>{result.success ? "强制卸载完成" : "强制卸载部分完成"}</h2><p>{result.message}</p><div><strong>{result.traces_cleaned}</strong><small>已处理</small><strong>{result.failed_count}</strong><small>失败</small><strong>{formatBytes(result.bytes_freed)}</strong><small>释放空间</small></div></div>
-        {result.outcomes.some((outcome) => !outcome.success) && <div className="force-failed-list">{result.outcomes.filter((outcome) => !outcome.success).map((outcome) => <p key={outcome.trace_id}><TriangleAlert size={13} />{outcome.path}<small>{outcome.error ?? "删除失败"}</small></p>)}</div>}
-        <footer><span>失败项已保留，请处理占用文件后重试。</span><button className="primary-button" onClick={onClose}>关闭</button></footer>
+        <div className={`force-result ${result.success ? "success" : "partial"}`}><span>{result.success ? <Check size={25} /> : <TriangleAlert size={25} />}</span><h2>{result.success ? t("app.message_207") : t("app.message_208")}</h2><p>{result.message}</p><div><strong>{result.traces_cleaned}</strong><small>{t("app.message_209")}</small><strong>{result.failed_count}</strong><small>{t("app.message_108")}</small><strong>{formatBytes(result.bytes_freed)}</strong><small>{t("app.message_211")}</small></div></div>
+        {result.outcomes.some((outcome) => !outcome.success) && <div className="force-failed-list">{result.outcomes.filter((outcome) => !outcome.success).map((outcome) => <p key={outcome.trace_id}><TriangleAlert size={13} />{outcome.path}<small>{outcome.error ?? t("app.message_212")}</small></p>)}</div>}
+        <footer><span>{t("app.message_213")}</span><button className="primary-button" onClick={onClose}>{t("app.message_031")}</button></footer>
       </> : <>
         <div className="force-plan-body">
-          <div className="force-target-summary"><strong>{plan?.target.name}</strong><span>{plan?.target.resolved_path}</span><em>{plan?.target.kind === "shortcut" ? "快捷方式解析" : plan?.target.kind === "executable" ? "EXE 所在目录" : "用户提供目录"}</em></div>
+          <div className="force-target-summary"><strong>{plan?.target.name}</strong><span>{plan?.target.resolved_path}</span><em>{plan?.target.kind === "shortcut" ? t("app.message_215") : plan?.target.kind === "executable" ? t("app.message_216") : t("app.message_217")}</em></div>
           {plan?.warnings.map((warning) => <p className="force-warning-line" key={warning}><Info size={13} />{warning}</p>)}
-          <div className="force-trace-list"><h3>可审查目标 <small>{plan?.traces.length ?? 0} 项，默认不选</small></h3>{plan?.traces.map((trace) => <label className="force-trace-row" key={trace.id}><input type="checkbox" checked={selectedIds.has(trace.id)} onChange={() => toggleTrace(trace.id)} /><span className={`force-confidence ${trace.confidence}`}>{trace.confidence === "high" ? "高" : trace.confidence === "medium" ? "中" : "低"}</span><span><strong>{trace.description || formatTraceType(trace.trace_type)}</strong><small>{trace.path}</small></span><b>{formatBytes(trace.size)}</b></label>)}</div>
+          <div className="force-trace-list"><h3>{t("app.message_218")} <small>{plan?.traces.length ?? 0}  {t("app.message_219")}</small></h3>{plan?.traces.map((trace) => <label className="force-trace-row" key={trace.id}><input type="checkbox" checked={selectedIds.has(trace.id)} onChange={() => toggleTrace(trace.id)} /><span className={`force-confidence ${trace.confidence}`}>{trace.confidence === "high" ? t("app.message_220") : trace.confidence === "medium" ? t("app.message_221") : t("app.message_082")}</span><span><strong>{trace.description || formatTraceType(trace.trace_type)}</strong><small>{trace.path}</small></span><b>{formatBytes(trace.size)}</b></label>)}</div>
           {error && <div className="force-error" role="alert"><TriangleAlert size={15} />{error}</div>}
         </div>
-        <footer><button className="secondary-button" onClick={onClose}>取消</button><span className="force-selection-count">已选择 {selectedIds.size} 项</span><button className="danger-button" disabled={loading || selectedIds.size === 0} onClick={submitCleanup}>{loading ? <Loader2 size={14} className="spinning" /> : <Trash2 size={14} />}确认删除所选</button></footer>
+        <footer><button className="secondary-button" onClick={onClose}>{t("app.message_089")}</button><span className="force-selection-count">{t("app.message_224")} {selectedIds.size}  {t("app.message_167")}</span><button className="danger-button" disabled={loading || selectedIds.size === 0} onClick={submitCleanup}>{loading ? <Loader2 size={14} className="spinning" /> : <Trash2 size={14} />}{t("app.message_226")}</button></footer>
       </>}
     </section>
   </div>;
@@ -1062,21 +1065,21 @@ function ReviewStage(props: {
   const selectedSize = props.traces.filter((trace) => props.selectedIds.has(trace.id)).reduce((sum, trace) => sum + (trace.size ?? 0), 0);
   return (
     <div className="page review-page">
-      <SectionHeader title="检查残留项" subtitle={`发现 ${props.traces.length} 个项目（共 ${formatBytes(props.traces.reduce((sum, trace) => sum + (trace.size ?? 0), 0))}），已选择 ${props.selectedIds.size} 个项目`} action={<button className="link-button" onClick={props.onRescan}><RotateCcw size={14} />重新扫描</button>} />
-      <div className="review-tabs"><button className="active">全部 ({props.traces.length})</button><button>文件系统 ({fileTraces.length})</button><button>注册表 ({registryTraces.length})</button><button>系统集成 ({systemTraces.length})</button></div>
+      <SectionHeader title={t("app.message_227")} subtitle={t("app.message_228", { value0: props.traces.length, value1: formatBytes(props.traces.reduce((sum, trace) => sum + (trace.size ?? 0), 0)), value2: props.selectedIds.size })} action={<button className="link-button" onClick={props.onRescan}><RotateCcw size={14} />{t("app.message_229")}</button>} />
+      <div className="review-tabs"><button className="active">{t("app.message_230")}{props.traces.length})</button><button>{t("app.message_231")}{fileTraces.length})</button><button>{t("app.message_232")}{registryTraces.length})</button><button>{t("app.message_233")}{systemTraces.length})</button></div>
       <div className="trace-table card-surface">
-        <TraceGroup title={`文件系统 (${fileTraces.length} 项)`} traces={fileTraces} selectedIds={props.selectedIds} onToggle={props.onToggle} />
-        <TraceGroup title={`注册表 (${registryTraces.length} 项)`} traces={registryTraces} selectedIds={props.selectedIds} onToggle={props.onToggle} />
-        <TraceGroup title={`系统集成 (${systemTraces.length} 项)`} traces={systemTraces} selectedIds={props.selectedIds} onToggle={props.onToggle} />
+        <TraceGroup title={t("app.message_234", { value0: fileTraces.length })} traces={fileTraces} selectedIds={props.selectedIds} onToggle={props.onToggle} />
+        <TraceGroup title={t("app.message_235", { value0: registryTraces.length })} traces={registryTraces} selectedIds={props.selectedIds} onToggle={props.onToggle} />
+        <TraceGroup title={t("app.message_236", { value0: systemTraces.length })} traces={systemTraces} selectedIds={props.selectedIds} onToggle={props.onToggle} />
       </div>
-      <div className="review-footer"><span>可回收空间：<strong>{formatBytes(selectedSize)}</strong></span><div><button className="secondary-button" onClick={props.onSkip}>跳过清理</button>{props.allowBack && <button className="secondary-button" onClick={props.onBack}>返回</button>}<button className="primary-button" disabled={props.selectedIds.size === 0} onClick={props.onClean}><Trash2 size={16} />清理所选</button></div></div>
-      {props.confirmOpen && <div className="modal-backdrop"><div className="safety-modal"><span className="modal-icon"><TriangleAlert size={24} /></span><h2>确认清理所选残留？</h2><p>将永久删除 {props.selectedIds.size} 个已确认项目。低置信度项目不会被自动选择，此操作无法自动撤销。</p><div><button className="secondary-button" onClick={props.onConfirmClose}>取消</button><button className="danger-button" onClick={props.onConfirm}>确认清理</button></div></div></div>}
+      <div className="review-footer"><span>{t("app.message_237")}<strong>{formatBytes(selectedSize)}</strong></span><div><button className="secondary-button" onClick={props.onSkip}>{t("app.message_238")}</button>{props.allowBack && <button className="secondary-button" onClick={props.onBack}>{t("app.message_239")}</button>}<button className="primary-button" disabled={props.selectedIds.size === 0} onClick={props.onClean}><Trash2 size={16} />{t("app.message_240")}</button></div></div>
+      {props.confirmOpen && <div className="modal-backdrop"><div className="safety-modal"><span className="modal-icon"><TriangleAlert size={24} /></span><h2>{t("app.message_241")}</h2><p>{t("app.message_242")} {props.selectedIds.size}  {t("app.message_243")}</p><div><button className="secondary-button" onClick={props.onConfirmClose}>{t("app.message_089")}</button><button className="danger-button" onClick={props.onConfirm}>{t("app.message_245")}</button></div></div></div>}
     </div>
   );
 }
 
 function TraceGroup({ title, traces, selectedIds, onToggle }: { title: string; traces: Trace[]; selectedIds: Set<string>; onToggle: (id: string) => void }) {
-  return <section className="trace-group"><h3>{title}</h3><div className="trace-head"><span /><span>名称 / 路径</span><span>大小</span><span>置信度</span></div>{traces.map((trace) => <label className={`trace-row${trace.is_critical ? " protected" : ""}`} key={trace.id}><input type="checkbox" checked={selectedIds.has(trace.id)} disabled={trace.is_critical} onChange={() => onToggle(trace.id)} /><span className="fake-check"><Check size={12} /></span><TraceIcon type={trace.trace_type} /><span className="trace-name"><strong>{trace.description ?? "残留项目"}</strong><small>{trace.path}</small></span><span>{formatBytes(trace.size)}</span>{trace.is_critical ? <span className="confidence low">受保护</span> : <ConfidenceBadge value={trace.confidence} />}</label>)}</section>;
+  return <section className="trace-group"><h3>{title}</h3><div className="trace-head"><span /><span>{t("app.message_246")}</span><span>{t("app.message_055")}</span><span>{t("app.message_248")}</span></div>{traces.map((trace) => <label className={`trace-row${trace.is_critical ? " protected" : ""}`} key={trace.id}><input type="checkbox" checked={selectedIds.has(trace.id)} disabled={trace.is_critical} onChange={() => onToggle(trace.id)} /><span className="fake-check"><Check size={12} /></span><TraceIcon type={trace.trace_type} /><span className="trace-name"><strong>{trace.description ?? t("app.message_249")}</strong><small>{trace.path}</small></span><span>{formatBytes(trace.size)}</span>{trace.is_critical ? <span className="confidence low">{t("app.message_250")}</span> : <ConfidenceBadge value={trace.confidence} />}</label>)}</section>;
 }
 
 function TraceIcon({ type }: { type: Trace["trace_type"] }) {
@@ -1085,7 +1088,7 @@ function TraceIcon({ type }: { type: Trace["trace_type"] }) {
 }
 
 function ConfidenceBadge({ value }: { value: Trace["confidence"] }) {
-  const label = value === "high" ? "高置信度" : value === "medium" ? "中置信度" : "低置信度";
+  const label = value === "high" ? t("app.message_251") : value === "medium" ? t("app.message_252") : t("app.message_253");
   return <span className={`confidence ${value}`}>{label}</span>;
 }
 
@@ -1100,45 +1103,45 @@ function CompleteStage({ program, results, traces: visibleTraces, job, logs, onD
   const skipped = Math.max(0, found - removed);
   const summaries = summarizeTraces(traces);
   const eventLogs = logs.length > 0 ? logs : job?.events.map((event) => formatUninstallEventLog(event)) ?? [];
-  const reportLogs = eventLogs.length > 0 ? eventLogs : ["扫描日志暂不可用，请重新打开卸载报告。"];
+  const reportLogs = eventLogs.length > 0 ? eventLogs : [t("app.message_254")];
   return (
     <div className="page complete-page">
-      <SectionHeader title="卸载完成" subtitle="扫描结果已保存为本次卸载任务的审查快照" />
-      <div className="success-heading"><span><Check size={36} /></span><div><h2>{program.name} 已成功卸载</h2><p>内置卸载器、移除验证、残留扫描和清理流程均已完成。</p></div></div>
-      <div className="summary-grid card-surface"><div><span>扫描发现</span><strong className="blue">{found} 项</strong></div><div><span>已清理</span><strong className="green">{removed} 项</strong></div><div><span>保留 / 跳过</span><strong className="orange">{skipped} 项</strong></div><div><span>释放空间</span><strong className="green">{formatBytes(freed)}</strong></div></div>
-      <div className="report-panel card-surface"><div className="panel-title"><span><FileText size={14} />扫描与清理报告</span><button onClick={() => setReportOpen(true)}>展开完整报告</button></div><div className="report-category-grid">{summaries.filter((summary) => summary.count > 0).map((summary) => <div key={summary.category}><span>{summary.category === "files" ? "文件系统" : summary.category === "user_data" ? "用户数据" : summary.category === "registry" ? "注册表" : "系统集成"}</span><strong>{summary.count} 项</strong><small>{formatBytes(summary.bytes)}</small></div>)}{summaries.every((summary) => summary.count === 0) && <div className="report-empty">未发现可疑残留项目</div>}</div><div className="log-content report-log">{reportLogs.slice(-8).map((log, index) => <div key={`${log}-${index}`}>{log}</div>)}</div></div>
-      <div className="complete-actions"><button className="secondary-button" onClick={() => setReportOpen(true)}><FileText size={16} />查看完整报告</button><button className="primary-button" onClick={onDone}><Check size={16} />完成</button></div>
+      <SectionHeader title={t("app.message_096")} subtitle={t("app.message_256")} />
+      <div className="success-heading"><span><Check size={36} /></span><div><h2>{program.name}  {t("app.message_257")}</h2><p>{t("app.message_258")}</p></div></div>
+      <div className="summary-grid card-surface"><div><span>{t("app.message_259")}</span><strong className="blue">{found}  {t("app.message_167")}</strong></div><div><span>{t("app.message_261")}</span><strong className="green">{removed}  {t("app.message_167")}</strong></div><div><span>{t("app.message_263")}</span><strong className="orange">{skipped}  {t("app.message_167")}</strong></div><div><span>{t("app.message_211")}</span><strong className="green">{formatBytes(freed)}</strong></div></div>
+      <div className="report-panel card-surface"><div className="panel-title"><span><FileText size={14} />{t("app.message_266")}</span><button onClick={() => setReportOpen(true)}>{t("app.message_267")}</button></div><div className="report-category-grid">{summaries.filter((summary) => summary.count > 0).map((summary) => <div key={summary.category}><span>{summary.category === "files" ? t("app.message_022") : summary.category === "user_data" ? t("app.message_023") : summary.category === "registry" ? t("app.message_024") : t("app.message_025")}</span><strong>{summary.count}  {t("app.message_167")}</strong><small>{formatBytes(summary.bytes)}</small></div>)}{summaries.every((summary) => summary.count === 0) && <div className="report-empty">{t("app.message_273")}</div>}</div><div className="log-content report-log">{reportLogs.slice(-8).map((log, index) => <div key={`${log}-${index}`}>{log}</div>)}</div></div>
+      <div className="complete-actions"><button className="secondary-button" onClick={() => setReportOpen(true)}><FileText size={16} />{t("app.message_274")}</button><button className="primary-button" onClick={onDone}><Check size={16} />{t("app.message_106")}</button></div>
       {reportOpen && <UninstallReportModal program={program} traces={traces} selectedIds={selectedIds} summaries={summaries} logs={reportLogs} onClose={() => setReportOpen(false)} />}
     </div>
   );
 }
 
 function UninstallReportModal({ program, traces, selectedIds, summaries, logs, onClose }: { program: UiProgram; traces: Trace[]; selectedIds: Set<string>; summaries: ReturnType<typeof summarizeTraces>; logs: string[]; onClose: () => void }) {
-  return <div className="modal-backdrop" onMouseDown={onClose}><section className="uninstall-report-modal" onMouseDown={(event) => event.stopPropagation()}><header><div><span className="report-modal-mark"><FileText size={20} /></span><span><h2>{program.name} · 卸载扫描报告</h2><p>以下内容来自本次卸载的真实扫描快照，不是估算值。</p></span></div><button aria-label="关闭卸载报告" onClick={onClose}><X size={17} /></button></header><div className="report-modal-summary">{summaries.filter((summary) => summary.count > 0).map((summary) => <div key={summary.category}><span>{summary.category === "files" ? "文件系统" : summary.category === "user_data" ? "用户数据" : summary.category === "registry" ? "注册表" : "系统集成"}</span><strong>{summary.count}</strong><small>{formatBytes(summary.bytes)}</small></div>)}</div><div className="report-modal-body"><section className="report-event-column"><h3>完整操作日志 <small>{logs.length} 条</small></h3><div className="report-event-list">{logs.map((log, index) => <p key={`${log}-${index}`}>{log}</p>)}</div></section><section className="report-trace-column"><h3>扫描项目明细 <small>{traces.length} 项</small></h3><div className="report-trace-list">{traces.length > 0 ? traces.map((trace) => <div className="report-trace-item" key={trace.id}><span className={`report-trace-state ${selectedIds.has(trace.id) ? "cleaned" : "kept"}`}>{selectedIds.has(trace.id) ? <Check size={12} /> : "—"}</span><span><strong>{trace.description || formatTraceType(trace.trace_type)}</strong><small>{trace.path}</small><em>{formatTraceType(trace.trace_type)} · {trace.confidence === "high" ? "高置信度" : trace.confidence === "medium" ? "中置信度" : "低置信度"} · {formatBytes(trace.size)}</em></span><b className={selectedIds.has(trace.id) ? "cleaned-status" : "kept-status"}>{selectedIds.has(trace.id) ? "已纳入清理" : "已保留"}</b></div>) : <p className="report-empty">扫描没有发现残留项目。</p>}</div></section></div><footer><span>低置信度项目默认保留，避免误删用户数据。</span><button className="primary-button" onClick={onClose}>关闭报告</button></footer></section></div>;
+  return <div className="modal-backdrop" onMouseDown={onClose}><section className="uninstall-report-modal" onMouseDown={(event) => event.stopPropagation()}><header><div><span className="report-modal-mark"><FileText size={20} /></span><span><h2>{program.name}  {t("app.message_276")}</h2><p>{t("app.message_277")}</p></span></div><button aria-label={t("app.message_278")} onClick={onClose}><X size={17} /></button></header><div className="report-modal-summary">{summaries.filter((summary) => summary.count > 0).map((summary) => <div key={summary.category}><span>{summary.category === "files" ? t("app.message_022") : summary.category === "user_data" ? t("app.message_023") : summary.category === "registry" ? t("app.message_024") : t("app.message_025")}</span><strong>{summary.count}</strong><small>{formatBytes(summary.bytes)}</small></div>)}</div><div className="report-modal-body"><section className="report-event-column"><h3>{t("app.message_283")} <small>{logs.length}  {t("app.message_284")}</small></h3><div className="report-event-list">{logs.map((log, index) => <p key={`${log}-${index}`}>{log}</p>)}</div></section><section className="report-trace-column"><h3>{t("app.message_285")} <small>{traces.length}  {t("app.message_167")}</small></h3><div className="report-trace-list">{traces.length > 0 ? traces.map((trace) => <div className="report-trace-item" key={trace.id}><span className={`report-trace-state ${selectedIds.has(trace.id) ? "cleaned" : "kept"}`}>{selectedIds.has(trace.id) ? <Check size={12} /> : "—"}</span><span><strong>{trace.description || formatTraceType(trace.trace_type)}</strong><small>{trace.path}</small><em>{formatTraceType(trace.trace_type)} · {trace.confidence === "high" ? t("app.message_251") : trace.confidence === "medium" ? t("app.message_252") : t("app.message_253")} · {formatBytes(trace.size)}</em></span><b className={selectedIds.has(trace.id) ? "cleaned-status" : "kept-status"}>{selectedIds.has(trace.id) ? t("app.message_290") : t("app.message_291")}</b></div>) : <p className="report-empty">{t("app.message_292")}</p>}</div></section></div><footer><span>{t("app.message_293")}</span><button className="primary-button" onClick={onClose}>{t("app.message_294")}</button></footer></section></div>;
 }
 
 function ProgramInfoModal({ program, onClose }: { program: UiProgram; onClose: () => void }) {
   const source = program.source;
-  const sourceLabel = source?.install_source === "msi" ? "MSI" : source?.install_source === "store" ? "Microsoft Store" : source?.install_source === "registry" ? "注册表" : "未知";
+  const sourceLabel = source?.install_source === "msi" ? t("common.format.msi") : source?.install_source === "store" ? t("common.source.microsoft_store") : source?.install_source === "registry" ? t("app.message_024") : t("app.message_296");
   const rows: Array<[string, string | null | undefined, boolean?]> = [
-    ["程序 ID", source?.id ?? program.id, true],
-    ["发布者", source?.publisher ?? program.publisher],
-    ["版本", source?.display_version ?? source?.version ?? program.version],
-    ["安装来源", sourceLabel],
-    ["卸载类型", source?.uninstall_kind],
-    ["安装日期", source?.install_date ?? program.installed],
-    ["程序大小", program.size],
-    ["安装位置", source?.install_location ?? program.location, true],
-    ["卸载命令", source?.uninstall_string, true],
-    ["静默卸载", source?.quiet_uninstall_string, true],
-    ["注册表路径", source?.uninstall_registry_key_path, true],
+    [t("app.message_297"), source?.id ?? program.id, true],
+    [t("app.message_054"), source?.publisher ?? program.publisher],
+    [t("app.message_063"), source?.display_version ?? source?.version ?? program.version],
+    [t("app.message_300"), sourceLabel],
+    [t("app.message_301"), source?.uninstall_kind],
+    [t("app.message_056"), source?.install_date ?? program.installed],
+    [t("app.message_303"), program.size],
+    [t("app.message_304"), source?.install_location ?? program.location, true],
+    [t("app.message_305"), source?.uninstall_string, true],
+    [t("app.message_306"), source?.quiet_uninstall_string, true],
+    [t("app.message_307"), source?.uninstall_registry_key_path, true],
   ];
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
       <section className="program-info-modal" onMouseDown={(event) => event.stopPropagation()}>
         <header>
           <div><AppIcon program={program} large /><span><h2>{program.name}</h2><p>{program.publisher}</p></span></div>
-          <button aria-label="关闭详细信息" onClick={onClose}><X size={17} /></button>
+          <button aria-label={t("app.message_308")} onClick={onClose}><X size={17} /></button>
         </header>
         <div className="program-info-rows">
           {rows.filter(([, value]) => Boolean(value)).map(([label, value, mono]) => (
@@ -1146,8 +1149,8 @@ function ProgramInfoModal({ program, onClose }: { program: UiProgram; onClose: (
           ))}
         </div>
         <footer>
-          {source?.install_location && <a href={`file:///${source.install_location}`} target="_blank" rel="noreferrer"><FolderOpen size={15} />打开安装目录</a>}
-          <button className="secondary-button" onClick={onClose}>关闭</button>
+          {source?.install_location && <a href={`file:///${source.install_location}`} target="_blank" rel="noreferrer"><FolderOpen size={15} />{t("app.message_309")}</a>}
+          <button className="secondary-button" onClick={onClose}>{t("app.message_031")}</button>
         </footer>
       </section>
     </div>
@@ -1155,6 +1158,43 @@ function ProgramInfoModal({ program, onClose }: { program: UiProgram; onClose: (
 }
 
 function PlaceholderPage({ active }: { active: NavKey }) {
-  const names: Record<NavKey, string> = { apps: "已安装应用", health: "软件健康", startup: "自启动管理", cleaner: "系统清理", backups: "备份与恢复", traces: "软件残留", monitor: "安装监控", evidence: "证据与策略", reports: "卸载记录", plugins: "浏览器插件", tools: "工具箱", settings: "设置", about: "关于" };
-  return <div className="placeholder-page"><span><Sparkles size={30} /></span><h1>{names[active]}</h1><p>该模块将在后续版本中提供。</p></div>;
+  const names: Record<NavKey, string> = { apps: t("app.message_032"), health: t("app.message_033"), startup: t("app.message_034"), cleaner: t("app.message_035"), backups: t("app.message_036"), traces: t("app.message_037"), monitor: t("app.message_038"), evidence: t("app.message_039"), reports: t("app.message_040"), plugins: t("app.message_041"), tools: t("app.message_042"), settings: t("app.message_043"), about: t("app.message_044") };
+  return <div className="placeholder-page"><span><Sparkles size={30} /></span><h1>{names[active]}</h1><p>{t("app.message_324")}</p></div>;
+}
+
+function SettingsPage() {
+  const currentLanguage = getLanguage();
+  const languageNames: Record<Language, string> = {
+    "zh-CN": t("settings.language.zh_cn"),
+    "en-US": t("settings.language.en_us"),
+  };
+
+  return (
+    <div className="page settings-page">
+      <SectionHeader title={t("settings.title")} subtitle={t("settings.subtitle")} />
+      <section className="settings-card card-surface">
+        <div>
+          <h2>{t("settings.language.title")}</h2>
+          <p>{t("settings.language.description")}</p>
+        </div>
+        <div className="language-options" role="radiogroup" aria-label={t("settings.language.title")}>
+          {supportedLanguages.map((language) => (
+            <button
+              type="button"
+              role="radio"
+              aria-checked={currentLanguage === language}
+              className={currentLanguage === language ? "selected" : ""}
+              key={language}
+              onClick={() => setLanguage(language)}
+            >
+              <span>{languageNames[language]}</span>
+              <small>{language}</small>
+              {currentLanguage === language && <Check size={16} />}
+            </button>
+          ))}
+        </div>
+        <p className="settings-note"><Info size={14} />{t("settings.language.reload_note")}</p>
+      </section>
+    </div>
+  );
 }

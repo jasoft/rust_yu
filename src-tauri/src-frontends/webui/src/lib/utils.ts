@@ -1,3 +1,4 @@
+import { t } from "../i18n/index.ts";
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -18,9 +19,9 @@ export function formatBytes(bytes: number | null | undefined): string {
 /** 格式化安装来源为中文标签 */
 export function formatSource(source: string): string {
   switch (source) {
-    case "registry": return "注册表";
+    case "registry": return t("app.message_024");
     case "msi": return "MSI";
-    case "store": return "商店";
+    case "store": return t("lib.programfilters.message_003");
     default: return source;
   }
 }

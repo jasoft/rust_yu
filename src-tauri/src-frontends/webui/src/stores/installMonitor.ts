@@ -1,3 +1,4 @@
+import { t } from "../i18n/index.ts";
 import { invoke } from "@tauri-apps/api/core";
 import { create } from "zustand";
 import type {
@@ -76,7 +77,7 @@ export const useInstallMonitorStore = create<InstallMonitorState>((set, get) => 
     set({ actionLoading: true, error: null, notice: null });
     try {
       const session = await invoke<InstallMonitorSessionInfo>("start_install_monitor", { request });
-      set({ actionLoading: false, activeSessionId: session.id, plan: null, notice: "安装前快照已保存，请完成安装后回到这里生成差异。" });
+      set({ actionLoading: false, activeSessionId: session.id, plan: null, notice: t("stores.installmonitor.message_001") });
       await get().load();
       return session;
     } catch (error) {
@@ -89,7 +90,7 @@ export const useInstallMonitorStore = create<InstallMonitorState>((set, get) => 
     set({ actionLoading: true, error: null, notice: null });
     try {
       const session = await invoke<InstallMonitorSession>("complete_install_monitor", { sessionId });
-      set({ actionLoading: false, activeSessionId: null, selectedSession: session, notice: `差异生成完成，共发现 ${session.changes.length} 项变化。` });
+      set({ actionLoading: false, activeSessionId: null, selectedSession: session, notice: t("stores.installmonitor.message_002", { value0: session.changes.length }) });
       await get().load();
       return session;
     } catch (error) {
@@ -102,7 +103,7 @@ export const useInstallMonitorStore = create<InstallMonitorState>((set, get) => 
     set({ actionLoading: true, error: null, notice: null });
     try {
       const session = await invoke<InstallMonitorSession>("cancel_install_monitor", { sessionId });
-      set({ actionLoading: false, activeSessionId: null, selectedSession: session, notice: "监控会话已停止，未生成结束差异。" });
+      set({ actionLoading: false, activeSessionId: null, selectedSession: session, notice: t("stores.installmonitor.message_003") });
       await get().load();
     } catch (error) { set({ actionLoading: false, error: errorMessage(error) }); }
   },
@@ -111,7 +112,7 @@ export const useInstallMonitorStore = create<InstallMonitorState>((set, get) => 
     set({ actionLoading: true, error: null, notice: null });
     try {
       await invoke<boolean>("delete_install_monitor", { sessionId });
-      set({ actionLoading: false, selectedSession: null, notice: "监控会话已从本机删除。" });
+      set({ actionLoading: false, selectedSession: null, notice: t("stores.installmonitor.message_004") });
       await get().load();
     } catch (error) { set({ actionLoading: false, error: errorMessage(error) }); }
   },
@@ -134,7 +135,7 @@ export const useInstallMonitorStore = create<InstallMonitorState>((set, get) => 
     set({ actionLoading: true, error: null, notice: null });
     try {
       const result = await invoke<MonitorExport>("export_install_monitor", { sessionId, format });
-      set({ actionLoading: false, notice: `已导出 ${result.changes_count} 项变化：${result.path}` });
+      set({ actionLoading: false, notice: t("stores.installmonitor.message_005", { value0: result.changes_count, value1: result.path }) });
       return result;
     } catch (error) {
       set({ actionLoading: false, error: errorMessage(error) });

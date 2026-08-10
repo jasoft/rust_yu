@@ -1,3 +1,4 @@
+import { t } from "../i18n/index.ts";
 import type { InstalledProgram } from "../types";
 
 export type ProgramSourceFilter = "all" | "registry" | "msi" | "store";
@@ -6,10 +7,10 @@ export const programSourceOptions: ReadonlyArray<{
   id: ProgramSourceFilter;
   label: string;
 }> = [
-  { id: "all", label: "全部" },
-  { id: "registry", label: "注册表" },
-  { id: "msi", label: "MSI" },
-  { id: "store", label: "商店" },
+  { id: "all", label: t("components.installmonitormanager.message_074") },
+  { id: "registry", label: t("app.message_024") },
+  { id: "msi", label: t("common.format.msi") },
+  { id: "store", label: t("lib.programfilters.message_003") },
 ];
 
 export function filterPrograms(

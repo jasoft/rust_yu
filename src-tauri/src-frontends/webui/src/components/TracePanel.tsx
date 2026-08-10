@@ -1,3 +1,4 @@
+import { t } from "../i18n/index.ts";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -17,14 +18,14 @@ import { formatBytes } from "../lib/utils";
 import type { Trace } from "../types";
 
 const traceTypeLabels: Record<string, { label: string; icon: typeof FileCode; variant: "default" | "secondary" | "warning" | "success" }> = {
-  registry_key: { label: "注册表", icon: Database, variant: "default" },
-  registry_value: { label: "注册表值", icon: Database, variant: "default" },
-  file: { label: "文件", icon: FileCode, variant: "warning" },
+  registry_key: { label: t("app.message_024"), icon: Database, variant: "default" },
+  registry_value: { label: t("components.installmonitormanager.message_012"), icon: Database, variant: "default" },
+  file: { label: t("components.installmonitormanager.message_009"), icon: FileCode, variant: "warning" },
   appdata: { label: "AppData", icon: FolderOpen, variant: "success" },
-  shortcut: { label: "快捷方式", icon: Link2, variant: "secondary" },
-  scheduled_task: { label: "计划任务", icon: FileCode, variant: "warning" },
-  service: { label: "系统服务", icon: FileCode, variant: "warning" },
-  driver: { label: "驱动程序", icon: FileCode, variant: "warning" },
+  shortcut: { label: t("components.tracepanel.message_004"), icon: Link2, variant: "secondary" },
+  scheduled_task: { label: t("components.startupmanager.message_007"), icon: FileCode, variant: "warning" },
+  service: { label: t("components.tracepanel.message_006"), icon: FileCode, variant: "warning" },
+  driver: { label: t("components.tracepanel.message_007"), icon: FileCode, variant: "warning" },
 };
 
 export function TracePanel() {
@@ -45,7 +46,8 @@ export function TracePanel() {
     return (
       <div className="flex items-center justify-center h-full text-slate-500">
         <Loader2 className="h-5 w-5 animate-spin mr-2" />
-        扫描中...
+
+        {t("components.tracepanel.message_008")}
       </div>
     );
   }
@@ -60,7 +62,7 @@ export function TracePanel() {
         <button onClick={resetTraces} className="text-slate-400 hover:text-white">
           <ArrowLeft className="h-4 w-4" />
         </button>
-        <h2 className="text-lg font-semibold text-white">残留扫描结果</h2>
+        <h2 className="text-lg font-semibold text-white">{t("components.tracepanel.message_009")}</h2>
         <span className="text-sm text-slate-400">{selectedProgram?.name}</span>
       </div>
 
@@ -68,11 +70,12 @@ export function TracePanel() {
         {/* 操作栏 */}
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="sm" onClick={toggleAllTraces} disabled={selectableCount === 0}>
-            {allSelected ? "取消全选" : "全选"}
+            {allSelected ? t("components.cleanerpage.message_030") : t("components.tracepanel.message_011")}
           </Button>
           <span className="text-xs text-slate-500">
-            已选 {selectedTraces.size} / {selectableCount} 项
-            {traces.length > selectableCount && ` · ${traces.length - selectableCount} 项受保护`}
+
+            {t("components.browserpluginspage.message_019")} {selectedTraces.size} / {selectableCount}  {t("app.message_167")}
+            {traces.length > selectableCount && t("components.tracepanel.message_014", { value0: traces.length - selectableCount })}
           </span>
           <div className="flex-1" />
           {!hasCleaned && (
@@ -83,7 +86,8 @@ export function TracePanel() {
               onClick={() => setCleanConfirmOpen(true)}
             >
               <Trash2 className="h-4 w-4" />
-              清理选中项 ({selectedTraces.size})
+
+              {t("components.tracepanel.message_015")}{selectedTraces.size})
             </Button>
           )}
         </div>
@@ -91,9 +95,10 @@ export function TracePanel() {
         {cleanConfirmOpen && !hasCleaned && (
           <Card className="border-amber-500/50">
             <CardContent className="space-y-3 py-4">
-              <p className="text-sm font-medium text-amber-300">确认清理选中的残留项？</p>
+              <p className="text-sm font-medium text-amber-300">{t("components.tracepanel.message_016")}</p>
               <p className="text-xs text-slate-400">
-                将清理 {selectedTraces.size} 个已选项目。受保护的系统集成痕迹不会被删除；此操作不可自动撤销，请确认每一项都属于该程序。
+
+                {t("components.tracepanel.message_017")} {selectedTraces.size}  {t("components.tracepanel.message_018")}
               </p>
               <div className="flex gap-2">
                 <Button
@@ -104,14 +109,16 @@ export function TracePanel() {
                     void cleanTraces(true);
                   }}
                 >
-                  确认清理
+
+                  {t("app.message_245")}
                 </Button>
                 <Button
                   variant="secondary"
                   size="sm"
                   onClick={() => setCleanConfirmOpen(false)}
                 >
-                  取消
+
+                  {t("app.message_089")}
                 </Button>
               </div>
             </CardContent>
@@ -124,8 +131,8 @@ export function TracePanel() {
             <CardContent className="flex items-center gap-2 py-3">
               <CheckCircle2 className="h-5 w-5 text-green-400" />
               <span className="text-sm text-green-400">
-                已清理 {cleanResults.filter((r) => r.success).length} 项，
-                释放 {formatBytes(cleanResults.reduce((sum, r) => sum + r.bytes_freed, 0))}
+
+                {t("app.message_261")} {cleanResults.filter((r) => r.success).length}  {t("components.tracepanel.message_022")} {formatBytes(cleanResults.reduce((sum, r) => sum + r.bytes_freed, 0))}
               </span>
             </CardContent>
           </Card>
@@ -135,7 +142,7 @@ export function TracePanel() {
         {traces.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-32 text-slate-500">
             <CheckCircle2 className="h-8 w-8 mb-2" />
-            <span>未发现残留痕迹</span>
+            <span>{t("components.tracepanel.message_023")}</span>
           </div>
         ) : (
           <div className="space-y-2">
@@ -196,7 +203,7 @@ function TraceItem({
         <div className="flex items-center gap-2 mb-1">
           <Badge variant={meta.variant}>{meta.label}</Badge>
           <Badge variant="outline">{trace.confidence}</Badge>
-          {trace.is_critical && <Badge variant="secondary">受保护</Badge>}
+          {trace.is_critical && <Badge variant="secondary">{t("app.message_250")}</Badge>}
           {trace.size != null && (
             <span className="text-xs text-slate-500">{formatBytes(trace.size)}</span>
           )}

@@ -1,3 +1,4 @@
+import { t } from "../i18n/index.ts";
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import type {
@@ -55,7 +56,7 @@ function createItem(program: InstalledProgram): BatchUninstallItem {
 }
 
 function jobMessage(job: UninstallJob): string {
-  return job.outcome?.message ?? (job.phase === "failed" ? "卸载任务失败" : "卸载任务已完成");
+  return job.outcome?.message ?? (job.phase === "failed" ? t("stores.batchuninstall.message_001") : t("stores.batchuninstall.message_002"));
 }
 
 export const useBatchUninstallStore = create<BatchUninstallState>((set, get) => {
@@ -79,12 +80,12 @@ export const useBatchUninstallStore = create<BatchUninstallState>((set, get) => 
 
   const pauseForConflict = (programId: string, error: QueueError) => {
     patchItem(programId, { status: "queued", message: null, error: null });
-    set({ active: false, paused: true, error: `队列已暂停：${error.message}` });
+    set({ active: false, paused: true, error: t("stores.batchuninstall.message_003", { value0: error.message }) });
   };
 
   const stopForAdministratorError = (programId: string, error: QueueError) => {
     patchItem(programId, { status: "failed", message: error.message, error: error.message });
-    cancelQueuedItems("未执行：需要管理员权限");
+    cancelQueuedItems(t("stores.batchuninstall.message_004"));
     set({ active: false, paused: false, error: error.message });
   };
 
@@ -108,13 +109,13 @@ export const useBatchUninstallStore = create<BatchUninstallState>((set, get) => 
     // job_id、指纹核验和报告；队列本身只负责串行调度，不把多个删除操作并发化。
     for (const queuedItem of get().items) {
       if (get().cancelRequested) {
-        cancelQueuedItems("用户取消了后续队列项");
+        cancelQueuedItems(t("stores.batchuninstall.message_005"));
         break;
       }
 
       while (get().paused && !get().cancelRequested) await wait(120);
       if (get().cancelRequested) {
-        cancelQueuedItems("用户取消了后续队列项");
+        cancelQueuedItems(t("stores.batchuninstall.message_005"));
         break;
       }
 
@@ -145,7 +146,7 @@ export const useBatchUninstallStore = create<BatchUninstallState>((set, get) => 
         status: "running",
         job_id: planned.job.snapshot.job_id,
         job: planned.job,
-        message: "正在运行原厂卸载器",
+        message: t("stores.batchuninstall.message_007"),
       });
 
       let executed: UninstallJobResponse;
@@ -176,7 +177,7 @@ export const useBatchUninstallStore = create<BatchUninstallState>((set, get) => 
           traces_found: job.residue_review.traces.length,
           traces: job.residue_review.traces,
           job,
-          message: `已完成主体卸载，保留 ${job.residue_review.traces.length} 项残留待审核`,
+          message: t("stores.batchuninstall.message_008", { value0: job.residue_review.traces.length }),
         });
         try {
           const finished = await invoke<UninstallJobResponse>("finish_uninstall", {
@@ -197,7 +198,7 @@ export const useBatchUninstallStore = create<BatchUninstallState>((set, get) => 
       finishItemFromJob(current.program.id, job);
     }
 
-    if (get().cancelRequested) cancelQueuedItems("用户取消了后续队列项");
+    if (get().cancelRequested) cancelQueuedItems(t("stores.batchuninstall.message_005"));
     set({ active: false, paused: false });
   };
 
@@ -239,7 +240,7 @@ export const useBatchUninstallStore = create<BatchUninstallState>((set, get) => 
       if (get().active) {
         set({ cancelRequested: true, paused: false });
       } else {
-        cancelQueuedItems("用户取消了后续队列项");
+        cancelQueuedItems(t("stores.batchuninstall.message_005"));
         set({ paused: false, cancelRequested: true });
       }
     },

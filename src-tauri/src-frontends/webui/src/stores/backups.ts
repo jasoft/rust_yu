@@ -1,3 +1,4 @@
+import { t } from "../i18n/index.ts";
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import type {
@@ -49,8 +50,8 @@ export const useBackupsStore = create<BackupsState>((set) => ({
       set({
         restoringId: null,
         notice: result.success
-          ? `已恢复 ${result.restored_count} 个项目`
-          : `恢复完成，但有 ${result.failed_count} 个项目需要重试`,
+          ? t("stores.backups.message_001", { value0: result.restored_count })
+          : t("stores.backups.message_002", { value0: result.failed_count }),
       });
       await useBackupsStore.getState().load();
       return result;

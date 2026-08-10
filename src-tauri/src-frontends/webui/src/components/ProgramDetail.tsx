@@ -1,3 +1,4 @@
+import { t } from "../i18n/index.ts";
 import {
   Trash2,
   SearchCode,
@@ -61,7 +62,7 @@ export function ProgramDetail() {
             <div>
               <h3 className="text-base font-semibold text-white">{p.name}</h3>
               <p className="text-sm text-slate-400">
-                {p.publisher ?? "未知发布者"} {p.version && `· v${p.version}`}
+                {p.publisher ?? t("app.message_016")} {p.version && `· v${p.version}`}
               </p>
             </div>
           </CardContent>
@@ -70,19 +71,19 @@ export function ProgramDetail() {
         {/* 详细信息 */}
         <Card>
           <CardHeader>
-            <span className="text-sm font-medium text-slate-300">详细信息</span>
+            <span className="text-sm font-medium text-slate-300">{t("app.message_068")}</span>
           </CardHeader>
           <CardContent className="min-w-0 space-y-2 text-sm">
-            <InfoRow label="程序 ID" value={p.id} />
-            <InfoRow label="安装来源" value={formatSource(p.install_source)} />
-            <InfoRow label="卸载类型" value={p.uninstall_kind} />
-            <InfoRow label="安装位置" value={p.install_location} />
-            <InfoRow label="安装日期" value={p.install_date} />
-            <InfoRow label="大小" value={p.size ? formatBytes(p.size) : null} />
-            <InfoRow label="估算大小" value={p.estimated_size ? formatBytes(p.estimated_size) : null} />
-            <InfoRow label="卸载命令" value={p.uninstall_string} mono />
-            <InfoRow label="静默卸载" value={p.quiet_uninstall_string} mono />
-            <InfoRow label="注册表路径" value={p.uninstall_registry_key_path} mono />
+            <InfoRow label={t("app.message_297")} value={p.id} />
+            <InfoRow label={t("app.message_300")} value={formatSource(p.install_source)} />
+            <InfoRow label={t("app.message_301")} value={p.uninstall_kind} />
+            <InfoRow label={t("app.message_304")} value={p.install_location} />
+            <InfoRow label={t("app.message_056")} value={p.install_date} />
+            <InfoRow label={t("app.message_055")} value={p.size ? formatBytes(p.size) : null} />
+            <InfoRow label={t("components.programdetail.message_009")} value={p.estimated_size ? formatBytes(p.estimated_size) : null} />
+            <InfoRow label={t("app.message_305")} value={p.uninstall_string} mono />
+            <InfoRow label={t("app.message_306")} value={p.quiet_uninstall_string} mono />
+            <InfoRow label={t("app.message_307")} value={p.uninstall_registry_key_path} mono />
           </CardContent>
         </Card>
 
@@ -93,14 +94,16 @@ export function ProgramDetail() {
             onClick={() => setViewMode("uninstall")}
           >
             <Trash2 className="h-4 w-4" />
-            卸载程序
+
+            {t("components.programdetail.message_013")}
           </Button>
           <Button
             variant="secondary"
             onClick={() => scanTraces(p.name)}
           >
             <SearchCode className="h-4 w-4" />
-            扫描残留
+
+            {t("app.message_069")}
           </Button>
           {p.install_location && (
             <a
@@ -110,7 +113,8 @@ export function ProgramDetail() {
               className="inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-700 hover:text-white transition-colors"
             >
               <FolderOpen className="h-4 w-4" />
-              打开目录
+
+              {t("components.programdetail.message_015")}
             </a>
           )}
         </div>

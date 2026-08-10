@@ -1,3 +1,4 @@
+import { t } from "../i18n/index.ts";
 import { invoke } from "@tauri-apps/api/core";
 import { create } from "zustand";
 import type {
@@ -61,7 +62,7 @@ export const useForceUninstallStore = create<ForceUninstallState>((set, get) => 
   cleanSelected: async (traceIds) => {
     const plan = get().plan;
     if (!plan) {
-      set({ error: "请先生成强制卸载计划" });
+      set({ error: t("stores.forceuninstall.message_001") });
       return null;
     }
     set({ loading: true, error: null });

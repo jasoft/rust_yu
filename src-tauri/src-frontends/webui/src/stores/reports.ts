@@ -1,3 +1,4 @@
+import { t } from "../i18n/index.ts";
 import { invoke } from "@tauri-apps/api/core";
 import { create } from "zustand";
 import type {
@@ -62,7 +63,7 @@ export const useReportsStore = create<ReportsState>((set) => ({
     set({ actionLoading: true, error: null, notice: null });
     try {
       const result = await invoke<ReportExport>("export_report", { reportId, format });
-      set({ actionLoading: false, notice: `报告已导出：${result.path}` });
+      set({ actionLoading: false, notice: t("stores.reports.message_001", { value0: result.path }) });
       return result;
     } catch (error) {
       set({ actionLoading: false, error: errorMessage(error) });
@@ -74,7 +75,7 @@ export const useReportsStore = create<ReportsState>((set) => ({
     set({ actionLoading: true, error: null, notice: null });
     try {
       const result = await invoke<EvidenceBundleExport>("export_evidence_bundle", { reportId });
-      set({ actionLoading: false, notice: `专业证据包已导出（${result.file_count} 个文件）：${result.path}` });
+      set({ actionLoading: false, notice: t("stores.reports.message_002", { value0: result.file_count, value1: result.path }) });
       return result;
     } catch (error) {
       set({ actionLoading: false, error: errorMessage(error) });
@@ -90,7 +91,7 @@ export const useReportsStore = create<ReportsState>((set) => ({
         reports: state.reports.filter((report) => report.id !== reportId),
         selected: state.selected?.id === reportId ? null : state.selected,
         actionLoading: false,
-        notice: deleted ? "报告及其本机副本已删除。" : "没有找到要删除的报告。",
+        notice: deleted ? t("stores.reports.message_003") : t("stores.reports.message_004"),
       }));
       return deleted;
     } catch (error) {

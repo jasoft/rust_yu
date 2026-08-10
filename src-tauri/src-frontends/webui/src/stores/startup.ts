@@ -1,3 +1,4 @@
+import { getLanguage, t } from "../i18n/index.ts";
 import { invoke } from "@tauri-apps/api/core";
 import { create } from "zustand";
 import type {
@@ -47,7 +48,7 @@ function errorMessage(error: unknown): string {
 
 function unwrapEnvelope<T>(envelope: StartupEnvelope<T>): T {
   if (!envelope.ok || envelope.data === null) {
-    throw new Error(envelope.error?.message ?? "自启动操作失败");
+    throw new Error(envelope.error?.message ?? t("stores.startup.message_001"));
   }
   return envelope.data;
 }
@@ -84,14 +85,14 @@ export const useStartupStore = create<StartupStateStore>((set, get) => ({
       }
     });
 
-    items.sort((left, right) => left.name.localeCompare(right.name, "zh-CN"));
+    items.sort((left, right) => left.name.localeCompare(right.name, getLanguage()));
     const allFailed = Object.keys(sourceErrors).length === startupSources.length;
     const selectedId = get().selectedId;
     set({
       items,
       loading: false,
       sourceErrors,
-      error: allFailed ? "无法读取任何自启动来源，请检查系统权限后重试。" : null,
+      error: allFailed ? t("stores.startup.message_002") : null,
       selectedId: selectedId && items.some((item) => item.id === selectedId) ? selectedId : null,
     });
   },
@@ -103,7 +104,7 @@ export const useStartupStore = create<StartupStateStore>((set, get) => ({
     try {
       const envelope = await invoke<StartupEnvelope<StartupActionPlan>>("plan_startup_action", {
         action,
-        options: { id: item.id, reason: "用户在自启动管理页面确认操作" },
+        options: { id: item.id, reason: t("stores.startup.message_003") },
       });
       set({ pendingPlan: unwrapEnvelope(envelope), actionLoading: false });
     } catch (error) {
@@ -121,7 +122,7 @@ export const useStartupStore = create<StartupStateStore>((set, get) => ({
     try {
       const envelope = await invoke<StartupEnvelope<StartupActionResult>>("apply_startup_action", {
         action: plan.action,
-        options: { id: plan.item_id, reason: "用户在自启动管理页面确认操作" },
+        options: { id: plan.item_id, reason: t("stores.startup.message_003") },
       });
       const result = unwrapEnvelope(envelope);
       set({ pendingPlan: null, lastResult: result, actionLoading: false });
@@ -139,7 +140,7 @@ export const useStartupStore = create<StartupStateStore>((set, get) => ({
     try {
       const envelope = await invoke<StartupEnvelope<StartupActionResult>>(
         "rollback_startup_action",
-        { options: { change_id: changeId, reason: "用户撤销最近一次自启动变更" } },
+        { options: { change_id: changeId, reason: t("stores.startup.message_005") } },
       );
       unwrapEnvelope(envelope);
       set({ lastResult: null, actionLoading: false });

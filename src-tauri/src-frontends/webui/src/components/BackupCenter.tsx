@@ -1,3 +1,4 @@
+import { getLanguage, t } from "../i18n/index.ts";
 import { useEffect } from "react";
 import {
   AlertTriangle,
@@ -15,10 +16,10 @@ import type { BackupSessionInfo, BackupSessionStatus } from "../types";
 const isTauri = () => "__TAURI_INTERNALS__" in window;
 
 const statusMeta: Record<BackupSessionStatus, { label: string; className: string }> = {
-  prepared: { label: "已备份，未清理", className: "prepared" },
-  partially_cleaned: { label: "已尝试清理，可恢复", className: "ready" },
-  restored: { label: "已恢复", className: "restored" },
-  restore_failed: { label: "恢复失败，可重试", className: "failed" },
+  prepared: { label: t("components.backupcenter.message_001"), className: "prepared" },
+  partially_cleaned: { label: t("components.backupcenter.message_002"), className: "ready" },
+  restored: { label: t("components.backupcenter.message_003"), className: "restored" },
+  restore_failed: { label: t("components.backupcenter.message_004"), className: "failed" },
 };
 
 function formatBytes(bytes: number): string {
@@ -30,7 +31,7 @@ function formatBytes(bytes: number): string {
 
 function formatDate(value: string): string {
   const date = new Date(value);
-  return Number.isNaN(date.valueOf()) ? value : date.toLocaleString("zh-CN");
+  return Number.isNaN(date.valueOf()) ? value : date.toLocaleString(getLanguage());
 }
 
 export function BackupCenter() {
@@ -45,7 +46,7 @@ export function BackupCenter() {
   const totalBytes = sessions.reduce((total, session) => total + session.bytes, 0);
 
   const handleRestore = (session: BackupSessionInfo) => {
-    if (!window.confirm(`将恢复“${session.reason}”中的 ${session.restorable_count} 个项目。\n\n恢复不会覆盖清理后重新出现的文件、目录或注册表内容，是否继续？`)) return;
+    if (!window.confirm(t("components.backupcenter.message_005", { value0: session.reason, value1: session.restorable_count }))) return;
     void restore(session.id);
   };
 
@@ -53,35 +54,35 @@ export function BackupCenter() {
     <section className="page backup-center">
       <div className="section-header backup-header">
         <div>
-          <h1><Archive size={20} />备份与恢复</h1>
-          <p>每次文件或注册表清理前自动保存快照；恢复时校验内容并拒绝覆盖新数据。</p>
+          <h1><Archive size={20} />{t("app.message_036")}</h1>
+          <p>{t("components.backupcenter.message_007")}</p>
         </div>
-        <button type="button" className="icon-button" title="刷新备份会话" onClick={() => void load()} disabled={!isTauri() || loading || restoringId !== null}>
+        <button type="button" className="icon-button" title={t("components.backupcenter.message_008")} onClick={() => void load()} disabled={!isTauri() || loading || restoringId !== null}>
           <RefreshCw className={loading ? "spinning" : ""} size={17} />
         </button>
       </div>
 
       {!isTauri() ? (
-        <div className="backup-runtime-note card-surface"><Info size={17} /><div><strong>请在 Rust Yu 桌面应用中使用恢复中心</strong><p>浏览器预览不会读取本机备份目录，也不会执行恢复。</p></div></div>
+        <div className="backup-runtime-note card-surface"><Info size={17} /><div><strong>{t("components.backupcenter.message_009")}</strong><p>{t("components.backupcenter.message_010")}</p></div></div>
       ) : (
         <>
           <div className="backup-summary">
-            <BackupStat label="备份会话" value={sessions.length} />
-            <BackupStat label="可恢复项目" value={restorableCount} tone="success" />
-            <BackupStat label="失败待处理" value={failedCount} tone={failedCount > 0 ? "warning" : undefined} />
-            <BackupStat label="保护数据量" value={formatBytes(totalBytes)} />
+            <BackupStat label={t("components.backupcenter.message_011")} value={sessions.length} />
+            <BackupStat label={t("components.backupcenter.message_012")} value={restorableCount} tone="success" />
+            <BackupStat label={t("components.backupcenter.message_013")} value={failedCount} tone={failedCount > 0 ? "warning" : undefined} />
+            <BackupStat label={t("components.backupcenter.message_014")} value={formatBytes(totalBytes)} />
           </div>
 
-          {error && <div className="backup-notice error"><AlertTriangle size={15} /><span>{error}</span><button type="button" onClick={clearMessages}>关闭</button></div>}
-          {notice && !error && <div className="backup-notice success"><CheckCircle2 size={15} /><span>{notice}</span><button type="button" onClick={clearMessages}>关闭</button></div>}
+          {error && <div className="backup-notice error"><AlertTriangle size={15} /><span>{error}</span><button type="button" onClick={clearMessages}>{t("app.message_031")}</button></div>}
+          {notice && !error && <div className="backup-notice success"><CheckCircle2 size={15} /><span>{notice}</span><button type="button" onClick={clearMessages}>{t("app.message_031")}</button></div>}
 
-          <div className="backup-safety-note card-surface"><ShieldCheck size={16} /><span>恢复采用“只创建、不覆盖”策略。目标已被重新创建、内容发生变化或父目录包含链接时，该项目会保留失败状态并允许稍后重试。</span></div>
+          <div className="backup-safety-note card-surface"><ShieldCheck size={16} /><span>{t("components.backupcenter.message_017")}</span></div>
 
           <div className="backup-list card-surface">
             {loading && sessions.length === 0 ? (
-              <div className="backup-empty"><Loader2 className="spinning" size={20} />正在读取备份会话…</div>
+              <div className="backup-empty"><Loader2 className="spinning" size={20} />{t("components.backupcenter.message_018")}</div>
             ) : sessions.length === 0 ? (
-              <div className="backup-empty"><Archive size={27} /><strong>还没有备份会话</strong><span>清理软件残留时，文件和注册表项目会在删除前自动出现在这里。</span></div>
+              <div className="backup-empty"><Archive size={27} /><strong>{t("components.backupcenter.message_019")}</strong><span>{t("components.backupcenter.message_020")}</span></div>
             ) : sessions.map((session) => <BackupCard key={session.id} session={session} busy={restoringId === session.id} onRestore={() => handleRestore(session)} />)}
           </div>
         </>
@@ -97,19 +98,19 @@ function BackupCard({ session, busy, onRestore }: { session: BackupSessionInfo; 
     <article className="backup-card">
       <div className="backup-card-main">
         <div className="backup-card-icon"><Archive size={18} /></div>
-        <div className="backup-card-copy"><strong>{session.reason}</strong><small>{formatDate(session.created_at)} · 会话 {session.id.slice(0, 8)}</small></div>
+        <div className="backup-card-copy"><strong>{session.reason}</strong><small>{formatDate(session.created_at)}  {t("components.backupcenter.message_021")} {session.id.slice(0, 8)}</small></div>
         <span className={`backup-status ${status.className}`}>{status.label}</span>
       </div>
       <div className="backup-card-meta">
-        <span>保护 {session.item_count} 项</span>
-        <span>可恢复 {session.restorable_count} 项</span>
-        <span>数据 {formatBytes(session.bytes)}</span>
-        {session.failed_count > 0 && <span className="backup-failed-count">失败 {session.failed_count} 项</span>}
+        <span>{t("components.backupcenter.message_022")} {session.item_count}  {t("app.message_167")}</span>
+        <span>{t("components.backupcenter.message_024")} {session.restorable_count}  {t("app.message_167")}</span>
+        <span>{t("components.backupcenter.message_026")} {formatBytes(session.bytes)}</span>
+        {session.failed_count > 0 && <span className="backup-failed-count">{t("app.message_108")} {session.failed_count}  {t("app.message_167")}</span>}
       </div>
       <div className="backup-card-action">
-        <span>{session.failed_count > 0 ? "失败项目不会被强行覆盖，可调整目标后重试。" : "恢复前仍会重新检查目标，避免误覆盖。"}</span>
+        <span>{session.failed_count > 0 ? t("components.backupcenter.message_029") : t("components.backupcenter.message_030")}</span>
         <button type="button" className="secondary-button compact-button" disabled={!canRestore || busy} onClick={onRestore}>
-          {busy ? <Loader2 className="spinning" size={13} /> : <RotateCcw size={13} />}{busy ? "恢复中…" : session.status === "restore_failed" ? "重试恢复" : "恢复"}
+          {busy ? <Loader2 className="spinning" size={13} /> : <RotateCcw size={13} />}{busy ? t("components.backupcenter.message_031") : session.status === "restore_failed" ? t("components.backupcenter.message_032") : t("components.backupcenter.message_033")}
         </button>
       </div>
     </article>

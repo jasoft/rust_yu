@@ -1,3 +1,4 @@
+import { t } from "../i18n/index.ts";
 import { useEffect, useRef, useState } from "react";
 import { Loader2, ArrowLeft, AlertTriangle } from "lucide-react";
 import { useProgramsStore } from "../stores/programs";
@@ -49,12 +50,12 @@ export function UninstallDialog() {
       <div className="flex h-full flex-col p-4">
         <div className="mb-4 flex items-center gap-3">
           <button onClick={close} className="text-slate-400 hover:text-white"><ArrowLeft className="h-4 w-4" /></button>
-          <h2 className="text-lg font-semibold text-white">确认卸载</h2>
+          <h2 className="text-lg font-semibold text-white">{t("app.message_072")}</h2>
         </div>
         <Card className="flex-1"><CardContent className="space-y-4 p-6">
-          <div className="flex items-center gap-3 text-yellow-400"><AlertTriangle className="h-8 w-8" /><div><p>即将卸载：</p><p className="text-2xl font-bold text-white">{job.snapshot.program.name}</p></div></div>
-          <p className="text-sm text-slate-400">{job.snapshot.route} 卸载器结束后，程序会先验证移除，再展示残留审查。</p>
-          <div className="flex gap-3"><Button variant="destructive" onClick={() => void executeUninstall(job.snapshot.job_id)}>确认卸载</Button><Button variant="secondary" onClick={close}>取消</Button></div>
+          <div className="flex items-center gap-3 text-yellow-400"><AlertTriangle className="h-8 w-8" /><div><p>{t("components.uninstalldialog.message_002")}</p><p className="text-2xl font-bold text-white">{job.snapshot.program.name}</p></div></div>
+          <p className="text-sm text-slate-400">{job.snapshot.route}  {t("components.uninstalldialog.message_003")}</p>
+          <div className="flex gap-3"><Button variant="destructive" onClick={() => void executeUninstall(job.snapshot.job_id)}>{t("app.message_072")}</Button><Button variant="secondary" onClick={close}>{t("app.message_089")}</Button></div>
         </CardContent></Card>
       </div>
     );
@@ -71,7 +72,7 @@ export function UninstallDialog() {
   return (
     <div className="flex h-full flex-col p-4"><Card className="flex-1 flex flex-col"><CardHeader><span className="text-sm text-slate-300">{job.snapshot.program.name}</span>{uninstalling && <Loader2 className="h-4 w-4 animate-spin text-blue-500" />}</CardHeader><CardContent className="flex flex-1 flex-col">
       <div className="flex-1 overflow-auto rounded-md bg-slate-900 p-3 font-mono text-xs text-slate-300">{logs.map((log, index) => <div key={`${log}-${index}`}>{log}</div>)}<div ref={logEndRef} /></div>
-      {!locked && <div className="mt-3"><Button onClick={close}>完成</Button></div>}
+      {!locked && <div className="mt-3"><Button onClick={close}>{t("app.message_106")}</Button></div>}
     </CardContent></Card></div>
   );
 }

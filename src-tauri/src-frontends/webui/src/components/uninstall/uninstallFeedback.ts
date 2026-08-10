@@ -1,3 +1,4 @@
+import { t } from "../../i18n/index.ts";
 import type { UninstallResult } from "../../types";
 
 /**
@@ -9,6 +10,6 @@ export function getUninstallFailureMessage(
   result: UninstallResult | null,
 ): string | null {
   if (commandError?.trim()) return commandError;
-  if (result && !result.success) return result.message || "卸载失败，请查看实时日志。";
+  if (result && !result.success) return result.message || t("components.uninstall.uninstallfeedback.message_001");
   return null;
 }
