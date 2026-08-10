@@ -1,6 +1,8 @@
 ﻿[CmdletBinding()]
 param(
     [switch]$SkipFrontend,
+    [switch]$RunCheck,
+    # 向后兼容旧调用；初始化现在默认不执行完整 Rust 编译。
     [switch]$SkipCheck,
     [switch]$InitSubmodules
 )
@@ -23,8 +25,21 @@ function Use-X64RustupShim {
 }
 
 function Import-VsX64Environment {
-    $vcVarsAll = Get-ChildItem "C:\Program Files (x86)\Microsoft Visual Studio" -Filter "vcvarsall.bat" -Recurse -File -ErrorAction SilentlyContinue |
-        Select-Object -First 1 -ExpandProperty FullName
+    $vcVarsAll = $null
+    $vsWhere = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
+    if (Test-Path -LiteralPath $vsWhere -PathType Leaf) {
+        $installationPath = & $vsWhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+        if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($installationPath)) {
+            $candidate = Join-Path $installationPath.Trim() "VC\Auxiliary\Build\vcvarsall.bat"
+            if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+                $vcVarsAll = $candidate
+            }
+        }
+    }
+    if ([string]::IsNullOrWhiteSpace($vcVarsAll)) {
+        $vcVarsAll = Get-ChildItem "C:\Program Files (x86)\Microsoft Visual Studio" -Filter "vcvarsall.bat" -Recurse -File -ErrorAction SilentlyContinue |
+            Select-Object -First 1 -ExpandProperty FullName
+    }
     if ([string]::IsNullOrWhiteSpace($vcVarsAll)) {
         throw "未找到 Visual Studio vcvarsall.bat。请安装 Visual Studio Build Tools 的 Desktop development with C++ 工作负载。"
     }
@@ -58,16 +73,29 @@ Write-Host "linker: $($linker.Source)"
 
 if (-not $SkipFrontend) {
     $tauriTools = Join-Path $repoRoot "src-tauri"
-    npm --prefix $tauriTools ci
+    npm --prefix $tauriTools ci --prefer-offline --no-audit --no-fund
     if ($LASTEXITCODE -ne 0) { throw "Tauri CLI npm ci 失败" }
     $frontend = Join-Path $repoRoot "src-tauri\src-frontends\webui"
-    npm --prefix $frontend ci
+    npm --prefix $frontend ci --prefer-offline --no-audit --no-fund
     if ($LASTEXITCODE -ne 0) { throw "WebUI npm ci 失败" }
 }
 
-if (-not $SkipCheck) {
+if ($RunCheck -and $SkipCheck) {
+    throw "-RunCheck 与兼容参数 -SkipCheck 不能同时使用。"
+}
+
+# 初始化阶段只解析 workspace 清单，不再编译整个依赖图。完整编译属于验证阶段，
+# 否则每个全新 worktree 都会重复付出数分钟冷编译成本。
+cargo metadata --format-version 1 --no-deps | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "Cargo workspace 清单校验失败" }
+
+if ($RunCheck) {
     cargo check --workspace --target $target
     if ($LASTEXITCODE -ne 0) { throw "cargo check --workspace 失败" }
 }
 
-Write-Host "Rust Yu worktree 初始化完成。" -ForegroundColor Green
+if ($RunCheck) {
+    Write-Host "Rust Yu worktree 初始化及完整 Rust 检查完成。" -ForegroundColor Green
+} else {
+    Write-Host "Rust Yu worktree 快速初始化完成。需要完整编译校验时请追加 -RunCheck。" -ForegroundColor Green
+}

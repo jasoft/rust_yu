@@ -34,17 +34,27 @@ x86_64-pc-windows-msvc
 link.exe=<Visual Studio Build Tools>\VC\Tools\MSVC\...\bin\Hostx64\x64\link.exe
 ```
 
-然后执行 `npm ci` 和 x64 `cargo check --workspace`。仓库根目录的 `.cargo\config.toml` 已经固定默认目标；如果要在当前 PowerShell 手工执行 Cargo：
+然后使用离线缓存优先模式执行两个 `npm ci`，并用 `cargo metadata` 快速校验 workspace 清单。初始化不会默认编译整个 Rust 依赖图，避免每个全新 worktree 都等待数分钟；第一次真正编译由 `Run-Gui.ps1`、`cargo build` 或显式完整检查触发。
+
+需要在初始化时执行完整 x64 `cargo check --workspace` 时使用：
+
+```powershell
+.\tools\dev\Initialize-Worktree.ps1 -RunCheck
+```
+
+仓库根目录的 `.cargo\config.toml` 已经固定默认目标；如果要在当前 PowerShell 手工执行 Cargo：
 
 ```powershell
 cargo check --workspace --target x86_64-pc-windows-msvc
 ```
 
-如果只想安装前端依赖或只想初始化子模块：
+如果不需要安装前端依赖，或者只想初始化子模块：
 
 ```powershell
-.\tools\dev\Initialize-Worktree.ps1 -SkipCheck
-.\tools\dev\Initialize-Worktree.ps1 -SkipFrontend -SkipCheck -InitSubmodules
+.\tools\dev\Initialize-Worktree.ps1 -SkipFrontend
+.\tools\dev\Initialize-Worktree.ps1 -SkipFrontend -InitSubmodules
 ```
+
+旧的 `-SkipCheck` 参数仍保留用于兼容已有脚本，但快速初始化现在已经是默认行为。
 
 不要把 `target/` 或 `node_modules/` 强行复制到其他 worktree；它们包含路径相关的缓存，可能让 Cargo/Vite 使用错误 checkout 的产物。创建 worktree 后应以当前 worktree 的绝对路径重新执行初始化。若脚本提示缺少 `link.exe`，先从 Visual Studio Installer 安装 x64 MSVC 工具链，不要退回 ARM64 GNU/LLVM-MinGW。
