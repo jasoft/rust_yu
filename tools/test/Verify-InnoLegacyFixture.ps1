@@ -49,7 +49,7 @@ if ($RunLifecycle) {
     $appDataFile = Join-Path $env:LOCALAPPDATA 'RustYuLegacyTest\Data\leftover-user-profile.json'
     Push-Location $repoRoot
     try {
-        cargo test --test windows_uninstall_lifecycle -- --ignored --nocapture
+        cargo test --test windows_lifecycle -- --ignored --nocapture
         if ($LASTEXITCODE -ne 0) { throw 'application workflow lifecycle test failed' }
     } finally {
         Pop-Location

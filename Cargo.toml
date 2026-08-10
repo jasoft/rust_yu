@@ -79,6 +79,12 @@ name = "rust_yu_lib"
 path = "src/lib.rs"
 crate-type = ["lib"]
 
+[[test]]
+# Windows 会把文件名含 uninstall 且没有显式 manifest 的 EXE 误判为安装器，
+# 普通用户运行测试 harness 时因此返回 ERROR_ELEVATION_REQUIRED (740)。
+name = "windows_lifecycle"
+path = "tests/windows_uninstall_lifecycle.rs"
+
 [profile.release]
 panic = "abort"
 codegen-units = 1
