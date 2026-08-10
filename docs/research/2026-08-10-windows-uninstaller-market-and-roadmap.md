@@ -39,10 +39,13 @@ scope: Windows 10/11 desktop uninstaller
 |---|---|---|---|
 | [Revo Uninstaller](https://www.revouninstaller.com/products/revo-uninstaller-pro/) | 面向普通用户的深度卸载器 | 先跑原厂卸载器，再扫文件/文件夹/注册表残留；Forced Uninstall；Quick Uninstall；Pro 版 Hunter Mode；删除残留默认进入回收站并备份注册表 | 保留“原厂卸载优先”，把强制模式设为明确的救援分支；提供目标识别入口和删除前恢复点 |
 | [IObit Uninstaller](https://www.iobit.com/en/advanceduninstaller.php) | 卸载 + 软件健康工具箱 | 批量卸载、顽固软件、隐藏文件、bundleware、Store/Windows App、浏览器扩展、Install Monitor、Software Health、文件粉碎 | 批量队列和安装监控是高价值差异；健康/工具箱应建立在安全结果模型之上 |
+| [Ashampoo UnInstaller](https://www.ashampoo.com/en-us/uninstaller) | 安装记录 + 事后取证 + 系统维护 | Installation Guard、安装日志、Forensic Analysis、五阶段深度清理、快照比较、程序迁移/休眠、Windows App/浏览器插件、维护工具 | 把“记录过的变化”作为高置信度证据；存量取证要诚实标注推断；迁移、休眠和注册表优化必须与回滚隔离 |
 | [Geek Uninstaller](https://geekuninstaller.com/?lang=en) | 轻量、便携、快速救援 | Clean Removal、Force Removal、单 EXE 便携、32/64 位 Windows、Store 应用支持 | 便携发布和“快速完成一次卸载”是体验目标；不能为了轻量牺牲确认和错误可见性 |
 | [BCUninstaller](https://www.bcuninstaller.com/) | 高级用户/技术人员的批量自动化 | 发现隐藏/损坏/便携/Store/Windows Features/更新/Steam/Chocolatey；批量、静默、碰撞防护、无卸载器也能处理、启动项和评分 | 先实现可靠的串行批量队列和每项隔离，再考虑并发；扩大来源前必须保留来源、权限和置信度 |
 | [Total Uninstall](https://www.martau.com/document/total-uninstall.php) | 安装变更审计和可逆卸载 | 已安装程序分析日志；安装前后快照对比；监控注册表/文件系统；按日志反向移除；备份/恢复；详细日志和导出 | 安装监控应使用快照差异作为高置信度证据；清理操作需要真正的备份/恢复，而不是只有元数据快照 |
 | [Wise Program Uninstaller](https://www.wisecleaner.com/wise-program-uninstaller-user-guide.html) | 轻量、安全卸载 + 强制/自定义卸载 | Safe Uninstall 后扫描残留；Forced/Custom Uninstall；Windows/UWP；删除前备份；最近版本增加残留导出 | 强制卸载必须明确警示并允许审查；报告导出和失败项导出是低成本高价值能力 |
+
+IObit 与 Ashampoo 的逐项功能、证据边界、风险审查和新增建议见 [专项深度分析](2026-08-10-iobit-ashampoo-uninstaller-deep-dive.md)。
 
 ### 1.2 产品策略
 
@@ -90,6 +93,14 @@ Rust Yu 不复制“清理一切”的激进叙事，而采用 **原厂卸载优
 | F-11 | P1 | 便携/可部署分发 | Geek/Wise/BCU | 便携构建、配置/缓存位置、无安装运行、ARM64/Win32 兼容说明 | 便携版不写入工作区以外的隐式状态；安装版和便携版行为一致 | 本轮已完成；ARM64 GNU 资源编译补丁、Release EXE 与 NSIS 安装包均已验证 |
 | F-12 | P2 | 软件健康与更新提示 | IObit/Wise/BCU 评分 | 过期/重复/最近使用/启动影响展示；只提示，不静默升级 | 所有评分有来源和时间；不把营销/遥测混入核心卸载 | 本轮已完成；更新判断保持手动入口 |
 | F-13 | P2 | 工具箱收敛 | IObit/HiBit/旧 Your Uninstaller | 复用已有系统清理、浏览器插件、自启动页，补搜索、权限提示、空状态 | 工具页不绕过各自安全模型；导航和主界面 Fluent 风格一致 | 本轮已完成 |
+| F-14 | P0 | 存量安装取证 | Ashampoo Forensic Analysis/IObit Force Removal | 对未监控程序重建卸载证据包，覆盖卸载键、路径、AppData、服务/任务/驱动和签名 | 明确“事后推断”；低置信度默认保留；只读报告先于删除 | 建议，未实现 |
+| F-15 | P0 | 安装证据图与事件时间线 | IObit Install Monitor/Ashampoo Installation Guard | 将 F-08 前后快照扩展为进程树、文件、注册表、服务、任务、驱动和安装/更新阶段 | 每项变更有来源、时间、目标和置信度；会话范围可控、可停止、可过期 | 建议，未实现 |
+| F-16 | P0 | 删除前可恢复性门禁 | Ashampoo 日志限制/IObit 还原点 | 所有 destructive workflow 统一检查目标指纹、备份可读性、保护路径和恢复入口 | 备份失败不得继续；恢复拒绝覆盖新内容；执行后验证结果 | 建议，未实现 |
+| F-17 | P1 | 专业证据导出包 | Ashampoo HTML/CSV/TXT/REG 导出、IObit 卸载历史 | 在现有报告外增加 CSV、文件清单、Registry `.reg`、进程树和摘要 | 来源于不可变任务快照；敏感数据不上传；失败项可审计 | 建议，未实现 |
+| F-18 | P1 | 安全休眠与影响分析 | Ashampoo Hibernation/Impact | 只读评估启动项、服务和最近使用；生成可回滚禁用计划 | 共享服务和系统项默认禁止；每项可恢复；不伪装成卸载 | 建议，未实现 |
+| F-19 | P2 | 软件清单基线与迁移对比 | Ashampoo 程序清单导入/导出 | 导出版本、来源、签名、路径、卸载能力；新系统只做缺失/差异提示 | 导入只读；不自动安装/卸载/联网下载 | 建议，未实现 |
+| F-20 | P2 | 清理策略配置档 | IObit Fix All/Ashampoo Super Safe Mode 的反向借鉴 | Audit、Safe、Recovery 三档，显示各档允许的动作和不可逆操作 | 不允许单按钮绕过预览、备份和确认 | 建议，未实现 |
+| F-21 | P0 | 竞品能力回归夹具 | IObit/Ashampoo 安装监控和深度清理 | 用 Inno/MSI/Win32 夹具测试安装、更新、覆盖、服务/任务、异常退出和恢复 | 记录发现率、误关联率、等待、恢复和报告一致性；无实测不宣称更彻底 | 建议，未实现 |
 
 ## 4. 当前执行顺序
 
@@ -106,10 +117,21 @@ Rust Yu 不复制“清理一切”的激进叙事，而采用 **原厂卸载优
 9. F-12 软件健康与更新提示：已完成；健康结果标注本机证据和评估时间，覆盖缺卸载器、位置不可读、重复条目、自启动影响、最近使用和手动更新页，不联网不自动升级。
 10. F-13 工具箱收敛：已完成；工具箱统一汇聚健康、自启动、系统清理、备份、安装监控、报告和浏览器插件，提供关键词搜索、空状态和安全边界说明。
 
+### 下一阶段：IObit/Ashampoo 专项能力
+
+1. F-14 存量安装取证：先做只读重建证据包，不把事后推断伪装成安装历史。
+2. F-15 安装证据图：扩展 F-08 的会话模型，优先加入进程树、服务、计划任务、驱动和安装/更新阶段。
+3. F-16 可恢复性门禁：把备份可读性和目标指纹检查放到所有破坏性工作流的统一入口。
+4. F-17 证据导出：补 CSV、`.reg`、文件清单和进程/系统集成变更，服务技术支持和可重复审计。
+5. F-18 安全休眠：复用自启动/服务计划和回滚能力，先做只读影响视图，再考虑执行。
+6. F-19/F-20/F-21：作为迁移体验、策略透明度和长期回归质量的第二批工作。
+
 ## 5. 参考资料与限制
 
 - [Revo Uninstaller Pro 产品页](https://www.revouninstaller.com/products/revo-uninstaller-pro/) 与 [官方支持页](https://www.revouninstaller.com/support/)
 - [IObit Uninstaller 官方产品页](https://www.iobit.com/en/advanceduninstaller.php) 与 [官方手册](https://www.iobit.com/product-manuals/iu-help/)
+- [IObit Uninstaller 更新页](https://www.iobit.com/en/update/uninstaller/)，截至本研究日显示 15.6.0（2026-07-30 发布）
+- [Ashampoo UnInstaller 16 官方产品页](https://www.ashampoo.com/en-us/uninstaller) 与 [官方手册](https://support.ashampoo.com/hc/en-us/articles/28056212092818-UnInstaller-16-Manual)
 - [Geek Uninstaller 官方产品页](https://geekuninstaller.com/?lang=en)
 - [Bulk Crap Uninstaller 官方产品页](https://www.bcuninstaller.com/)
 - [Total Uninstall 官方功能页](https://www.martau.com/document/total-uninstall.php) 与 [安装监控说明](https://www.martau.com/document/installation-monitor.php)
