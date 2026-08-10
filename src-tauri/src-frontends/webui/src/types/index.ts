@@ -491,6 +491,7 @@ export interface ReportInfo {
   failed_count: number;
   warning_count: number;
   formats: string[];
+  backup_sessions: BackupSessionInfo[];
 }
 
 export interface ReportExport {

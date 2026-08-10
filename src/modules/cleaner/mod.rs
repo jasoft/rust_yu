@@ -36,9 +36,10 @@ pub async fn clean_traces(
         confirm,
     )?;
 
+    let backup_reason = backup_reason(&traces);
     let backup_traces = traces.clone();
     let backup_result = tokio::task::spawn_blocking(move || {
-        crate::modules::backup::prepare_for_traces(&backup_traces, "卸载残留清理")
+        crate::modules::backup::prepare_for_traces(&backup_traces, &backup_reason)
     })
     .await;
     let (backup_preparation, backup_error) = match backup_result {
@@ -188,11 +189,61 @@ pub async fn clean_traces(
     Ok(results)
 }
 
+/// 备份会话标题必须来自本次真实扫描结果，不能让所有卸载历史都显示成同一个
+/// 泛化名称。一个清理批次正常只属于一个程序；若调用方确实混合了多个程序，
+/// 明确标记为批量任务，避免把备份错误归到第一个程序名下。
+fn backup_reason(traces: &[Trace]) -> String {
+    let mut program_names = traces
+        .iter()
+        .map(|trace| trace.program_name.trim())
+        .filter(|name| !name.is_empty())
+        .collect::<Vec<_>>();
+    program_names.sort_unstable();
+    program_names.dedup();
+    match program_names.as_slice() {
+        [program_name] => format!("{program_name} · 卸载残留清理"),
+        [] => "卸载残留清理".to_string(),
+        _ => format!("批量卸载残留清理 · {} 个程序", program_names.len()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::clean_traces;
+    use super::{backup_reason, clean_traces};
     use crate::modules::backup::restore_session;
     use crate::modules::lister::storage::TEST_STORAGE_ENV_LOCK;
+
+    #[test]
+    fn backup_reason_uses_the_real_program_name() {
+        let traces = vec![Trace::new(
+            "Rust Yu Legacy Test App".to_string(),
+            TraceType::File,
+            r"C:\Program Files\RustYu Legacy Test App\leftover.log".to_string(),
+        )];
+
+        assert_eq!(
+            backup_reason(&traces),
+            "Rust Yu Legacy Test App · 卸载残留清理"
+        );
+    }
+
+    #[test]
+    fn backup_reason_does_not_mislabel_mixed_programs() {
+        let traces = vec![
+            Trace::new(
+                "App A".to_string(),
+                TraceType::File,
+                r"C:\Program Files\App A\leftover.log".to_string(),
+            ),
+            Trace::new(
+                "App B".to_string(),
+                TraceType::RegistryKey,
+                r"HKCU\Software\App B".to_string(),
+            ),
+        ];
+
+        assert_eq!(backup_reason(&traces), "批量卸载残留清理 · 2 个程序");
+    }
     use crate::modules::scanner::models::{Trace, TraceType};
     use std::fs;
 
