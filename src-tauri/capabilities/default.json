@@ -6,6 +6,7 @@
   "permissions": [
     "core:default",
     "core:event:default",
+    "dialog:allow-open",
     "allow-reconstruct-installation",
     "allow-list-cleanup-policy-profiles",
     "allow-plan-program-hibernation",
@@ -43,6 +44,8 @@
     "allow-list-cleaner-entries",
     "allow-scan-cleaner-entries",
     "allow-clean-cleaner-entries",
+    "allow-plan-file-shred",
+    "allow-execute-file-shred",
     "allow-plan-force-uninstall",
     "allow-clean-force-uninstall",
     "allow-plan-uninstall",

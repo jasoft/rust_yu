@@ -11,6 +11,7 @@ import {
   Database,
   FileCode2,
   FileText,
+  FileWarning,
   Folder,
   FolderOpen,
   Grid2X2,
@@ -49,6 +50,7 @@ import { useForceUninstallStore } from "./stores/forceUninstall";
 import { useBatchUninstallStore } from "./stores/batchUninstall";
 import { StartupManager } from "./components/StartupManager";
 import { CleanerPage } from "./components/CleanerPage";
+import { FileShredderPage } from "./components/FileShredderPage";
 import { BackupCenter } from "./components/BackupCenter";
 import { InstallMonitorManager } from "./components/InstallMonitorManager";
 import { ReportCenter } from "./components/ReportCenter";
@@ -72,7 +74,7 @@ import type {
 } from "./types";
 
 type Stage = "apps" | "confirm" | "progress" | "scan" | "review" | "complete";
-type NavKey = "apps" | "health" | "startup" | "cleaner" | "backups" | "traces" | "monitor" | "evidence" | "reports" | "plugins" | "tools" | "settings" | "about";
+type NavKey = "apps" | "health" | "startup" | "cleaner" | "shredder" | "backups" | "traces" | "monitor" | "evidence" | "reports" | "plugins" | "tools" | "settings" | "about";
 
 interface UiProgram {
   id: string;
@@ -515,6 +517,8 @@ export default function App() {
             <StartupManager />
           ) : activeNav === "cleaner" ? (
             <CleanerPage />
+          ) : activeNav === "shredder" ? (
+            <FileShredderPage />
           ) : activeNav === "backups" ? (
             <BackupCenter />
           ) : activeNav === "monitor" ? (
@@ -685,6 +689,7 @@ const navItems: { id: NavKey; label: string; icon: typeof Package }[] = [
   { id: "health", label: t("app.message_033"), icon: Activity },
   { id: "startup", label: t("app.message_034"), icon: Zap },
   { id: "cleaner", label: t("app.message_035"), icon: Sparkles },
+  { id: "shredder", label: t("shredder.nav"), icon: FileWarning },
   { id: "backups", label: t("app.message_036"), icon: ShieldCheck },
   { id: "traces", label: t("app.message_037"), icon: Archive },
   { id: "monitor", label: t("app.message_038"), icon: SquareActivity },
@@ -1158,7 +1163,7 @@ function ProgramInfoModal({ program, onClose }: { program: UiProgram; onClose: (
 }
 
 function PlaceholderPage({ active }: { active: NavKey }) {
-  const names: Record<NavKey, string> = { apps: t("app.message_032"), health: t("app.message_033"), startup: t("app.message_034"), cleaner: t("app.message_035"), backups: t("app.message_036"), traces: t("app.message_037"), monitor: t("app.message_038"), evidence: t("app.message_039"), reports: t("app.message_040"), plugins: t("app.message_041"), tools: t("app.message_042"), settings: t("app.message_043"), about: t("app.message_044") };
+  const names: Record<NavKey, string> = { apps: t("app.message_032"), health: t("app.message_033"), startup: t("app.message_034"), cleaner: t("app.message_035"), shredder: t("shredder.nav"), backups: t("app.message_036"), traces: t("app.message_037"), monitor: t("app.message_038"), evidence: t("app.message_039"), reports: t("app.message_040"), plugins: t("app.message_041"), tools: t("app.message_042"), settings: t("app.message_043"), about: t("app.message_044") };
   return <div className="placeholder-page"><span><Sparkles size={30} /></span><h1>{names[active]}</h1><p>{t("app.message_324")}</p></div>;
 }
 
