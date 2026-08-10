@@ -109,6 +109,16 @@
 - 这个 legacy 测试夹具卸载后应保留 `C:\Program Files\RustYu Legacy Test App\logs\leftover.log` 和 `%LocalAppData%\RustYuLegacyTest\Data\leftover-user-profile.json`，便于验证安装目录与 AppData 残留扫描
 - tools\test\Verify-InnoLegacyFixture.ps1 默认验证夹具结构和安装包；传入 `-RunLifecycle` 时需要管理员 PowerShell，会安装夹具、检查卸载命令是否走 spawn wrapper，并调用 application workflow 集成测试验证 `waitforjobs`
 
+## 8. 任务结束前的强制交付验收
+
+- **每次任务结束前必须由代理亲自完成编译、测试和运行，不得把这些工作留给用户。** 即使本次只修改文档、配置或前端，也必须确认完整项目仍能编译，并启动当前 checkout 生成的桌面程序。
+- 编译前必须按“强制 x64 编译链”检查 `rustc -vV`，确认 `host: x86_64-pc-windows-msvc`；编译后必须检查最终 EXE/安装包的 PE 架构为 AMD64。
+- 必须至少完成以下自动化验证：Rust workspace 编译、Rust workspace 测试、WebUI production build 和 WebUI tests。任务涉及 lint、安装包、发布脚本或特定模块时，还必须运行对应检查，不能用局部语法检查替代完整用户路径。
+- 必须从本次实际修改所在的 checkout 启动刚编译的 `rust-yu-tauri.exe`，确认进程没有立即退出。涉及桌面 UI 的任务还必须使用可用的 Windows GUI/Computer Use 工具进入受影响页面并检查真实界面；浏览器预览不能替代 Tauri 桌面验证。
+- 必须区分并如实记录四种证据：`编译通过`、`自动化测试通过`、`桌面进程成功启动`、`真实 GUI/UAC/安装卸载生命周期已交互验证`。前三级不能冒充第四级。
+- 如果因为 UAC、桌面自动化、缺少测试夹具或外部环境而无法完成必要的运行验证，任务仍视为未完全验收：必须继续排查；确实无法推进时，要明确报告阻塞点和未验证范围，禁止使用“已完成”“没有问题”等表述。
+- 运行验证必须安全：不得为了验收直接清理用户真实数据。卸载、leftover 清理、恢复等破坏性路径优先使用仓库提供的 MSI/Inno/7-Zip 测试夹具，并保留确认、备份和恢复边界。
+
 ---
 
 **Think Step-by-Step for every generation:**
