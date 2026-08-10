@@ -15,6 +15,33 @@
 - **State Management:** Zustand (Frontend) / Tauri State (Backend).
 - **Windows API:** `windows-rs` (用于底层 API), `winreg` (用于注册表操作).
 
+### A. 强制 x64 编译链（不可回退）
+
+- **唯一允许的 Rust 工具链：** `stable-x86_64-pc-windows-msvc`。Rust host、Cargo target、Clippy、rustfmt、Tauri 原生构建、测试和发布产物必须全部使用 AMD64/x64 MSVC。
+- **禁止 ARM/GNU 回退：** 即使开发机是 Windows 11 ARM，也禁止使用 `aarch64-pc-windows-*`、`arm64`、`*-gnullvm` 或系统 PATH 中的 ARM Rust 来绕过缺失组件、编译错误或测试失败。x64 工具链不可用时必须停止并修复 x64 环境。
+- 仓库根目录的 `rust-toolchain.toml` 和 `.cargo/config.toml` 是强制边界，不得改成 ARM；不得在命令中传入 `--target aarch64-pc-windows-gnullvm`。
+- 这台机器的系统 PATH 可能优先命中 ARM GNU Rust。所有自动化必须通过 rustup 的 x64 代理调用 Rust 工具：
+
+  ```powershell
+  $X64Cargo = Join-Path $env:USERPROFILE ".cargo\bin\cargo.exe"
+  $X64Rustc = Join-Path $env:USERPROFILE ".cargo\bin\rustc.exe"
+  $X64Rustfmt = Join-Path $env:USERPROFILE ".cargo\bin\rustfmt.exe"
+  & $X64Rustc -vV
+  & $X64Cargo +stable-x86_64-pc-windows-msvc check --workspace
+  & $X64Cargo +stable-x86_64-pc-windows-msvc test --workspace
+  & $X64Cargo +stable-x86_64-pc-windows-msvc clippy --workspace --all-targets
+  & $X64Rustfmt --edition 2021 --check <files...>
+  ```
+
+- 每次编译或测试前都必须检查 `rustc -vV` 的 `host`，只有 `host: x86_64-pc-windows-msvc` 才能继续；同时检查最终 PE/安装包为 AMD64，而不是仅依赖命令名称判断架构。
+- 安装 Rust 组件时必须显式指定 x64 工具链，例如：
+
+  ```powershell
+  & "$env:USERPROFILE\.cargo\bin\rustup.exe" component add clippy rustfmt --toolchain stable-x86_64-pc-windows-msvc
+  ```
+
+- 调用会间接执行 `rustc`/`cargo` 的 PowerShell、Tauri、NSIS 或测试脚本前，必须把 `%USERPROFILE%\.cargo\bin` 放到该进程 PATH 最前面，并再次验证 x64 host；禁止让脚本继承并误用系统 ARM Rust。
+
 ## 3. Critical Backend Rules (Rust)
 
 ### A. Safety & Error Handling (最重要的约束)
