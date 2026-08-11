@@ -39,7 +39,17 @@ if (-not (Test-IsAdministrator)) {
     }
 }
 
-& $bootstrapScript -SkipFrontend -SkipCheck
+$tauriX64Binding = Join-Path $repoRoot "src-tauri\node_modules\@tauri-apps\cli-win32-x64-msvc\cli.win32-x64-msvc.node"
+$webuiX64Binding = Join-Path $repoRoot "src-tauri\src-frontends\webui\node_modules\@rolldown\binding-win32-x64-msvc\rolldown-binding.win32-x64-msvc.node"
+$frontendReady = (Test-Path -LiteralPath $tauriX64Binding -PathType Leaf) -and
+    (Test-Path -LiteralPath $webuiX64Binding -PathType Leaf)
+
+if ($frontendReady) {
+    & $bootstrapScript -SkipFrontend -SkipCheck
+} else {
+    Write-Host "检测到前端原生依赖不是完整的 X64 版本，正在重新安装..." -ForegroundColor Yellow
+    & $bootstrapScript -SkipCheck
+}
 if (-not $?) {
     throw "Worktree initialization failed"
 }
@@ -47,6 +57,9 @@ if (-not $?) {
 Push-Location (Join-Path $repoRoot "src-tauri")
 try {
     npx tauri dev
+    if ($LASTEXITCODE -ne 0) {
+        throw "Tauri GUI 启动失败，npx tauri dev 退出码：$LASTEXITCODE"
+    }
 } finally {
     Pop-Location
 }
