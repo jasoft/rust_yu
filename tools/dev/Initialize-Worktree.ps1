@@ -1,4 +1,6 @@
-﻿[CmdletBinding()]
+#requires -Version 7.0
+
+[CmdletBinding()]
 param(
     [switch]$SkipFrontend,
     [switch]$RunCheck,
@@ -102,7 +104,8 @@ function Import-VsX64Environment {
     if ([string]::IsNullOrWhiteSpace($vcVarsAll)) {
         throw "未找到 Visual Studio vcvarsall.bat。请安装 Visual Studio Build Tools 的 Desktop development with C++ 工作负载。"
     }
-    $environmentLines = cmd.exe /d /s /c "`"$vcVarsAll`" x64 >nul && set"
+    $vcVarsCommand = '"' + $vcVarsAll + '" x64 >nul && set'
+    $environmentLines = cmd.exe /d /s /c $vcVarsCommand
     foreach ($line in $environmentLines) {
         $separator = $line.IndexOf("=")
         if ($separator -gt 0) {

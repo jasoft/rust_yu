@@ -20,6 +20,7 @@
 - 开发机虽然是 Windows 11 ARM，但 Rust Yu **只允许**使用 `x86_64-pc-windows-msvc` 构建和发布；Node.js、npm 原生依赖、Rust、MSVC linker 也必须全部为 X64，禁止退回 ARM64 GNU/LLVM 或 ARM64 Node。
 - 在任何 Cargo、Tauri、测试或 GUI 命令前，必须从仓库根目录运行 `tools\dev\Initialize-Worktree.ps1`（可按任务使用 `-SkipFrontend` / `-RunCheck`），并确认输出中的 Rust host、Node architecture 和 `link.exe` 都是 X64。
 - 不得直接依赖提权 PowerShell 继承的 PATH。`%USERPROFILE%\.cargo\bin` 必须优先于系统中旧的 ARM Rust，Node/npm/npx 必须来自同一个 X64 Node.js 目录。
+- 机器首次配置或需要修复全局环境时，必须在管理员 PowerShell 7（`pwsh.exe`）运行 `tools\dev\Configure-X64Environment.ps1`；它会把 Rustup 默认 toolchain、用户/机器 PATH、MSVC/Windows SDK 环境和 `RUST_YU_NODE_X64` 固定到 X64。ARM64 版 PowerShell 7 作为脚本宿主是允许的，编译目标仍必须是 X64。配置后必须关闭并重新打开 Terminal，再用 `rustc -vV` 和 `node -p process.arch` 复核。
 
 ## 3. Critical Backend Rules (Rust)
 

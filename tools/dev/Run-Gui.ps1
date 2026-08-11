@@ -1,3 +1,5 @@
+#requires -Version 7.0
+
 [CmdletBinding()]
 param()
 
@@ -15,7 +17,8 @@ function Test-IsAdministrator {
 
 if (-not (Test-IsAdministrator)) {
     Write-Host "Run-Gui 需要管理员权限，正在请求 UAC..." -ForegroundColor Yellow
-    $powershellExecutable = (Get-Process -Id $PID -ErrorAction Stop).Path
+    $powershellExecutable = Get-Command pwsh.exe -CommandType Application -ErrorAction Stop |
+        Select-Object -First 1 -ExpandProperty Source
     $scriptPath = [IO.Path]::GetFullPath($PSCommandPath)
     $quotedScriptPath = '"' + $scriptPath.Replace('"', '\"') + '"'
 
