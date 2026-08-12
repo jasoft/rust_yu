@@ -10,6 +10,14 @@ license = "MIT"
 name = "rust_yu_tauri_lib"
 crate-type = ["rlib"]
 
+[[bin]]
+name = "rust-yu-tauri"
+path = "src/main.rs"
+# 桌面入口带 requireAdministrator 清单，不是测试 harness；业务与启动逻辑
+# 测试分别位于 lib.rs 和 bootstrap 模块，避免 cargo test 误启动 GUI 并触发 740。
+test = false
+bench = false
+
 [build-dependencies]
 tauri-build = { version = "2.0", features = [] }
 
@@ -61,4 +69,3 @@ winreg = "0.55.0"
 
 # HTTP 服务器 (用于开发模式)
 warp = "0.3"
-

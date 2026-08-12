@@ -914,17 +914,69 @@ fn restore_directory(payload: &Path, destination: &Path) -> Result<(), Uninstall
 
 fn copy_file_create_new(source: &Path, destination: &Path) -> Result<(), UninstallerError> {
     let mut input = File::open(source)?;
-    let mut output = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(destination)?;
-    io::copy(&mut input, &mut output)?;
-    output.flush()?;
-    Ok(())
+    copy_reader_create_new(&mut input, destination)
+}
+
+fn copy_reader_create_new(
+    input: &mut impl Read,
+    destination: &Path,
+) -> Result<(), UninstallerError> {
+    let temporary = unique_restore_path(destination)?;
+    let result = (|| {
+        let mut output = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)?;
+        io::copy(input, &mut output)?;
+        output.flush()?;
+        output.sync_all()?;
+        drop(output);
+
+        // 恢复数据先完整写入同目录临时文件，再原子落位；失败时绝不留下
+        // 会阻塞后续重试的半成品目标，也不会覆盖用户新创建的内容。
+        reject_existing_target(destination)?;
+        fs::rename(&temporary, destination)?;
+        Ok(())
+    })();
+
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
+}
+
+fn unique_restore_path(destination: &Path) -> Result<PathBuf, UninstallerError> {
+    let parent = destination.parent().ok_or_else(|| {
+        UninstallerError::Other(format!("恢复目标缺少父目录: {}", destination.display()))
+    })?;
+    for _ in 0..16 {
+        let candidate = parent.join(format!(".rust-yu-restore-{}.tmp", Uuid::new_v4()));
+        if !candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+    Err(UninstallerError::Other(
+        "无法创建唯一的恢复临时路径".to_string(),
+    ))
 }
 
 fn copy_directory_create_new(source: &Path, destination: &Path) -> Result<(), UninstallerError> {
-    fs::create_dir(destination)?;
+    let temporary = unique_restore_path(destination)?;
+    fs::create_dir(&temporary)?;
+    let result = copy_directory_contents(source, &temporary).and_then(|()| {
+        // Windows 的同卷目录重命名不会覆盖已有目标；前置检查提供更清晰的错误。
+        reject_existing_target(destination)?;
+        fs::rename(&temporary, destination)?;
+        Ok(())
+    });
+
+    if result.is_err() {
+        let _ = fs::remove_dir_all(&temporary);
+    }
+    result
+}
+
+fn copy_directory_contents(source: &Path, destination: &Path) -> Result<(), UninstallerError> {
     for entry in WalkDir::new(source).follow_links(false) {
         let entry =
             entry.map_err(|error| UninstallerError::Other(format!("恢复目录失败: {error}")))?;
@@ -1624,13 +1676,31 @@ fn session_info(session: &BackupSession) -> BackupSessionInfo {
 #[cfg(test)]
 mod tests {
     use super::{
-        list_sessions, plan_for_traces, prepare_for_traces, record_cleanup_result, restore_session,
-        BackupItemKind, BackupItemState, BackupSessionStatus,
+        copy_reader_create_new, list_sessions, plan_for_traces, prepare_for_traces,
+        record_cleanup_result, restore_session, BackupItemKind, BackupItemState,
+        BackupSessionStatus,
     };
     use crate::modules::lister::storage::TEST_STORAGE_ENV_LOCK;
     use crate::modules::scanner::models::{Trace, TraceType};
     use std::fs;
+    use std::io::{self, Read};
     use std::path::PathBuf;
+
+    struct FailAfterFirstChunk {
+        first_chunk: Option<&'static [u8]>,
+    }
+
+    impl Read for FailAfterFirstChunk {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+            if let Some(chunk) = self.first_chunk.take() {
+                let length = chunk.len().min(buffer.len());
+                buffer[..length].copy_from_slice(&chunk[..length]);
+                Ok(length)
+            } else {
+                Err(io::Error::other("simulated interrupted restore"))
+            }
+        }
+    }
 
     fn temporary_root(label: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
@@ -1653,6 +1723,29 @@ mod tests {
         }
         let _ = fs::remove_dir_all(root);
         result
+    }
+
+    #[test]
+    fn interrupted_file_restore_leaves_no_final_target_and_can_retry() {
+        let root = temporary_root("interrupted-copy");
+        fs::create_dir_all(&root).expect("测试目录应可创建");
+        let destination = root.join("restored.bin");
+        let mut failing = FailAfterFirstChunk {
+            first_chunk: Some(b"partial"),
+        };
+
+        let error =
+            copy_reader_create_new(&mut failing, &destination).expect_err("中断的恢复必须返回错误");
+        assert!(error.to_string().contains("simulated interrupted restore"));
+        assert!(!destination.exists());
+
+        let mut retry = io::Cursor::new(b"complete".to_vec());
+        copy_reader_create_new(&mut retry, &destination).expect("清理半成品后应允许重试");
+        assert_eq!(
+            fs::read(&destination).ok().as_deref(),
+            Some(&b"complete"[..])
+        );
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

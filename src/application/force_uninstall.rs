@@ -5,11 +5,13 @@ use crate::modules::common::utils;
 use crate::modules::scanner::models::{Confidence, Trace, TraceType};
 use crate::modules::scanner::registry;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::HashSet;
-use std::fs;
+use std::fs::{self, File};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::UNIX_EPOCH;
+use walkdir::WalkDir;
 
 const MAX_REGISTRY_CANDIDATES: usize = 200;
 
@@ -130,7 +132,7 @@ pub fn plan_force_uninstall(
     Ok(ForceUninstallPlan {
         plan_id: uuid::Uuid::new_v4().to_string(),
         target,
-        fingerprint: fingerprint_target(&root),
+        fingerprint: fingerprint_target(&root)?,
         traces,
         default_selected_ids: Vec::new(),
         warnings,
@@ -535,17 +537,66 @@ fn stable_trace_id(trace_type: TraceType, path: &str) -> String {
     format!("force-{:016x}", fnv1a64(canonical.as_bytes()))
 }
 
-fn fingerprint_target(root: &Path) -> String {
-    let metadata = fs::metadata(root).ok();
-    let modified = metadata
-        .as_ref()
-        .and_then(|value| value.modified().ok())
-        .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
-        .map(|value| value.as_nanos().to_string())
-        .unwrap_or_default();
-    let size = metadata.map(|value| value.len()).unwrap_or_default();
-    let canonical = format!("path={}\nsize={size}\nmodified={modified}", root.display());
-    format!("force-fnv1a64:{:016x}", fnv1a64(canonical.as_bytes()))
+fn fingerprint_target(root: &Path) -> Result<String, UninstallError> {
+    let mut entries = WalkDir::new(root)
+        .follow_links(false)
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| fingerprint_error(root, error))?;
+    entries.sort_by(|left, right| {
+        left.path()
+            .to_string_lossy()
+            .to_lowercase()
+            .cmp(&right.path().to_string_lossy().to_lowercase())
+    });
+
+    let mut hasher = Sha256::new();
+    hasher.update(root.to_string_lossy().to_lowercase().as_bytes());
+    for entry in entries {
+        let relative = entry.path().strip_prefix(root).map_err(|error| {
+            UninstallError::new(
+                UninstallErrorCode::ResidueScanFailed,
+                format!("计算强制卸载目标相对路径失败: {error}"),
+            )
+        })?;
+        hasher.update(relative.to_string_lossy().to_lowercase().as_bytes());
+        if entry.file_type().is_dir() {
+            hasher.update(b"directory\0");
+        } else if entry.file_type().is_file() {
+            hasher.update(b"file\0");
+            hash_target_file(entry.path(), &mut hasher)?;
+        } else if entry.file_type().is_symlink() {
+            hasher.update(b"link\0");
+            let target = fs::read_link(entry.path())
+                .map_err(|error| fingerprint_error(entry.path(), error))?;
+            hasher.update(target.to_string_lossy().to_lowercase().as_bytes());
+        } else {
+            hasher.update(b"other\0");
+        }
+    }
+    Ok(format!("force-sha256:{:x}", hasher.finalize()))
+}
+
+fn hash_target_file(path: &Path, hasher: &mut Sha256) -> Result<(), UninstallError> {
+    let mut file = File::open(path).map_err(|error| fingerprint_error(path, error))?;
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .map_err(|error| fingerprint_error(path, error))?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(())
+}
+
+fn fingerprint_error(path: &Path, error: impl std::fmt::Display) -> UninstallError {
+    UninstallError::new(
+        UninstallErrorCode::ResidueScanFailed,
+        format!("读取强制卸载目标失败（{}）: {error}", path.display()),
+    )
 }
 
 fn paths_overlap(left: &Path, right: &Path) -> bool {
@@ -641,7 +692,26 @@ mod tests {
         let right = build_root_trace("Demo", &root);
 
         assert_eq!(left.id, right.id);
-        assert_eq!(fingerprint_target(&root), fingerprint_target(&root));
+        assert_eq!(
+            fingerprint_target(&root).expect("首次指纹应成功"),
+            fingerprint_target(&root).expect("重复指纹应成功")
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn fingerprint_changes_when_nested_file_content_changes() {
+        let root = temp_target("fingerprint-content");
+        let nested = root.join("data");
+        fs::create_dir_all(&nested).expect("测试子目录应可创建");
+        let file = nested.join("payload.bin");
+        fs::write(&file, b"before").expect("初始内容应可写入");
+        let before = fingerprint_target(&root).expect("初始指纹应成功");
+
+        fs::write(&file, b"after!").expect("替换内容应可写入");
+        let after = fingerprint_target(&root).expect("变更后指纹应成功");
+
+        assert_ne!(before, after);
         let _ = fs::remove_dir_all(root);
     }
 
@@ -657,7 +727,7 @@ mod tests {
                 name: "Demo".to_string(),
                 kind: super::ForceTargetKind::Directory,
             },
-            fingerprint: fingerprint_target(&root),
+            fingerprint: fingerprint_target(&root).expect("测试指纹应成功"),
             traces: vec![trace.clone()],
             default_selected_ids: Vec::new(),
             warnings: Vec::new(),

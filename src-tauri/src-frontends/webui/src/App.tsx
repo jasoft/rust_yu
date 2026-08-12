@@ -39,6 +39,7 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getProgramIconSrc } from "./lib/icon";
+import { completedSuccessfully, selectAvailableItem } from "./lib/appWorkflow";
 import {
   countProgramsBySource,
   filterPrograms,
@@ -358,11 +359,12 @@ export default function App() {
   const filteredPrograms = isTauriRuntime()
     ? visibleSourcePrograms.map(toUiProgram)
     : allPrograms.filter((program) => `${program.name} ${program.publisher}`.toLowerCase().includes(query.toLowerCase()));
-  const selectedProgram =
-    filteredPrograms.find((program) => program.id === selectedId) ??
-    filteredPrograms[0] ??
-    allPrograms[0] ??
-    mockPrograms[1];
+  const selectedProgram = selectAvailableItem(
+    filteredPrograms,
+    allPrograms,
+    selectedId,
+    isTauriRuntime() ? null : mockPrograms[1],
+  );
   const completedProgram = uninstallJob
     ? toUiProgram(uninstallJob.snapshot.program)
     : selectedProgram;
@@ -422,6 +424,7 @@ export default function App() {
   };
 
   const handleManualScan = () => {
+    if (!selectedProgram) return;
     setStage("scan");
     setTraces([]);
     setScanStatus("scanning");
@@ -440,6 +443,7 @@ export default function App() {
   };
 
   const startUninstall = () => {
+    if (!selectedProgram) return;
     setStage("progress");
     setProgress(8);
     setTraces([]);
@@ -537,11 +541,11 @@ export default function App() {
             <SettingsPage />
           ) : activeNav !== "apps" ? (
             <PlaceholderPage active={activeNav} />
-          ) : stage === "apps" ? (
+          ) : stage === "apps" || !selectedProgram ? (
             <AppsStage
               programs={filteredPrograms}
               selected={selectedProgram}
-              selectedId={selectedProgram.id}
+              selectedId={selectedProgram?.id ?? ""}
               loading={loading}
               metadataLoading={metadataLoading}
               error={error}
@@ -551,7 +555,7 @@ export default function App() {
               onQuery={handleSearch}
               onSourceFilter={setSourceFilter}
               onSelect={setSelectedId}
-              onUninstall={() => setStage("confirm")}
+              onUninstall={() => { if (selectedProgram) setStage("confirm"); }}
               onScan={handleManualScan}
               onDetails={() => setDetailsOpen(true)}
               onForceUninstall={() => { resetForce(); setForceOpen(true); }}
@@ -588,7 +592,9 @@ export default function App() {
               onBack={() => setStage("apps")}
               onSkip={() => {
                 const jobId = useProgramsStore.getState().uninstallJob?.snapshot.job_id;
-                if (jobId) void finishUninstall(jobId).then(() => setStage("complete"));
+                if (jobId) void finishUninstall(jobId).then((result) => {
+                  if (completedSuccessfully(result)) setStage("complete");
+                });
               }}
               onRescan={handleManualScan}
               onClean={() => setCleanConfirm(true)}
@@ -598,7 +604,7 @@ export default function App() {
             />
           ) : (
             <CompleteStage
-              program={completedProgram}
+              program={completedProgram ?? selectedProgram}
               results={cleanResults}
               traces={traces}
               job={uninstallJob}
@@ -608,7 +614,7 @@ export default function App() {
           )}
         </main>
       </div>
-      {detailsOpen && <ProgramInfoModal program={selectedProgram} onClose={() => setDetailsOpen(false)} />}
+      {detailsOpen && selectedProgram && <ProgramInfoModal program={selectedProgram} onClose={() => setDetailsOpen(false)} />}
       {batchOpen && <BatchUninstallModal
         selectedPrograms={selectedBatchPrograms}
         items={batchItems}
@@ -622,7 +628,7 @@ export default function App() {
         onClose={closeBatchUninstall}
       />}
       {forceOpen && <ForceUninstallModal
-        initialPath={startupForceTarget ?? selectedProgram.source?.install_location ?? ""}
+        initialPath={startupForceTarget ?? selectedProgram?.source?.install_location ?? ""}
         plan={forcePlan}
         result={forceResult}
         loading={forceLoading}
@@ -722,7 +728,7 @@ function SectionHeader({ title, subtitle, action }: { title: string; subtitle?: 
 }
 
 function AppsStage(props: {
-  programs: UiProgram[]; selected: UiProgram; selectedId: string; loading: boolean; metadataLoading: boolean;
+  programs: UiProgram[]; selected: UiProgram | null; selectedId: string; loading: boolean; metadataLoading: boolean;
   error: string | null; query: string; sourceFilter: ProgramSourceFilter;
   sourceCounts: Record<ProgramSourceFilter, number>;
   onQuery: (value: string) => void; onSourceFilter: (value: ProgramSourceFilter) => void; onSelect: (id: string) => void;
@@ -757,9 +763,9 @@ function AppsStage(props: {
           </div>
           <div className="table-footer">{t("app.message_060")} {props.programs.length}  {t("app.message_061")}{props.batchSelectedIds.size > 0 ? t("app.message_062", { value0: props.batchSelectedIds.size }) : ""}</div>
         </div>
-        <aside className="program-detail card-surface">
+        {props.selected && <aside className="program-detail card-surface">
           <div className="detail-app"><AppIcon program={props.selected} large /><h2>{props.selected.name}</h2><p>{props.selected.publisher}</p><span>{props.selected.size}</span></div>
-          <dl><div><dt>{t("app.message_063")}</dt><dd>{props.selected.version}</dd></div><div><dt>{t("app.message_056")}</dt><dd>{props.selected.installed}</dd></div><div><dt>{t("app.message_065")}</dt><dd>82</dd></div><div><dt>{t("app.message_066")}</dt><dd>{t("app.message_067")}</dd></div></dl>
+          <dl><div><dt>{t("app.message_063")}</dt><dd>{props.selected.version}</dd></div><div><dt>{t("app.message_056")}</dt><dd>{props.selected.installed}</dd></div></dl>
           <p className="install-path">{props.selected.location}</p>
           <div className="detail-actions">
             <button onClick={props.onDetails}><Info size={14} />{t("app.message_068")}</button>
@@ -767,7 +773,7 @@ function AppsStage(props: {
             <button onClick={props.onForceUninstall}><Wrench size={14} />{t("app.message_048")}</button>
           </div>
           <button className="primary-button uninstall-button" onClick={props.onUninstall}><Trash2 size={16} />{t("app.message_071")}</button>
-        </aside>
+        </aside>}
       </div>
     </div>
   );
