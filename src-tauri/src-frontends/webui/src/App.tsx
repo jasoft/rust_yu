@@ -58,7 +58,9 @@ import { ReportCenter } from "./components/ReportCenter";
 import { HealthCenter } from "./components/HealthCenter";
 import { BrowserPluginsPage } from "./components/BrowserPluginsPage";
 import { ToolboxPage } from "./components/ToolboxPage";
-import { EvidenceCenter } from "./components/EvidenceCenter";
+import { CleanupSafetyRules } from "./components/CleanupSafetyRules";
+import { SoftwareInventoryComparison } from "./components/SoftwareInventoryComparison";
+import { SoftwareRecordDialog } from "./components/SoftwareRecordDialog";
 import { getUninstallFailureMessage } from "./components/uninstall/uninstallFeedback";
 import {
   formatTraceType,
@@ -75,7 +77,7 @@ import type {
 } from "./types";
 
 type Stage = "apps" | "confirm" | "progress" | "scan" | "review" | "complete";
-type NavKey = "apps" | "health" | "startup" | "cleaner" | "shredder" | "backups" | "traces" | "monitor" | "evidence" | "reports" | "plugins" | "tools" | "settings" | "about";
+type NavKey = "apps" | "health" | "startup" | "cleaner" | "shredder" | "backups" | "traces" | "monitor" | "inventory" | "reports" | "plugins" | "tools" | "settings" | "about";
 
 interface UiProgram {
   id: string;
@@ -178,6 +180,7 @@ export default function App() {
   const [cleanConfirm, setCleanConfirm] = useState(false);
   const [cleanResults, setCleanResults] = useState<CleanResult[]>([]);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [recordsOpen, setRecordsOpen] = useState(false);
   const [manualScanPending, setManualScanPending] = useState(false);
   const [scanStatus, setScanStatus] = useState<"idle" | "scanning" | "complete">("idle");
   const scanStartedAtRef = useRef<number | null>(null);
@@ -527,8 +530,8 @@ export default function App() {
             <BackupCenter />
           ) : activeNav === "monitor" ? (
             <InstallMonitorManager />
-          ) : activeNav === "evidence" ? (
-            <EvidenceCenter />
+          ) : activeNav === "inventory" ? (
+            <SoftwareInventoryComparison />
           ) : activeNav === "reports" ? (
             <ReportCenter />
           ) : activeNav === "health" ? (
@@ -558,6 +561,8 @@ export default function App() {
               onUninstall={() => { if (selectedProgram) setStage("confirm"); }}
               onScan={handleManualScan}
               onDetails={() => setDetailsOpen(true)}
+              onRecords={() => setRecordsOpen(true)}
+              canInspectRecords={isTauriRuntime() && Boolean(selectedProgram?.source)}
               onForceUninstall={() => { resetForce(); setForceOpen(true); }}
               batchSelectedIds={batchSelectedIds}
               batchActive={batchActive}
@@ -615,6 +620,7 @@ export default function App() {
         </main>
       </div>
       {detailsOpen && selectedProgram && <ProgramInfoModal program={selectedProgram} onClose={() => setDetailsOpen(false)} />}
+      {recordsOpen && selectedProgram?.source && <SoftwareRecordDialog program={selectedProgram.source} onClose={() => setRecordsOpen(false)} />}
       {batchOpen && <BatchUninstallModal
         selectedPrograms={selectedBatchPrograms}
         items={batchItems}
@@ -699,7 +705,7 @@ const navItems: { id: NavKey; label: string; icon: typeof Package }[] = [
   { id: "backups", label: t("app.message_036"), icon: ShieldCheck },
   { id: "traces", label: t("app.message_037"), icon: Archive },
   { id: "monitor", label: t("app.message_038"), icon: SquareActivity },
-  { id: "evidence", label: t("app.message_039"), icon: FileCode2 },
+  { id: "inventory", label: t("components.softwareinventory.nav"), icon: Database },
   { id: "reports", label: t("app.message_040"), icon: FileText },
   { id: "plugins", label: t("app.message_041"), icon: AppWindow },
   { id: "tools", label: t("app.message_042"), icon: Wrench },
@@ -732,7 +738,8 @@ function AppsStage(props: {
   error: string | null; query: string; sourceFilter: ProgramSourceFilter;
   sourceCounts: Record<ProgramSourceFilter, number>;
   onQuery: (value: string) => void; onSourceFilter: (value: ProgramSourceFilter) => void; onSelect: (id: string) => void;
-  onUninstall: () => void; onScan: () => void; onDetails: () => void; onRefresh: () => void;
+  onUninstall: () => void; onScan: () => void; onDetails: () => void; onRecords: () => void; onRefresh: () => void;
+  canInspectRecords: boolean;
   onForceUninstall: () => void;
   batchSelectedIds: Set<string>; batchActive: boolean; onToggleBatch: (id: string) => void; onOpenBatch: () => void;
 }) {
@@ -770,6 +777,7 @@ function AppsStage(props: {
           <div className="detail-actions">
             <button onClick={props.onDetails}><Info size={14} />{t("app.message_068")}</button>
             <button onClick={props.onScan}><Search size={14} />{t("app.message_069")}</button>
+            <button disabled={!props.canInspectRecords} onClick={props.onRecords}><FileCode2 size={14} />{t("components.softwarerecords.action")}</button>
             <button onClick={props.onForceUninstall}><Wrench size={14} />{t("app.message_048")}</button>
           </div>
           <button className="primary-button uninstall-button" onClick={props.onUninstall}><Trash2 size={16} />{t("app.message_071")}</button>
@@ -1169,7 +1177,7 @@ function ProgramInfoModal({ program, onClose }: { program: UiProgram; onClose: (
 }
 
 function PlaceholderPage({ active }: { active: NavKey }) {
-  const names: Record<NavKey, string> = { apps: t("app.message_032"), health: t("app.message_033"), startup: t("app.message_034"), cleaner: t("app.message_035"), shredder: t("shredder.nav"), backups: t("app.message_036"), traces: t("app.message_037"), monitor: t("app.message_038"), evidence: t("app.message_039"), reports: t("app.message_040"), plugins: t("app.message_041"), tools: t("app.message_042"), settings: t("app.message_043"), about: t("app.message_044") };
+  const names: Record<NavKey, string> = { apps: t("app.message_032"), health: t("app.message_033"), startup: t("app.message_034"), cleaner: t("app.message_035"), shredder: t("shredder.nav"), backups: t("app.message_036"), traces: t("app.message_037"), monitor: t("app.message_038"), inventory: t("components.softwareinventory.nav"), reports: t("app.message_040"), plugins: t("app.message_041"), tools: t("app.message_042"), settings: t("app.message_043"), about: t("app.message_044") };
   return <div className="placeholder-page"><span><Sparkles size={30} /></span><h1>{names[active]}</h1><p>{t("app.message_324")}</p></div>;
 }
 
@@ -1206,6 +1214,7 @@ function SettingsPage() {
         </div>
         <p className="settings-note"><Info size={14} />{t("settings.language.reload_note")}</p>
       </section>
+      <CleanupSafetyRules />
     </div>
   );
 }

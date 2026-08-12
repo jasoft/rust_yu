@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "test": "npm run test:i18n && vitest run --exclude tests/programFilters.test.mjs && node --experimental-strip-types --test tests/programFilters.test.mjs",
+    "test": "npm run test:i18n && vitest run --exclude tests/programFilters.test.mjs --exclude tests/softwareInformationArchitecture.test.mjs && node --experimental-strip-types --test tests/programFilters.test.mjs tests/softwareInformationArchitecture.test.mjs",
     "test:i18n": "node scripts/check-i18n.mjs",
     "preview": "vite preview"
   },
