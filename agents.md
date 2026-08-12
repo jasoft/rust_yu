@@ -22,6 +22,14 @@
 - 不得直接依赖提权 PowerShell 继承的 PATH。`%USERPROFILE%\.cargo\bin` 必须优先于系统中旧的 ARM Rust，Node/npm/npx 必须来自同一个 X64 Node.js 目录。
 - 机器首次配置或需要修复全局环境时，必须在管理员 PowerShell 7（`pwsh.exe`）运行 `tools\dev\Configure-X64Environment.ps1`；它会把 Rustup 默认 toolchain、用户/机器 PATH、MSVC/Windows SDK 环境和 `RUST_YU_NODE_X64` 固定到 X64。ARM64 版 PowerShell 7 作为脚本宿主是允许的，编译目标仍必须是 X64。配置后必须关闭并重新打开 Terminal，再用 `rustc -vV` 和 `node -p process.arch` 复核。
 
+### 构建时间与增量产物（强制）
+
+- **禁止随意冷构建：** 执行任何 Cargo、Tauri、npm 构建或会触发编译的测试前，必须先确认当前 checkout、目标架构、现有 `target`/前端依赖及已生成产物是否可复用。默认使用当前 checkout 已有的 X64 增量缓存和构建产物，不得为了“更干净”而删除缓存、切换新的 `CARGO_TARGET_DIR`、重复安装依赖或无理由全量重编译。
+- **先判断再编译：** 先根据本次改动范围选择最小且足够的验证命令。纯文档、脚本或不影响二进制的改动不得启动无关的 Rust/Tauri 冷构建；需要最终 GUI 验收时，也应优先让 `Run-Gui.ps1` 复用已有构建结果，只增量编译受影响部分。
+- **两分钟硬止损：** 任何单次编译，或测试/GUI 命令中的编译阶段，一旦持续超过 **2 分钟**，必须主动中断该进程，不得继续等待。超过两分钟视为构建路径、缓存复用、目标目录、工具链或验证范围选择错误的强烈信号；应立即检查原因、说明当前方向有误，并改用能够复用已有产物的更小范围命令后再继续。
+- **不得用换目录规避超时：** 除非已确认现有产物被运行中的 GUI 锁定且没有可复用方案，否则不得随意创建新的 `CARGO_TARGET_DIR`。确需隔离目录时，必须说明原因，并仍受两分钟硬止损限制。
+- **交付报告记录：** 最终报告应说明复用了哪些已有产物、是否触发编译、编译耗时，以及是否发生过两分钟中断；不得把长时间冷构建包装成正常等待。
+
 ## 3. Critical Backend Rules (Rust)
 
 ### A. Safety & Error Handling (最重要的约束)
