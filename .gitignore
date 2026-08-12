@@ -1,5 +1,6 @@
 # Build results
 [tT]arget/
+target-*/
 build/
 dist/scoop/*.zip
 
