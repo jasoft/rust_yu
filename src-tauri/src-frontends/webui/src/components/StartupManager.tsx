@@ -18,9 +18,11 @@ import {
 } from "lucide-react";
 import { useStartupStore } from "../stores/startup";
 import type { StartupAction, StartupItem, StartupSource, StartupState } from "../types";
+import { SoftwareHibernation } from "./SoftwareHibernation";
 
 type SourceFilter = "all" | StartupSource;
 type StateFilter = "all" | StartupState;
+type StartupView = "items" | "software";
 
 const sourceMeta: Record<StartupSource, { label: string; shortLabel: string }> = {
   registry_run: { label: t("components.startupmanager.message_001"), shortLabel: "Run" },
@@ -53,6 +55,7 @@ export function StartupManager() {
   const [source, setSource] = useState<SourceFilter>("all");
   const [state, setState] = useState<StateFilter>("all");
   const [showSystemItems, setShowSystemItems] = useState(false);
+  const [view, setView] = useState<StartupView>("items");
 
   useEffect(() => {
     void loadItems();
@@ -85,107 +88,119 @@ export function StartupManager() {
           <h1><Zap size={20} />{t("app.message_034")}</h1>
           <p>{t("components.startupmanager.message_012")}</p>
         </div>
-        <button
-          type="button"
-          className="icon-button startup-refresh"
-          title={t("app.message_229")}
-          onClick={() => void loadItems()}
-          disabled={loading || actionLoading}
-        >
-          <RefreshCw className={loading ? "spinning" : ""} size={17} />
-        </button>
-      </div>
-
-      <div className="startup-summary">
-        <SummaryCard label={t("components.startupmanager.message_014")} value={items.length} />
-        <SummaryCard label={t("components.startupmanager.message_015")} value={enabledCount} tone="success" />
-        <SummaryCard label={t("components.startupmanager.message_016")} value={disabledCount} />
-        <SummaryCard label={t("components.startupmanager.message_017")} value={brokenCount} tone="warning" />
-      </div>
-
-      {lastResult?.change_id && (
-        <div className="startup-notice success">
-          <CheckCircle2 size={15} />
-          <span>{t("components.startupmanager.message_018")}</span>
-          <button type="button" onClick={() => void rollbackLastAction()} disabled={actionLoading}>
-            <RotateCcw size={13} />{t("components.startupmanager.message_019")}
+        {view === "items" && (
+          <button
+            type="button"
+            className="icon-button startup-refresh"
+            title={t("app.message_229")}
+            onClick={() => void loadItems()}
+            disabled={loading || actionLoading}
+          >
+            <RefreshCw className={loading ? "spinning" : ""} size={17} />
           </button>
-          <button type="button" onClick={clearResult} aria-label={t("components.startupmanager.message_020")}><X size={14} /></button>
-        </div>
-      )}
-
-      {(error || failedSources.length > 0) && (
-        <div className="startup-notice warning">
-          <AlertTriangle size={15} />
-          <span>
-            {error ?? t("components.startupmanager.message_021", { value0: failedSources.length })}
-            {failedSources.length > 0 && <small>{failedSources.map(([key]) => sourceMeta[key].label).join("、")}</small>}
-          </span>
-        </div>
-      )}
-
-      <div className="startup-layout">
-        <div className="startup-list card-surface">
-          <div className="startup-toolbar">
-            <label className="search-box startup-search">
-              <Search size={15} />
-              <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("components.startupmanager.message_022")} />
-            </label>
-            <FilterSelect value={source} onChange={(value) => setSource(value as SourceFilter)}>
-              <option value="all">{t("components.startupmanager.message_023")}</option>
-              {Object.entries(sourceMeta).map(([value, meta]) => <option key={value} value={value}>{meta.label}</option>)}
-            </FilterSelect>
-            <FilterSelect value={state} onChange={(value) => setState(value as StateFilter)}>
-              <option value="all">{t("components.startupmanager.message_024")}</option>
-              <option value="enabled">{t("components.startupmanager.message_015")}</option>
-              <option value="disabled">{t("components.startupmanager.message_016")}</option>
-              <option value="broken">{t("components.startupmanager.message_017")}</option>
-            </FilterSelect>
-            <label className="startup-system-toggle">
-              <input type="checkbox" checked={showSystemItems} onChange={(event) => setShowSystemItems(event.target.checked)} />
-
-              {t("components.startupmanager.message_028")}{protectedCount})
-            </label>
-          </div>
-
-          <div className="startup-table-head">
-            <span>{t("components.startupmanager.message_029")}</span><span>{t("components.evidencecenter.message_030")}</span><span>{t("components.startupmanager.message_031")}</span><span>{t("components.startupmanager.message_032")}</span><span />
-          </div>
-          <div className="startup-table-body">
-            {loading && items.length === 0 ? (
-              <EmptyList icon={<Loader2 className="spinning" size={19} />} text={t("components.startupmanager.message_033")} />
-            ) : filteredItems.length === 0 ? (
-              <EmptyList icon={<SlidersHorizontal size={22} />} text={t("components.startupmanager.message_034")} />
-            ) : filteredItems.map((item) => (
-              <StartupRow
-                key={item.id}
-                item={item}
-                selected={item.id === selectedId}
-                busy={actionLoading}
-                onSelect={() => selectItem(item.id)}
-                onAction={(action) => void planAction(item, action)}
-              />
-            ))}
-          </div>
-          <div className="startup-table-footer">{t("app.message_060")} {filteredItems.length} / {items.length}  {t("app.message_167")}</div>
-        </div>
-
-        <StartupDetail
-          item={selectedItem}
-          busy={actionLoading}
-          onClose={() => selectItem(null)}
-          onAction={(action) => selectedItem && void planAction(selectedItem, action)}
-        />
+        )}
       </div>
 
-      {pendingPlan && (
-        <ActionConfirmation
-          item={items.find((item) => item.id === pendingPlan.item_id) ?? null}
-          plan={pendingPlan}
-          busy={actionLoading}
-          onCancel={cancelPlan}
-          onConfirm={() => void applyPendingAction()}
-        />
+      <div className="startup-view-tabs" role="tablist" aria-label={t("components.startupmanager.views.label")}>
+        <button type="button" role="tab" aria-selected={view === "items"} className={view === "items" ? "active" : ""} onClick={() => setView("items")}>{t("components.startupmanager.views.items")}</button>
+        <button type="button" role="tab" aria-selected={view === "software"} className={view === "software" ? "active" : ""} onClick={() => setView("software")}>{t("components.startupmanager.views.software")}</button>
+      </div>
+
+      {view === "items" ? (
+        <>
+          <div className="startup-summary">
+            <SummaryCard label={t("components.startupmanager.message_014")} value={items.length} />
+            <SummaryCard label={t("components.startupmanager.message_015")} value={enabledCount} tone="success" />
+            <SummaryCard label={t("components.startupmanager.message_016")} value={disabledCount} />
+            <SummaryCard label={t("components.startupmanager.message_017")} value={brokenCount} tone="warning" />
+          </div>
+
+          {lastResult?.change_id && (
+            <div className="startup-notice success">
+              <CheckCircle2 size={15} />
+              <span>{t("components.startupmanager.message_018")}</span>
+              <button type="button" onClick={() => void rollbackLastAction()} disabled={actionLoading}>
+                <RotateCcw size={13} />{t("components.startupmanager.message_019")}
+              </button>
+              <button type="button" onClick={clearResult} aria-label={t("components.startupmanager.message_020")}><X size={14} /></button>
+            </div>
+          )}
+
+          {(error || failedSources.length > 0) && (
+            <div className="startup-notice warning">
+              <AlertTriangle size={15} />
+              <span>
+                {error ?? t("components.startupmanager.message_021", { value0: failedSources.length })}
+                {failedSources.length > 0 && <small>{failedSources.map(([key]) => sourceMeta[key].label).join("、")}</small>}
+              </span>
+            </div>
+          )}
+
+          <div className="startup-layout">
+            <div className="startup-list card-surface">
+              <div className="startup-toolbar">
+                <label className="search-box startup-search">
+                  <Search size={15} />
+                  <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("components.startupmanager.message_022")} />
+                </label>
+                <FilterSelect value={source} onChange={(value) => setSource(value as SourceFilter)}>
+                  <option value="all">{t("components.startupmanager.message_023")}</option>
+                  {Object.entries(sourceMeta).map(([value, meta]) => <option key={value} value={value}>{meta.label}</option>)}
+                </FilterSelect>
+                <FilterSelect value={state} onChange={(value) => setState(value as StateFilter)}>
+                  <option value="all">{t("components.startupmanager.message_024")}</option>
+                  <option value="enabled">{t("components.startupmanager.message_015")}</option>
+                  <option value="disabled">{t("components.startupmanager.message_016")}</option>
+                  <option value="broken">{t("components.startupmanager.message_017")}</option>
+                </FilterSelect>
+                <label className="startup-system-toggle">
+                  <input type="checkbox" checked={showSystemItems} onChange={(event) => setShowSystemItems(event.target.checked)} />
+                  {t("components.startupmanager.message_028")}{protectedCount})
+                </label>
+              </div>
+
+              <div className="startup-table-head">
+                <span>{t("components.startupmanager.message_029")}</span><span>{t("components.evidencecenter.message_030")}</span><span>{t("components.startupmanager.message_031")}</span><span>{t("components.startupmanager.message_032")}</span><span />
+              </div>
+              <div className="startup-table-body">
+                {loading && items.length === 0 ? (
+                  <EmptyList icon={<Loader2 className="spinning" size={19} />} text={t("components.startupmanager.message_033")} />
+                ) : filteredItems.length === 0 ? (
+                  <EmptyList icon={<SlidersHorizontal size={22} />} text={t("components.startupmanager.message_034")} />
+                ) : filteredItems.map((item) => (
+                  <StartupRow
+                    key={item.id}
+                    item={item}
+                    selected={item.id === selectedId}
+                    busy={actionLoading}
+                    onSelect={() => selectItem(item.id)}
+                    onAction={(action) => void planAction(item, action)}
+                  />
+                ))}
+              </div>
+              <div className="startup-table-footer">{t("app.message_060")} {filteredItems.length} / {items.length}  {t("app.message_167")}</div>
+            </div>
+
+            <StartupDetail
+              item={selectedItem}
+              busy={actionLoading}
+              onClose={() => selectItem(null)}
+              onAction={(action) => selectedItem && void planAction(selectedItem, action)}
+            />
+          </div>
+
+          {pendingPlan && (
+            <ActionConfirmation
+              item={items.find((item) => item.id === pendingPlan.item_id) ?? null}
+              plan={pendingPlan}
+              busy={actionLoading}
+              onCancel={cancelPlan}
+              onConfirm={() => void applyPendingAction()}
+            />
+          )}
+        </>
+      ) : (
+        <SoftwareHibernation />
       )}
     </section>
   );

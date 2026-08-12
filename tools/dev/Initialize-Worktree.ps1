@@ -45,13 +45,6 @@ function Use-X64NodeRuntime {
     $candidates.Add((Join-Path $env:ProgramFiles "nodejs\node.exe"))
     $candidates.Add((Join-Path $env:LOCALAPPDATA "Programs\nodejs\node.exe"))
 
-    $codexRuntimeRoot = Join-Path $env:USERPROFILE ".codex\runtimes"
-    if (Test-Path -LiteralPath $codexRuntimeRoot -PathType Container) {
-        Get-ChildItem -LiteralPath $codexRuntimeRoot -Filter node.exe -Recurse -File -ErrorAction SilentlyContinue |
-            Sort-Object FullName -Descending |
-            ForEach-Object { $candidates.Add($_.FullName) }
-    }
-
     $x64Node = $null
     foreach ($candidate in $candidates | Select-Object -Unique) {
         if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
@@ -61,6 +54,24 @@ function Use-X64NodeRuntime {
         if ($LASTEXITCODE -eq 0 -and $architecture -eq "x64") {
             $x64Node = (Resolve-Path -LiteralPath $candidate).Path
             break
+        }
+    }
+
+    # 只有常规候选全部失败时才扫描 Codex runtime。该目录可能包含大量依赖，
+    # 在已经显式配置 X64 Node 时递归遍历既没有必要，也会显著拖慢新 worktree 初始化。
+    if ([string]::IsNullOrWhiteSpace($x64Node)) {
+        $codexRuntimeRoot = Join-Path $env:USERPROFILE ".codex\runtimes"
+        if (Test-Path -LiteralPath $codexRuntimeRoot -PathType Container) {
+            $runtimeCandidates = Get-ChildItem -LiteralPath $codexRuntimeRoot -Filter node.exe -Recurse -File -ErrorAction SilentlyContinue |
+                Sort-Object FullName -Descending |
+                Select-Object -ExpandProperty FullName
+            foreach ($candidate in $runtimeCandidates) {
+                $architecture = & $candidate -p "process.arch" 2>$null
+                if ($LASTEXITCODE -eq 0 -and $architecture -eq "x64") {
+                    $x64Node = (Resolve-Path -LiteralPath $candidate).Path
+                    break
+                }
+            }
         }
     }
 
