@@ -169,6 +169,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(state::UninstallCoordinator::new())
+        .manage(DeveloperFixtureInstaller::default())
         .setup(|app| {
             tracing::info!("Rust Yu Tauri 应用启动");
             let _ = app.get_webview_window("main");
@@ -212,6 +213,8 @@ pub fn run() {
             list_cleaner_entries,
             scan_cleaner_entries,
             clean_cleaner_entries,
+            list_developer_fixtures,
+            install_developer_fixtures,
             plan_file_shred,
             execute_file_shred,
             plan_force_uninstall,

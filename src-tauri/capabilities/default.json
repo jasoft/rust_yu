@@ -44,6 +44,8 @@
     "allow-list-cleaner-entries",
     "allow-scan-cleaner-entries",
     "allow-clean-cleaner-entries",
+    "allow-list-developer-fixtures",
+    "allow-install-developer-fixtures",
     "allow-plan-file-shred",
     "allow-execute-file-shred",
     "allow-plan-force-uninstall",

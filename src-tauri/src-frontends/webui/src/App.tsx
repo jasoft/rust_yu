@@ -61,6 +61,8 @@ import { ToolboxPage } from "./components/ToolboxPage";
 import { CleanupSafetyRules } from "./components/CleanupSafetyRules";
 import { SoftwareInventoryComparison } from "./components/SoftwareInventoryComparison";
 import { SoftwareRecordDialog } from "./components/SoftwareRecordDialog";
+import { DeveloperToolsPage } from "./components/DeveloperToolsPage";
+import { getDeveloperModeEnabled, setDeveloperModeEnabled } from "./lib/developerMode";
 import { getUninstallFailureMessage } from "./components/uninstall/uninstallFeedback";
 import {
   formatTraceType,
@@ -77,7 +79,7 @@ import type {
 } from "./types";
 
 type Stage = "apps" | "confirm" | "progress" | "scan" | "review" | "complete";
-type NavKey = "apps" | "health" | "startup" | "cleaner" | "shredder" | "backups" | "traces" | "monitor" | "inventory" | "reports" | "plugins" | "tools" | "settings" | "about";
+type NavKey = "apps" | "health" | "startup" | "cleaner" | "shredder" | "backups" | "traces" | "monitor" | "inventory" | "reports" | "plugins" | "tools" | "developer" | "settings" | "about";
 
 interface UiProgram {
   id: string;
@@ -167,6 +169,7 @@ function formatLocalLog(message: string) {
 export default function App() {
   const [stage, setStage] = useState<Stage>(getInitialStage);
   const [activeNav, setActiveNav] = useState<NavKey>("apps");
+  const [developerModeEnabled, setDeveloperMode] = useState(getDeveloperModeEnabled);
   const [selectedId, setSelectedId] = useState("7zip");
   const [query, setQuery] = useState("");
   const [restorePoint, setRestorePoint] = useState(true);
@@ -385,6 +388,12 @@ export default function App() {
       return next;
     });
   };
+  const changeDeveloperMode = (enabled: boolean) => {
+    setDeveloperModeEnabled(enabled);
+    setDeveloperMode(enabled);
+    if (!enabled && activeNav === "developer") setActiveNav("settings");
+  };
+
 
   const openBatchUninstall = () => {
     if (batchActive || batchPaused) {
@@ -518,7 +527,7 @@ export default function App() {
     <div className={`app-frame ${isTauriRuntime() ? "native-frame" : ""}`}>
       {!isTauriRuntime() && <TitleBar />}
       <div className="app-body">
-        <Sidebar active={activeNav} onNavigate={(next) => { setActiveNav(next); if (next === "apps") setStage("apps"); }} />
+        <Sidebar active={activeNav} developerModeEnabled={developerModeEnabled} onNavigate={(next) => { setActiveNav(next); if (next === "apps") setStage("apps"); }} />
         <main className="workspace">
           {activeNav === "startup" ? (
             <StartupManager />
@@ -540,8 +549,10 @@ export default function App() {
             <BrowserPluginsPage />
           ) : activeNav === "tools" ? (
             <ToolboxPage onNavigate={(next) => setActiveNav(next)} />
+          ) : activeNav === "developer" && developerModeEnabled ? (
+            <DeveloperToolsPage />
           ) : activeNav === "settings" ? (
-            <SettingsPage />
+            <SettingsPage developerModeEnabled={developerModeEnabled} onDeveloperModeChange={changeDeveloperMode} />
           ) : activeNav !== "apps" ? (
             <PlaceholderPage active={activeNav} />
           ) : stage === "apps" || !selectedProgram ? (
@@ -711,13 +722,14 @@ const navItems: { id: NavKey; label: string; icon: typeof Package }[] = [
   { id: "tools", label: t("app.message_042"), icon: Wrench },
 ];
 
-function Sidebar({ active, onNavigate }: { active: NavKey; onNavigate: (key: NavKey) => void }) {
+function Sidebar({ active, developerModeEnabled, onNavigate }: { active: NavKey; developerModeEnabled: boolean; onNavigate: (key: NavKey) => void }) {
   return (
     <aside className="sidebar">
       <nav>
         {navItems.map((item) => <NavButton key={item.id} {...item} active={active === item.id} onClick={() => onNavigate(item.id)} />)}
       </nav>
       <nav className="sidebar-bottom">
+        {developerModeEnabled && <NavButton id="developer" label={t("developer.nav")} icon={FileCode2} active={active === "developer"} onClick={() => onNavigate("developer")} />}
         <NavButton id="settings" label={t("app.message_043")} icon={Settings} active={active === "settings"} onClick={() => onNavigate("settings")} />
         <NavButton id="about" label={t("app.message_044")} icon={CircleHelp} active={active === "about"} onClick={() => onNavigate("about")} />
       </nav>
@@ -1177,11 +1189,11 @@ function ProgramInfoModal({ program, onClose }: { program: UiProgram; onClose: (
 }
 
 function PlaceholderPage({ active }: { active: NavKey }) {
-  const names: Record<NavKey, string> = { apps: t("app.message_032"), health: t("app.message_033"), startup: t("app.message_034"), cleaner: t("app.message_035"), shredder: t("shredder.nav"), backups: t("app.message_036"), traces: t("app.message_037"), monitor: t("app.message_038"), inventory: t("components.softwareinventory.nav"), reports: t("app.message_040"), plugins: t("app.message_041"), tools: t("app.message_042"), settings: t("app.message_043"), about: t("app.message_044") };
+  const names: Record<NavKey, string> = { apps: t("app.message_032"), health: t("app.message_033"), startup: t("app.message_034"), cleaner: t("app.message_035"), shredder: t("shredder.nav"), backups: t("app.message_036"), traces: t("app.message_037"), monitor: t("app.message_038"), inventory: t("components.softwareinventory.nav"), reports: t("app.message_040"), plugins: t("app.message_041"), tools: t("app.message_042"), developer: t("developer.nav"), settings: t("app.message_043"), about: t("app.message_044") };
   return <div className="placeholder-page"><span><Sparkles size={30} /></span><h1>{names[active]}</h1><p>{t("app.message_324")}</p></div>;
 }
 
-function SettingsPage() {
+function SettingsPage({ developerModeEnabled, onDeveloperModeChange }: { developerModeEnabled: boolean; onDeveloperModeChange: (enabled: boolean) => void }) {
   const currentLanguage = getLanguage();
   const languageNames: Record<Language, string> = {
     "zh-CN": t("settings.language.zh_cn"),
@@ -1213,6 +1225,23 @@ function SettingsPage() {
           ))}
         </div>
         <p className="settings-note"><Info size={14} />{t("settings.language.reload_note")}</p>
+      </section>
+      <section className="settings-card developer-mode-setting card-surface">
+        <div className="developer-mode-setting-copy">
+          <span><FileCode2 size={18} /></span>
+          <div><h2>{t("settings.developer.title")}</h2><p>{t("settings.developer.description")}</p></div>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={developerModeEnabled}
+          className={`settings-switch ${developerModeEnabled ? "on" : ""}`}
+          onClick={() => onDeveloperModeChange(!developerModeEnabled)}
+        >
+          <span />
+          <strong>{developerModeEnabled ? t("settings.developer.enabled") : t("settings.developer.disabled")}</strong>
+        </button>
+        <p className="settings-note"><Info size={14} />{t("settings.developer.note")}</p>
       </section>
       <CleanupSafetyRules />
     </div>

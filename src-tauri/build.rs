@@ -41,6 +41,8 @@ fn main() {
         "list_cleaner_entries",
         "scan_cleaner_entries",
         "clean_cleaner_entries",
+        "list_developer_fixtures",
+        "install_developer_fixtures",
         "plan_file_shred",
         "execute_file_shred",
         "plan_uninstall",

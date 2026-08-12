@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-install-developer-fixtures"
+description = "Enables the install_developer_fixtures command without any pre-configured scope."
+commands.allow = ["install_developer_fixtures"]
+
+[[permission]]
+identifier = "deny-install-developer-fixtures"
+description = "Denies the install_developer_fixtures command without any pre-configured scope."
+commands.deny = ["install_developer_fixtures"]

@@ -369,6 +369,12 @@
           "markdownDescription": "Enables the get_uninstall_job command without any pre-configured scope."
         },
         {
+          "description": "Enables the install_developer_fixtures command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-install-developer-fixtures",
+          "markdownDescription": "Enables the install_developer_fixtures command without any pre-configured scope."
+        },
+        {
           "description": "Enables the list_backup_sessions command without any pre-configured scope.",
           "type": "string",
           "const": "allow-list-backup-sessions",
@@ -385,6 +391,12 @@
           "type": "string",
           "const": "allow-list-cleanup-policy-profiles",
           "markdownDescription": "Enables the list_cleanup_policy_profiles command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the list_developer_fixtures command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-list-developer-fixtures",
+          "markdownDescription": "Enables the list_developer_fixtures command without any pre-configured scope."
         },
         {
           "description": "Enables the list_install_monitor_sessions command without any pre-configured scope.",
@@ -723,6 +735,12 @@
           "markdownDescription": "Denies the get_uninstall_job command without any pre-configured scope."
         },
         {
+          "description": "Denies the install_developer_fixtures command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-install-developer-fixtures",
+          "markdownDescription": "Denies the install_developer_fixtures command without any pre-configured scope."
+        },
+        {
           "description": "Denies the list_backup_sessions command without any pre-configured scope.",
           "type": "string",
           "const": "deny-list-backup-sessions",
@@ -739,6 +757,12 @@
           "type": "string",
           "const": "deny-list-cleanup-policy-profiles",
           "markdownDescription": "Denies the list_cleanup_policy_profiles command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the list_developer_fixtures command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-list-developer-fixtures",
+          "markdownDescription": "Denies the list_developer_fixtures command without any pre-configured scope."
         },
         {
           "description": "Denies the list_install_monitor_sessions command without any pre-configured scope.",
