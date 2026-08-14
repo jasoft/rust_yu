@@ -13,6 +13,13 @@ export const programSourceOptions: ReadonlyArray<{
   { id: "store", label: t("lib.programfilters.message_003") },
 ];
 
+export function matchesProgramSource(
+  installSource: InstalledProgram["install_source"],
+  filter: ProgramSourceFilter,
+): boolean {
+  return filter === "all" || installSource === filter;
+}
+
 export function filterPrograms(
   programs: readonly InstalledProgram[],
   source: ProgramSourceFilter,
@@ -20,7 +27,7 @@ export function filterPrograms(
 ): InstalledProgram[] {
   const normalizedSearch = search.trim().toLocaleLowerCase();
   return programs.filter((program) => {
-    if (source !== "all" && program.install_source !== source) return false;
+    if (!matchesProgramSource(program.install_source, source)) return false;
     if (!normalizedSearch) return true;
     return `${program.name} ${program.publisher ?? ""}`
       .toLocaleLowerCase()

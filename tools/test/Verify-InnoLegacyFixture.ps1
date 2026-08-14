@@ -43,6 +43,12 @@ if ($RunLifecycle) {
         throw 'RunLifecycle requires an elevated PowerShell session'
     }
 
+    # UAC 会重新构造提权进程的 PATH；在任何 Cargo 命令前重新固定 x64 MSVC，
+    # 避免管理员会话意外回退到旧 ARM Rust 或错误的 linker。
+    $bootstrapScript = Join-Path $repoRoot 'tools\dev\Initialize-Worktree.ps1'
+    & $bootstrapScript -SkipFrontend -SkipCheck
+    if (-not $?) { throw 'x64 worktree initialization failed in elevated lifecycle session' }
+
     $registryPath = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\rust_yu_legacy_test_app_is1'
     $installPath = 'C:\Program Files\RustYu Legacy Test App'
     $leftoverFile = Join-Path $installPath 'logs\leftover.log'

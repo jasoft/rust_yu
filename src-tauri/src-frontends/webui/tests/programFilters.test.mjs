@@ -5,6 +5,7 @@ import {
   countProgramsBySource,
   filterPrograms,
   hasMissingProgramIcons,
+  matchesProgramSource,
 } from "../src/lib/programFilters.ts";
 
 function program(name, install_source, publisher = null) {
@@ -39,6 +40,13 @@ test("为每个来源计算独立数量", () => {
     msi: 1,
     store: 1,
   });
+});
+
+test("组合搜索和来源筛选时仍严格匹配来源", () => {
+  assert.equal(matchesProgramSource("registry", "msi"), false);
+  assert.equal(matchesProgramSource("registry", "registry"), true);
+  assert.equal(matchesProgramSource("registry", "all"), true);
+  assert.deepEqual(filterPrograms(programs, "msi", "Acme").map((item) => item.name), ["MSI Tool"]);
 });
 
 test("仅在存在图标来源且缓存不完整时请求预热", () => {

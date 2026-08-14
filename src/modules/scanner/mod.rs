@@ -7,6 +7,7 @@ pub mod shortcuts;
 use crate::modules::common::error::UninstallerError;
 use crate::modules::lister::models::InstalledProgram;
 use models::{Trace, TraceType};
+use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -68,9 +69,14 @@ async fn scan_all_traces_internal(
 
     if types.contains(&TraceType::File) {
         let name = program_name.clone();
+        let filesystem_program = program.clone();
         let t = traces.clone();
         handles.push(tokio::spawn(async move {
-            match filesystem::scan_filesystem_traces(&name) {
+            let scan_result = filesystem_program.as_ref().map_or_else(
+                || filesystem::scan_filesystem_traces(&name),
+                filesystem::scan_filesystem_traces_for_program,
+            );
+            match scan_result {
                 Ok(mut traces) => {
                     let mut guard = t.lock().await;
                     guard.append(&mut traces);
@@ -136,6 +142,14 @@ async fn scan_all_traces_internal(
 
     // 获取所有结果
     let mut result = traces.lock().await.clone();
+
+    // 并行扫描器可能从“名称命中”和“明确安装目录”同时发现同一文件。
+    // 合并重复项，避免用户选中两个指向相同删除目标的条目。
+    let mut seen = HashSet::new();
+    result.retain(|trace| {
+        let normalized_path = trace.path.replace('/', "\\").to_lowercase();
+        seen.insert(format!("{}|{normalized_path}", trace.trace_type))
+    });
 
     // 计算置信度
     assign_confidence_scores(&program_name, &mut result);

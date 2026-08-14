@@ -68,6 +68,10 @@ fn scan_appdata_dir(dir: &Path, program_name: &str, patterns: &[String], traces:
             }
 
             let is_dir = path.is_dir();
+            if is_dir && append_matched_directory_files(path, program_name, traces) {
+                // 已逐文件展示目录内容，避免同时生成父目录目标造成重叠删除。
+                continue;
+            }
             let trace_type = if is_dir {
                 TraceType::AppData
             } else {
@@ -109,6 +113,42 @@ fn scan_appdata_dir(dir: &Path, program_name: &str, patterns: &[String], traces:
             traces.push(trace);
         }
     }
+}
+
+fn append_matched_directory_files(
+    path: &Path,
+    program_name: &str,
+    traces: &mut Vec<Trace>,
+) -> bool {
+    const MAX_MATCHED_DIRECTORY_DEPTH: usize = 16;
+    const MAX_MATCHED_DIRECTORY_ITEMS: usize = 10_000;
+
+    let mut matched = false;
+    for entry in WalkDir::new(path)
+        .min_depth(1)
+        .max_depth(MAX_MATCHED_DIRECTORY_DEPTH)
+        .follow_links(false)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_file() && !entry.file_type().is_symlink())
+        .take(MAX_MATCHED_DIRECTORY_ITEMS)
+    {
+        let size = entry.metadata().ok().map(|metadata| metadata.len());
+        let description = size
+            .map(|value| format!("用户数据文件，大小: {}", utils::format_size(value)))
+            .unwrap_or_else(|| "用户数据文件".to_string());
+        let mut trace = Trace::new(
+            program_name.to_string(),
+            TraceType::AppData,
+            entry.path().to_string_lossy().into_owned(),
+        )
+        .with_description(description)
+        .with_confidence(Confidence::High);
+        trace.size = size;
+        traces.push(trace);
+        matched = true;
+    }
+    matched
 }
 
 fn matches_appdata_name(name: &str, patterns: &[String]) -> bool {
@@ -169,7 +209,8 @@ fn calculate_size(path: &Path) -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_search_patterns, matches_appdata_name};
+    use super::{build_search_patterns, matches_appdata_name, scan_appdata_dir};
+    use std::fs;
 
     #[test]
     fn appdata_matching_accepts_compact_legacy_directory_name() {
@@ -177,5 +218,32 @@ mod tests {
 
         assert!(matches_appdata_name("rustyulegacytest", &patterns));
         assert!(!matches_appdata_name("rusty", &patterns));
+    }
+
+    #[test]
+    fn matched_appdata_directory_surfaces_nested_leftover_file() {
+        let root = std::env::temp_dir().join(format!(
+            "rust-yu-appdata-residue-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let appdata = root.join("RustYuLegacyTest");
+        let leftover = appdata.join("Data").join("leftover-user-profile.json");
+        fs::create_dir_all(leftover.parent().unwrap_or(&appdata))
+            .unwrap_or_else(|error| panic!("create AppData fixture: {error}"));
+        fs::write(&leftover, b"leftover")
+            .unwrap_or_else(|error| panic!("write AppData fixture: {error}"));
+
+        let patterns = build_search_patterns("RustYu Legacy Test App");
+        let mut traces = Vec::new();
+        scan_appdata_dir(&root, "RustYu Legacy Test App", &patterns, &mut traces);
+
+        assert!(traces
+            .iter()
+            .any(|trace| trace.path.ends_with("leftover-user-profile.json")));
+        assert!(!traces.iter().any(|trace| trace
+            .path
+            .eq_ignore_ascii_case(appdata.to_string_lossy().as_ref())));
+
+        let _ = fs::remove_dir_all(root);
     }
 }
