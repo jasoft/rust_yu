@@ -199,17 +199,18 @@ fn run_uninstall_command_windows(
             System::IO::{CreateIoCompletionPort, GetQueuedCompletionStatus, OVERLAPPED},
             System::{
                 JobObjects::{
-                    AssignProcessToJobObject, CreateJobObjectW,
+                    AssignProcessToJobObject, CreateJobObjectW, IsProcessInJob,
                     JobObjectAssociateCompletionPortInformation,
-                    JobObjectBasicAccountingInformation, QueryInformationJobObject,
-                    SetInformationJobObject, JOBOBJECT_ASSOCIATE_COMPLETION_PORT,
-                    JOBOBJECT_BASIC_ACCOUNTING_INFORMATION,
+                    JobObjectBasicAccountingInformation, JobObjectExtendedLimitInformation,
+                    QueryInformationJobObject, SetInformationJobObject,
+                    JOBOBJECT_ASSOCIATE_COMPLETION_PORT, JOBOBJECT_BASIC_ACCOUNTING_INFORMATION,
+                    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_BREAKAWAY_OK,
                 },
                 SystemServices::JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO,
                 Threading::{
-                    CreateProcessW, GetExitCodeProcess, ResumeThread, WaitForSingleObject,
-                    CREATE_BREAKAWAY_FROM_JOB, CREATE_SUSPENDED, PROCESS_CREATION_FLAGS,
-                    PROCESS_INFORMATION, STARTUPINFOW,
+                    CreateProcessW, GetCurrentProcess, GetExitCodeProcess, ResumeThread,
+                    WaitForSingleObject, CREATE_BREAKAWAY_FROM_JOB, CREATE_SUSPENDED,
+                    PROCESS_CREATION_FLAGS, PROCESS_INFORMATION, STARTUPINFOW,
                 },
             },
         },
@@ -329,6 +330,32 @@ fn run_uninstall_command_windows(
         Some(to_wide(&working_dir.to_string_lossy()))
     }
 
+    fn current_job_allows_breakaway() -> bool {
+        let mut is_in_job = windows::core::BOOL::from(false);
+        if unsafe { IsProcessInJob(GetCurrentProcess(), None, &mut is_in_job) }.is_err()
+            || !is_in_job.as_bool()
+        {
+            return false;
+        }
+
+        let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        if unsafe {
+            QueryInformationJobObject(
+                None,
+                JobObjectExtendedLimitInformation,
+                (&mut limits as *mut JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
+                size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+                None,
+            )
+        }
+        .is_err()
+        {
+            return false;
+        }
+
+        limits.BasicLimitInformation.LimitFlags.0 & JOB_OBJECT_LIMIT_BREAKAWAY_OK.0 != 0
+    }
+
     fn try_create_process(command: &str) -> Result<ProcessLaunch, windows::core::Error> {
         fn create_process(
             application_name_ptr: PCWSTR,
@@ -383,18 +410,30 @@ fn run_uninstall_command_windows(
         };
         let mut process_info = PROCESS_INFORMATION::default();
 
-        if let Err(primary_error) = create_process(
-            application_name_ptr,
-            &mut command_line,
-            current_directory_ptr,
-            &startup_info,
-            &mut process_info,
-            CREATE_SUSPENDED | CREATE_BREAKAWAY_FROM_JOB,
-        ) {
-            tracing::warn!(
-                "CreateProcessW 使用 breakaway 失败，回退为普通挂起启动: {}",
-                primary_error
-            );
+        if current_job_allows_breakaway() {
+            if let Err(primary_error) = create_process(
+                application_name_ptr,
+                &mut command_line,
+                current_directory_ptr,
+                &startup_info,
+                &mut process_info,
+                CREATE_SUSPENDED | CREATE_BREAKAWAY_FROM_JOB,
+            ) {
+                tracing::debug!(
+                    "父 Job 允许 breakaway，但 CreateProcessW 未能脱离；改用普通挂起启动: {}",
+                    primary_error
+                );
+                command_line = to_wide(command);
+                create_process(
+                    application_name_ptr,
+                    &mut command_line,
+                    current_directory_ptr,
+                    &startup_info,
+                    &mut process_info,
+                    CREATE_SUSPENDED,
+                )?;
+            }
+        } else {
             create_process(
                 application_name_ptr,
                 &mut command_line,

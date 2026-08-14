@@ -76,6 +76,7 @@ fn is_valid_transition(current: UninstallPhase, next: UninstallPhase) -> bool {
                 UninstallPhase::AwaitingCleanupConfirmation
             )
             | (UninstallPhase::ScanningResidues, UninstallPhase::Completed)
+            | (UninstallPhase::ScanningResidues, UninstallPhase::Cancelled)
             | (UninstallPhase::ScanningResidues, UninstallPhase::Failed)
             | (
                 UninstallPhase::AwaitingCleanupConfirmation,

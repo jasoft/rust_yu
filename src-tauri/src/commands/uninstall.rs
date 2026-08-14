@@ -34,6 +34,11 @@ pub struct FinishUninstallRequest {
     pub job_id: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct CancelUninstallRequest {
+    pub job_id: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct UninstallJobResponse {
     pub job: UninstallJob,
@@ -51,7 +56,7 @@ pub async fn plan_uninstall(
 ) -> Result<UninstallJobResponse, CommandError> {
     require_administrator()?;
     coordinator.begin_plan().map_err(CommandError::from)?;
-    let port = ProductionUninstallPort;
+    let port = ProductionUninstallPort::default();
     let result = run_plan_uninstall(&port, &request.program_id).await;
     let job = match result {
         Ok(job) => job,
@@ -77,7 +82,10 @@ pub async fn execute_uninstall(
     let mut job = coordinator
         .begin_operation(&request.job_id, UninstallPhase::Planned)
         .map_err(CommandError::from)?;
-    let port = ProductionUninstallPort;
+    let cancellation = coordinator
+        .cancellation_token(&request.job_id)
+        .map_err(CommandError::from)?;
+    let port = ProductionUninstallPort::with_cancellation(cancellation);
     let result = run_execute_uninstall(&port, &mut job, request.timeout_secs, |event| {
         emit_job_event(&app, event);
     })
@@ -99,7 +107,7 @@ pub async fn clean_uninstall_residues(
     let mut job = coordinator
         .begin_operation(&request.job_id, UninstallPhase::AwaitingCleanupConfirmation)
         .map_err(CommandError::from)?;
-    let port = ProductionUninstallPort;
+    let port = ProductionUninstallPort::default();
     let result = run_clean_uninstall_residues(&port, &mut job, request.selection, |event| {
         emit_job_event(&app, event);
     })
@@ -121,7 +129,7 @@ pub async fn finish_uninstall(
     let mut job = coordinator
         .begin_operation(&request.job_id, UninstallPhase::AwaitingCleanupConfirmation)
         .map_err(CommandError::from)?;
-    let port = ProductionUninstallPort;
+    let port = ProductionUninstallPort::default();
     let result = run_clean_uninstall_residues(
         &port,
         &mut job,
@@ -154,6 +162,16 @@ fn emit_job_events(app: &AppHandle, job: &UninstallJob) {
     for event in &job.events {
         emit_job_event(app, event);
     }
+}
+
+#[tauri::command]
+pub fn cancel_uninstall(
+    coordinator: State<'_, UninstallCoordinator>,
+    request: CancelUninstallRequest,
+) -> Result<(), CommandError> {
+    coordinator
+        .request_cancellation(&request.job_id)
+        .map_err(CommandError::from)
 }
 
 fn emit_job_event(app: &AppHandle, event: &UninstallEvent) {

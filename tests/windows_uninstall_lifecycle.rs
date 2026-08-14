@@ -1,10 +1,10 @@
 #![cfg(windows)]
 
-use rust_yu_lib::application::target::build_target_search_query;
 use rust_yu_lib::application::uninstall::{
     execute_uninstall, plan_uninstall, ProductionUninstallPort,
 };
 use rust_yu_lib::modules::lister;
+use rust_yu_lib::modules::lister::models::{InstallSourceSelector, ListProgramsQuery};
 use std::error::Error;
 use std::path::Path;
 use std::process::Command;
@@ -24,17 +24,31 @@ async fn inno_legacy_fixture_uses_application_workflow_and_keeps_residue_review(
     }
 
     let result = async {
-        let listed = lister::list_programs_with_cache(build_target_search_query())?;
+        // 夹具是注册表应用；生命周期验收不应被无关的 Store 清单枚举拖慢。
+        let listed = lister::list_programs_with_cache(ListProgramsQuery {
+            source: InstallSourceSelector::Registry,
+            search: Some("RustYu Legacy Test App".to_string()),
+            refresh: true,
+            cache_ttl_seconds: lister::storage::DEFAULT_CACHE_TTL_SECONDS,
+        })?;
         let program = listed
             .programs
             .iter()
             .find(|candidate| candidate.name == "RustYu Legacy Test App")
             .ok_or("installed Inno fixture was not listed")?;
-        let port = ProductionUninstallPort;
+        let port = ProductionUninstallPort::default();
         let mut job = plan_uninstall(&port, &program.id).await?;
         let review = execute_uninstall(&port, &mut job, 180).await?;
-        if !review.default_selected_ids.is_empty() {
-            return Err("residue review must not auto-select traces".into());
+        if review.default_selected_ids.is_empty() {
+            return Err("high-confidence residue review should have default selections".into());
+        }
+        if review.default_selected_ids.iter().any(|trace_id| {
+            !review
+                .traces
+                .iter()
+                .any(|trace| trace.id == *trace_id && !trace.is_critical)
+        }) {
+            return Err("default residue selections must be non-critical".into());
         }
         if !review
             .traces

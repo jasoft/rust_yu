@@ -9,6 +9,12 @@ use crate::modules::scanner::models::{Trace, TraceType};
 use models::CleanResult;
 use std::sync::Arc;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CleanupAuthorization {
+    SafeDefaults,
+    UserReviewed,
+}
+
 fn failed_result(trace: &Trace, error: String, backup_id: Option<String>) -> CleanResult {
     CleanResult {
         trace_id: trace.id.clone(),
@@ -25,16 +31,39 @@ pub async fn clean_traces(
     traces: Vec<Trace>,
     confirm: bool,
 ) -> Result<Vec<CleanResult>, UninstallerError> {
+    clean_traces_with_authorization(traces, confirm, CleanupAuthorization::SafeDefaults).await
+}
+
+/// 清理由卸载结果页逐项展示并由用户明确确认的目标。
+///
+/// 中、低置信度只表示归属证据较弱，不等于目标禁止删除；这里保留关键系统项、
+/// 删除前重校验和备份门禁，但不再把置信度当作硬拒绝条件。
+pub async fn clean_reviewed_traces(
+    traces: Vec<Trace>,
+    confirm: bool,
+) -> Result<Vec<CleanResult>, UninstallerError> {
+    clean_traces_with_authorization(traces, confirm, CleanupAuthorization::UserReviewed).await
+}
+
+async fn clean_traces_with_authorization(
+    traces: Vec<Trace>,
+    confirm: bool,
+    authorization: CleanupAuthorization,
+) -> Result<Vec<CleanResult>, UninstallerError> {
     if !confirm {
         return Err(UninstallerError::PermissionDenied(
             "需要确认才能执行清理".to_string(),
         ));
     }
-    crate::modules::advanced::validate_cleanup_selection(
-        crate::modules::advanced::CleanupPolicyKind::Safe,
-        &traces,
-        confirm,
-    )?;
+    if authorization == CleanupAuthorization::SafeDefaults {
+        crate::modules::advanced::validate_cleanup_selection(
+            crate::modules::advanced::CleanupPolicyKind::Safe,
+            &traces,
+            confirm,
+        )?;
+    } else if traces.is_empty() {
+        return Err(UninstallerError::Other("没有选择清理目标。".to_string()));
+    }
 
     let backup_traces = traces.clone();
     let backup_result = tokio::task::spawn_blocking(move || {
@@ -190,7 +219,7 @@ pub async fn clean_traces(
 
 #[cfg(test)]
 mod tests {
-    use super::clean_traces;
+    use super::{clean_reviewed_traces, clean_traces};
     use crate::modules::backup::restore_session;
     use crate::modules::lister::storage::TEST_STORAGE_ENV_LOCK;
     use crate::modules::scanner::models::{Trace, TraceType};
@@ -240,6 +269,45 @@ mod tests {
             fs::read(&target).unwrap_or_default(),
             b"recoverable leftover"
         );
+
+        match previous {
+            Some(value) => std::env::set_var("RUST_YU_STORAGE_DIR", value),
+            None => std::env::remove_var("RUST_YU_STORAGE_DIR"),
+        }
+        let _ = fs::remove_dir_all(storage_root);
+    }
+
+    #[tokio::test]
+    async fn reviewed_cleanup_allows_confirmed_medium_confidence_target() {
+        let _guard = TEST_STORAGE_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let storage_root = std::env::temp_dir().join(format!(
+            "rust-yu-reviewed-cleaner-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let target = storage_root.join("medium-confidence-leftover.txt");
+        fs::create_dir_all(&storage_root)
+            .unwrap_or_else(|error| panic!("create fixture directory: {error}"));
+        fs::write(&target, b"reviewed leftover")
+            .unwrap_or_else(|error| panic!("write fixture: {error}"));
+
+        let previous = std::env::var_os("RUST_YU_STORAGE_DIR");
+        std::env::set_var("RUST_YU_STORAGE_DIR", storage_root.join("storage"));
+        let trace = Trace::new(
+            "Demo App".to_string(),
+            TraceType::File,
+            target.to_string_lossy().into_owned(),
+        )
+        .with_confidence(crate::modules::scanner::models::Confidence::Medium);
+
+        assert!(clean_traces(vec![trace.clone()], true).await.is_err());
+        let results = clean_reviewed_traces(vec![trace], true)
+            .await
+            .unwrap_or_else(|error| panic!("reviewed cleanup should be allowed: {error}"));
+        assert_eq!(results.len(), 1);
+        assert!(results[0].success);
+        assert!(!target.exists());
 
         match previous {
             Some(value) => std::env::set_var("RUST_YU_STORAGE_DIR", value),

@@ -100,6 +100,19 @@ fn fixture_path(definition: FixtureDefinition) -> PathBuf {
     fixture_root().join(definition.relative_path)
 }
 
+/// `canonicalize` 在 Windows 上会返回 `\\?\C:\...`。Windows Installer 对这种
+/// 扩展路径并不稳定，常以 1619（无法打开安装包）失败，因此启动外部安装器前恢复
+/// 为普通 DOS/UNC 路径；白名单校验仍使用 canonical path，不降低路径安全边界。
+fn installer_argument_path(path: &Path) -> PathBuf {
+    let display = path.as_os_str().to_string_lossy();
+    if let Some(unc_path) = display.strip_prefix(r"\\?\UNC\") {
+        return PathBuf::from(format!(r"\\{unc_path}"));
+    }
+    display
+        .strip_prefix(r"\\?\")
+        .map_or_else(|| path.to_path_buf(), PathBuf::from)
+}
+
 fn fixture_catalog() -> Vec<DeveloperFixture> {
     FIXTURES
         .iter()
@@ -249,16 +262,17 @@ pub async fn install_developer_fixtures(
 }
 
 async fn run_fixture_installer(definition: FixtureDefinition, path: &Path) -> FixtureInstallResult {
+    let installer_path = installer_argument_path(path);
     let mut command = match definition.kind {
         DeveloperFixtureKind::Msi => {
             let mut command = Command::new("msiexec.exe");
             command.args(["/i"]);
-            command.arg(path);
+            command.arg(&installer_path);
             command.args(["/qn", "/norestart"]);
             command
         }
         DeveloperFixtureKind::Inno => {
-            let mut command = Command::new(path);
+            let mut command = Command::new(&installer_path);
             command.args(["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-"]);
             command
         }
@@ -311,7 +325,11 @@ fn failed_result(
 
 #[cfg(test)]
 mod tests {
-    use super::{build_install_plan, fixture_catalog, InstallDeveloperFixturesRequest, FIXTURES};
+    use super::{
+        build_install_plan, fixture_catalog, installer_argument_path,
+        InstallDeveloperFixturesRequest, FIXTURES,
+    };
+    use std::path::Path;
 
     #[test]
     fn catalog_contains_only_the_fixed_installable_fixtures() {
@@ -375,5 +393,17 @@ mod tests {
 
         assert_eq!(plan[0].0.id, FIXTURES[0].id);
         assert_eq!(plan[1].0.id, FIXTURES[1].id);
+    }
+
+    #[test]
+    fn installer_arguments_do_not_use_windows_verbatim_paths() {
+        assert_eq!(
+            installer_argument_path(Path::new(r"\\?\C:\fixtures\demo.msi")),
+            Path::new(r"C:\fixtures\demo.msi")
+        );
+        assert_eq!(
+            installer_argument_path(Path::new(r"\\?\UNC\server\fixtures\demo.msi")),
+            Path::new(r"\\server\fixtures\demo.msi")
+        );
     }
 }

@@ -223,6 +223,7 @@ pub fn run() {
             execute_uninstall,
             clean_uninstall_residues,
             finish_uninstall,
+            cancel_uninstall,
             get_uninstall_job,
             get_reports,
             get_report,

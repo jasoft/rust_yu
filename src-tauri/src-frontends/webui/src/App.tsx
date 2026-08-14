@@ -39,10 +39,11 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getProgramIconSrc } from "./lib/icon";
-import { completedSuccessfully, selectAvailableItem } from "./lib/appWorkflow";
+import { completedSuccessfully, selectAvailableItem, toggleAllSelectableIds } from "./lib/appWorkflow";
 import {
   countProgramsBySource,
   filterPrograms,
+  matchesProgramSource,
   programSourceOptions,
   type ProgramSourceFilter,
 } from "./lib/programFilters";
@@ -61,6 +62,8 @@ import { ToolboxPage } from "./components/ToolboxPage";
 import { CleanupSafetyRules } from "./components/CleanupSafetyRules";
 import { SoftwareInventoryComparison } from "./components/SoftwareInventoryComparison";
 import { SoftwareRecordDialog } from "./components/SoftwareRecordDialog";
+import { TracePanel } from "./components/TracePanel";
+import { AboutPage } from "./components/AboutPage";
 import { DeveloperToolsPage } from "./components/DeveloperToolsPage";
 import { getDeveloperModeEnabled, setDeveloperModeEnabled } from "./lib/developerMode";
 import { getUninstallFailureMessage } from "./components/uninstall/uninstallFeedback";
@@ -202,8 +205,11 @@ export default function App() {
   const executeUninstall = useProgramsStore((state) => state.executeUninstall);
   const cleanUninstallResidues = useProgramsStore((state) => state.cleanUninstallResidues);
   const finishUninstall = useProgramsStore((state) => state.finishUninstall);
+  const cancelUninstall = useProgramsStore((state) => state.cancelUninstall);
+  const resetUninstall = useProgramsStore((state) => state.resetUninstall);
   const uninstallResult = useProgramsStore((state) => state.uninstallResult);
   const uninstallJob = useProgramsStore((state) => state.uninstallJob);
+  const uninstallCancelling = useProgramsStore((state) => state.uninstallCancelling);
   const uninstallFailure = getUninstallFailureMessage(error, uninstallResult);
   const forcePlan = useForceUninstallStore((state) => state.plan);
   const forceResult = useForceUninstallStore((state) => state.result);
@@ -265,7 +271,7 @@ export default function App() {
   useEffect(() => {
     if (!manualScanPending || tracesLoading) return;
     setTraces(scannedTraces);
-    setSelectedTraceIds(new Set(scannedTraces.filter((trace) => trace.confidence === "high" && !trace.is_critical).map((trace) => trace.id)));
+    setSelectedTraceIds(new Set(scannedTraces.filter((trace) => !trace.is_critical).map((trace) => trace.id)));
     setManualScanPending(false);
     setScanStatus("complete");
     setStage("review");
@@ -364,16 +370,18 @@ export default function App() {
   const allPrograms = isTauriRuntime() ? programs.map(toUiProgram) : mockPrograms;
   const filteredPrograms = isTauriRuntime()
     ? visibleSourcePrograms.map(toUiProgram)
-    : allPrograms.filter((program) => `${program.name} ${program.publisher}`.toLowerCase().includes(query.toLowerCase()));
+    : matchesProgramSource("registry", sourceFilter)
+      ? allPrograms.filter((program) => `${program.name} ${program.publisher}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
+      : [];
   const selectedProgram = selectAvailableItem(
     filteredPrograms,
-    allPrograms,
     selectedId,
-    isTauriRuntime() ? null : mockPrograms[1],
   );
   const completedProgram = uninstallJob
     ? toUiProgram(uninstallJob.snapshot.program)
     : selectedProgram;
+  const workflowProgram = completedProgram ?? selectedProgram;
+  const uninstallFlowActive = activeNav === "apps" && stage !== "apps";
   const sourceCounts = isTauriRuntime()
     ? countProgramsBySource(programs)
     : { all: mockPrograms.length, registry: mockPrograms.length, msi: 0, store: 0 };
@@ -388,12 +396,12 @@ export default function App() {
       return next;
     });
   };
+
   const changeDeveloperMode = (enabled: boolean) => {
     setDeveloperModeEnabled(enabled);
     setDeveloperMode(enabled);
     if (!enabled && activeNav === "developer") setActiveNav("settings");
   };
-
 
   const openBatchUninstall = () => {
     if (batchActive || batchPaused) {
@@ -446,7 +454,7 @@ export default function App() {
       void scanTraces(selectedProgram.source.name, selectedProgram.source);
     } else {
       setTraces(demoTraces);
-      setSelectedTraceIds(new Set(demoTraces.filter((trace) => trace.confidence === "high" && !trace.is_critical).map((trace) => trace.id)));
+      setSelectedTraceIds(new Set(demoTraces.filter((trace) => !trace.is_critical).map((trace) => trace.id)));
       window.setTimeout(() => {
         setScanStatus("complete");
         setStage("review");
@@ -470,7 +478,7 @@ export default function App() {
         if (!executed) return;
         const residueItems = executed.residue_review.traces;
         setTraces(residueItems);
-        setSelectedTraceIds(new Set());
+        setSelectedTraceIds(new Set(executed.residue_review.default_selected_ids));
         const categoryLabels = { files: t("app.message_022"), user_data: t("app.message_023"), registry: t("app.message_024"), system: t("app.message_025") };
         const scanSummaryLogs = summarizeTraces(residueItems)
           .filter((summary) => summary.count > 0)
@@ -523,11 +531,29 @@ export default function App() {
     setStage("complete");
   };
 
+  const exitUninstallFlow = () => {
+    setStage("apps");
+    setCleanConfirm(false);
+    setCleanResults([]);
+    setScanStatus("idle");
+    resetUninstall();
+  };
+
+  const cancelResidueScan = async () => {
+    const jobId = useProgramsStore.getState().uninstallJob?.snapshot.job_id;
+    if (!jobId) {
+      setManualScanPending(false);
+      exitUninstallFlow();
+      return;
+    }
+    await cancelUninstall(jobId);
+  };
+
   return (
-    <div className={`app-frame ${isTauriRuntime() ? "native-frame" : ""}`}>
+    <div className={`app-frame ${isTauriRuntime() ? "native-frame" : ""}${uninstallFlowActive ? " workflow-modal-active" : ""}`}>
       {!isTauriRuntime() && <TitleBar />}
       <div className="app-body">
-        <Sidebar active={activeNav} developerModeEnabled={developerModeEnabled} onNavigate={(next) => { setActiveNav(next); if (next === "apps") setStage("apps"); }} />
+        <Sidebar active={activeNav} developerModeEnabled={developerModeEnabled} disabled={uninstallFlowActive} onNavigate={(next) => { setActiveNav(next); if (next === "apps") setStage("apps"); }} />
         <main className="workspace">
           {activeNav === "startup" ? (
             <StartupManager />
@@ -537,6 +563,8 @@ export default function App() {
             <FileShredderPage />
           ) : activeNav === "backups" ? (
             <BackupCenter />
+          ) : activeNav === "traces" ? (
+            <TracePanel />
           ) : activeNav === "monitor" ? (
             <InstallMonitorManager />
           ) : activeNav === "inventory" ? (
@@ -553,9 +581,9 @@ export default function App() {
             <DeveloperToolsPage />
           ) : activeNav === "settings" ? (
             <SettingsPage developerModeEnabled={developerModeEnabled} onDeveloperModeChange={changeDeveloperMode} />
-          ) : activeNav !== "apps" ? (
-            <PlaceholderPage active={activeNav} />
-          ) : stage === "apps" || !selectedProgram ? (
+          ) : activeNav === "about" ? (
+            <AboutPage />
+          ) : stage === "apps" || !workflowProgram ? (
             <AppsStage
               programs={filteredPrograms}
               selected={selectedProgram}
@@ -583,18 +611,18 @@ export default function App() {
             />
           ) : stage === "confirm" ? (
             <ConfirmStage
-              program={selectedProgram}
+              program={workflowProgram}
               restorePoint={restorePoint}
               scanAfter={scanAfter}
               onRestorePoint={setRestorePoint}
               onScanAfter={setScanAfter}
-              onCancel={() => setStage("apps")}
+              onCancel={exitUninstallFlow}
               onStart={startUninstall}
             />
           ) : stage === "progress" ? (
-            <ProgressStage program={selectedProgram} progress={progress} logs={logs} error={uninstallFailure} onContinue={continueDemo} />
+            <ProgressStage program={workflowProgram} progress={progress} logs={logs} error={uninstallFailure} onContinue={continueDemo} onExit={exitUninstallFlow} />
           ) : stage === "scan" ? (
-            <ScanStage program={selectedProgram} traces={traces} logs={logs} status={scanStatus} onContinue={continueDemo} />
+            <ScanStage program={workflowProgram} traces={traces} logs={logs} status={scanStatus} cancelling={uninstallCancelling} onCancel={() => void cancelResidueScan()} onContinue={continueDemo} />
           ) : stage === "review" ? (
             <ReviewStage
               traces={traces}
@@ -604,8 +632,11 @@ export default function App() {
                 if (next.has(id)) next.delete(id); else next.add(id);
                 return next;
               })}
+              onToggleAll={() => {
+                setSelectedTraceIds((current) => toggleAllSelectableIds(traces, current));
+              }}
               allowBack={!uninstallJob}
-              onBack={() => setStage("apps")}
+              onBack={exitUninstallFlow}
               onSkip={() => {
                 const jobId = useProgramsStore.getState().uninstallJob?.snapshot.job_id;
                 if (jobId) void finishUninstall(jobId).then((result) => {
@@ -620,12 +651,12 @@ export default function App() {
             />
           ) : (
             <CompleteStage
-              program={completedProgram ?? selectedProgram}
+              program={workflowProgram}
               results={cleanResults}
               traces={traces}
               job={uninstallJob}
               logs={logs}
-              onDone={() => { setStage("apps"); setCleanResults([]); }}
+              onDone={exitUninstallFlow}
             />
           )}
         </main>
@@ -722,23 +753,23 @@ const navItems: { id: NavKey; label: string; icon: typeof Package }[] = [
   { id: "tools", label: t("app.message_042"), icon: Wrench },
 ];
 
-function Sidebar({ active, developerModeEnabled, onNavigate }: { active: NavKey; developerModeEnabled: boolean; onNavigate: (key: NavKey) => void }) {
+function Sidebar({ active, developerModeEnabled, disabled, onNavigate }: { active: NavKey; developerModeEnabled: boolean; disabled: boolean; onNavigate: (key: NavKey) => void }) {
   return (
-    <aside className="sidebar">
+    <aside className="sidebar" aria-hidden={disabled}>
       <nav>
-        {navItems.map((item) => <NavButton key={item.id} {...item} active={active === item.id} onClick={() => onNavigate(item.id)} />)}
+        {navItems.map((item) => <NavButton key={item.id} {...item} active={active === item.id} disabled={disabled} onClick={() => onNavigate(item.id)} />)}
       </nav>
       <nav className="sidebar-bottom">
-        {developerModeEnabled && <NavButton id="developer" label={t("developer.nav")} icon={FileCode2} active={active === "developer"} onClick={() => onNavigate("developer")} />}
-        <NavButton id="settings" label={t("app.message_043")} icon={Settings} active={active === "settings"} onClick={() => onNavigate("settings")} />
-        <NavButton id="about" label={t("app.message_044")} icon={CircleHelp} active={active === "about"} onClick={() => onNavigate("about")} />
+        {developerModeEnabled && <NavButton id="developer" label={t("developer.nav")} icon={FileCode2} active={active === "developer"} disabled={disabled} onClick={() => onNavigate("developer")} />}
+        <NavButton id="settings" label={t("app.message_043")} icon={Settings} active={active === "settings"} disabled={disabled} onClick={() => onNavigate("settings")} />
+        <NavButton id="about" label={t("app.message_044")} icon={CircleHelp} active={active === "about"} disabled={disabled} onClick={() => onNavigate("about")} />
       </nav>
     </aside>
   );
 }
 
-function NavButton({ label, icon: Icon, active, onClick }: { id: NavKey; label: string; icon: typeof Package; active: boolean; onClick: () => void }) {
-  return <button className={`nav-button ${active ? "active" : ""}`} onClick={onClick}><Icon size={17} /><span>{label}</span></button>;
+function NavButton({ label, icon: Icon, active, disabled, onClick }: { id: NavKey; label: string; icon: typeof Package; active: boolean; disabled: boolean; onClick: () => void }) {
+  return <button className={`nav-button ${active ? "active" : ""}`} disabled={disabled} onClick={onClick}><Icon size={17} /><span>{label}</span></button>;
 }
 
 function SectionHeader({ title, subtitle, action }: { title: string; subtitle?: string; action?: React.ReactNode }) {
@@ -828,7 +859,7 @@ function CheckOption({ checked, onChange, title, hint }: { checked: boolean; onC
   return <label className="check-option"><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} /><span className="fake-check"><Check size={13} /></span><span>{title}<small>（{hint}）</small></span></label>;
 }
 
-function ProgressStage({ program, progress, logs, error, onContinue }: { program: UiProgram; progress: number; logs: string[]; error: string | null; onContinue: () => void }) {
+function ProgressStage({ program, progress, logs, error, onContinue, onExit }: { program: UiProgram; progress: number; logs: string[]; error: string | null; onContinue: () => void; onExit: () => void }) {
   const nativeWorkflow = isTauriRuntime();
   const failed = Boolean(error);
   const steps = [
@@ -846,7 +877,7 @@ function ProgressStage({ program, progress, logs, error, onContinue }: { program
         {error && <div className="uninstall-error" role="alert"><TriangleAlert size={16} /><div><strong>{t("app.message_101")}</strong><span>{error}</span></div></div>}
         <div className="log-content">{error && <div className="error-log">{t("app.message_112")} {error}</div>}{logs.map((log, index) => <div key={`${log}-${index}`}>{log}</div>)}</div>
       </div>
-      <div className="page-footnote"><Info size={15} /><span>{t("app.message_113")}</span>{!isTauriRuntime() && <button onClick={onContinue}>{t("app.message_114")}</button>}</div>
+      <div className="page-footnote"><Info size={15} /><span>{t("app.message_113")}</span>{failed ? <button onClick={onExit}>{t("uninstall.action.back_to_apps")}</button> : !isTauriRuntime() && <button onClick={onContinue}>{t("app.message_114")}</button>}</div>
     </div>
   );
 }
@@ -856,12 +887,16 @@ function ScanStage({
   traces,
   logs,
   status,
+  cancelling,
+  onCancel,
   onContinue,
 }: {
   program: UiProgram;
   traces: Trace[];
   logs: string[];
   status: "idle" | "scanning" | "complete";
+  cancelling: boolean;
+  onCancel: () => void;
   onContinue: () => void;
 }) {
   const summaries = summarizeTraces(traces);
@@ -876,6 +911,7 @@ function ScanStage({
   return (
     <div className={`page scan-page ${isComplete ? "scan-complete" : "scan-running"}`}>
       <SectionHeader title={isComplete ? t("app.message_125") : t("app.message_126")} subtitle={t("app.message_127", { value0: program.name, value1: isComplete ? t("app.message_325") : t("app.message_326") })} />
+      <div className={`scan-progress-bar${isComplete ? " complete" : ""}`} role="progressbar" aria-label={t("uninstall.scan.progress_label")} aria-valuemin={0} aria-valuemax={100} aria-valuenow={isComplete ? 100 : undefined}><span /></div>
       <div className="scan-main">
         <div className={`radar ${isComplete ? "done" : ""}`}><div className="radar-sweep" /><span className="radar-dot one" /><span className="radar-dot two" /><span className="radar-dot three" /><div className="radar-center"><strong>{isComplete ? traces.length : "…"}</strong><span>{isComplete ? t("app.message_128") : t("app.message_129")}</span></div></div>
         <div className="scan-locations"><h3>{t("app.message_130")} <span>{isComplete ? t("app.message_131") : t("app.message_132")}</span></h3>{locationMeta.map(({ category, icon: Icon, title, path, hint }) => {
@@ -885,7 +921,7 @@ function ScanStage({
       </div>
       <div className="scan-stats card-surface"><h3>{t("app.message_137")} <span>{isComplete ? t("app.message_138") : t("app.message_139")}</span></h3><div><span>{t("app.message_140")}<strong>4 / 4</strong></span><span>{t("app.message_128")}<strong className="blue">{isComplete ? traces.length : t("app.message_129")}</strong></span><span>{t("app.message_143")}<strong className="blue">{isComplete ? formatBytes(traces.reduce((sum, trace) => sum + (trace.size ?? 0), 0)) : t("app.message_144")}</strong></span><span>{t("app.message_145")}<strong>{isComplete ? t("app.message_146") : t("app.message_147")}</strong></span></div></div>
       <div className="scan-live-log card-surface"><div className="panel-title"><span><Loader2 size={13} className={isComplete ? "" : "spinning"} />{t("app.message_148")}</span><strong>{isComplete ? t("app.message_149") : t("app.message_150")}</strong></div><div>{latestLogs.length > 0 ? latestLogs.map((log, index) => <p key={`${log}-${index}`}>{log}</p>) : <p>{t("app.message_151")}</p>}</div></div>
-      <div className="page-footnote"><Info size={15} /><span>{t("app.message_152")}</span>{isComplete && <button onClick={onContinue}>{t("app.message_153")} <ChevronDown size={13} /></button>}</div>
+      <div className="page-footnote"><Info size={15} /><span>{t("app.message_152")}</span>{!isComplete ? <button className="scan-cancel-button" disabled={cancelling} onClick={onCancel}>{cancelling ? <Loader2 size={13} className="spinning" /> : <X size={13} />}{cancelling ? t("uninstall.action.cancelling") : t("uninstall.action.cancel_scan")}</button> : !isTauriRuntime() && <button onClick={onContinue}>{t("app.message_153")} <ChevronDown size={13} /></button>}</div>
     </div>
   );
 }
@@ -1087,16 +1123,19 @@ function ForceUninstallModal({
 }
 
 function ReviewStage(props: {
-  traces: Trace[]; selectedIds: Set<string>; onToggle: (id: string) => void; onBack: () => void; onClean: () => void;
+  traces: Trace[]; selectedIds: Set<string>; onToggle: (id: string) => void; onToggleAll: () => void; onBack: () => void; onClean: () => void;
   allowBack: boolean; onSkip: () => void; onRescan: () => void; confirmOpen: boolean; onConfirmClose: () => void; onConfirm: () => void;
 }) {
   const systemTraces = props.traces.filter((trace) => trace.trace_type === "scheduled_task" || trace.trace_type === "service" || trace.trace_type === "driver");
   const fileTraces = props.traces.filter((trace) => trace.trace_type !== "registry_key" && trace.trace_type !== "registry_value" && trace.trace_type !== "scheduled_task" && trace.trace_type !== "service" && trace.trace_type !== "driver");
   const registryTraces = props.traces.filter((trace) => trace.trace_type === "registry_key" || trace.trace_type === "registry_value");
   const selectedSize = props.traces.filter((trace) => props.selectedIds.has(trace.id)).reduce((sum, trace) => sum + (trace.size ?? 0), 0);
+  const selectableCount = props.traces.filter((trace) => !trace.is_critical).length;
+  const allSelected = selectableCount > 0 && props.selectedIds.size === selectableCount;
+  const uncertainSelectedCount = props.traces.filter((trace) => props.selectedIds.has(trace.id) && trace.confidence !== "high").length;
   return (
     <div className="page review-page">
-      <SectionHeader title={t("app.message_227")} subtitle={t("app.message_228", { value0: props.traces.length, value1: formatBytes(props.traces.reduce((sum, trace) => sum + (trace.size ?? 0), 0)), value2: props.selectedIds.size })} action={<button className="link-button" onClick={props.onRescan}><RotateCcw size={14} />{t("app.message_229")}</button>} />
+      <SectionHeader title={t("app.message_227")} subtitle={t("app.message_228", { value0: props.traces.length, value1: formatBytes(props.traces.reduce((sum, trace) => sum + (trace.size ?? 0), 0)), value2: props.selectedIds.size })} action={<div className="review-header-actions"><button className="link-button" onClick={props.onToggleAll}><Check size={14} />{allSelected ? t("uninstall.action.clear_all") : t("uninstall.action.select_all")}</button>{props.allowBack && <button className="link-button" onClick={props.onRescan}><RotateCcw size={14} />{t("app.message_229")}</button>}</div>} />
       <div className="review-tabs"><button className="active">{t("app.message_230")}{props.traces.length})</button><button>{t("app.message_231")}{fileTraces.length})</button><button>{t("app.message_232")}{registryTraces.length})</button><button>{t("app.message_233")}{systemTraces.length})</button></div>
       <div className="trace-table card-surface">
         <TraceGroup title={t("app.message_234", { value0: fileTraces.length })} traces={fileTraces} selectedIds={props.selectedIds} onToggle={props.onToggle} />
@@ -1104,7 +1143,7 @@ function ReviewStage(props: {
         <TraceGroup title={t("app.message_236", { value0: systemTraces.length })} traces={systemTraces} selectedIds={props.selectedIds} onToggle={props.onToggle} />
       </div>
       <div className="review-footer"><span>{t("app.message_237")}<strong>{formatBytes(selectedSize)}</strong></span><div><button className="secondary-button" onClick={props.onSkip}>{t("app.message_238")}</button>{props.allowBack && <button className="secondary-button" onClick={props.onBack}>{t("app.message_239")}</button>}<button className="primary-button" disabled={props.selectedIds.size === 0} onClick={props.onClean}><Trash2 size={16} />{t("app.message_240")}</button></div></div>
-      {props.confirmOpen && <div className="modal-backdrop"><div className="safety-modal"><span className="modal-icon"><TriangleAlert size={24} /></span><h2>{t("app.message_241")}</h2><p>{t("app.message_242")} {props.selectedIds.size}  {t("app.message_243")}</p><div><button className="secondary-button" onClick={props.onConfirmClose}>{t("app.message_089")}</button><button className="danger-button" onClick={props.onConfirm}>{t("app.message_245")}</button></div></div></div>}
+      {props.confirmOpen && <div className="modal-backdrop"><div className="safety-modal"><span className="modal-icon"><TriangleAlert size={24} /></span><h2>{t("app.message_241")}</h2><p>{t("uninstall.cleanup.confirm", { value0: props.selectedIds.size, value1: uncertainSelectedCount })}</p><div><button className="secondary-button" onClick={props.onConfirmClose}>{t("app.message_089")}</button><button className="danger-button" onClick={props.onConfirm}>{t("app.message_245")}</button></div></div></div>}
     </div>
   );
 }
@@ -1186,11 +1225,6 @@ function ProgramInfoModal({ program, onClose }: { program: UiProgram; onClose: (
       </section>
     </div>
   );
-}
-
-function PlaceholderPage({ active }: { active: NavKey }) {
-  const names: Record<NavKey, string> = { apps: t("app.message_032"), health: t("app.message_033"), startup: t("app.message_034"), cleaner: t("app.message_035"), shredder: t("shredder.nav"), backups: t("app.message_036"), traces: t("app.message_037"), monitor: t("app.message_038"), inventory: t("components.softwareinventory.nav"), reports: t("app.message_040"), plugins: t("app.message_041"), tools: t("app.message_042"), developer: t("developer.nav"), settings: t("app.message_043"), about: t("app.message_044") };
-  return <div className="placeholder-page"><span><Sparkles size={30} /></span><h1>{names[active]}</h1><p>{t("app.message_324")}</p></div>;
 }
 
 function SettingsPage({ developerModeEnabled, onDeveloperModeChange }: { developerModeEnabled: boolean; onDeveloperModeChange: (enabled: boolean) => void }) {

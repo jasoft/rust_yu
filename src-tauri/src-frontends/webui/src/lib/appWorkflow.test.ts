@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { completedSuccessfully, selectAvailableItem } from "./appWorkflow";
+import { completedSuccessfully, selectAvailableItem, toggleAllSelectableIds } from "./appWorkflow";
 
 describe("selectAvailableItem", () => {
-  const preview = { id: "preview" };
-
-  it("does not invent a native selection when no program is available", () => {
-    expect(selectAvailableItem([], [], "missing", null)).toBeNull();
+  it("does not show details for an item hidden by filters", () => {
+    expect(selectAvailableItem([], "missing")).toBeNull();
   });
 
-  it("allows an explicit fallback only for preview mode", () => {
-    expect(selectAvailableItem([], [], "missing", preview)).toBe(preview);
+  it("keeps the selected visible item or falls back to the first visible item", () => {
+    const visible = [{ id: "first" }, { id: "selected" }];
+    expect(selectAvailableItem(visible, "selected")).toBe(visible[1]);
+    expect(selectAvailableItem(visible, "hidden")).toBe(visible[0]);
   });
 });
 
@@ -18,5 +18,21 @@ describe("completedSuccessfully", () => {
     expect(completedSuccessfully(null)).toBe(false);
     expect(completedSuccessfully({ phase: "failed" })).toBe(false);
     expect(completedSuccessfully({ phase: "completed" })).toBe(true);
+  });
+});
+
+describe("toggleAllSelectableIds", () => {
+  const traces = [
+    { id: "high" },
+    { id: "low" },
+    { id: "critical", is_critical: true },
+  ];
+
+  it("selects every non-critical item regardless of confidence review", () => {
+    expect([...toggleAllSelectableIds(traces, new Set(["high"]))]).toEqual(["high", "low"]);
+  });
+
+  it("clears the selection when all cleanable items are selected", () => {
+    expect(toggleAllSelectableIds(traces, new Set(["high", "low"]))).toEqual(new Set());
   });
 });

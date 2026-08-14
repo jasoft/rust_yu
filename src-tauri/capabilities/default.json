@@ -54,6 +54,7 @@
     "allow-execute-uninstall",
     "allow-clean-uninstall-residues",
     "allow-finish-uninstall",
+    "allow-cancel-uninstall",
     "allow-get-uninstall-job",
     "allow-get-reports",
     "allow-get-report",

@@ -1,13 +1,17 @@
 use rust_yu_lib::application::uninstall::{
     UninstallError, UninstallErrorCode, UninstallJob, UninstallPhase,
 };
-use std::sync::Mutex;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 
 #[derive(Debug, Default)]
 struct CoordinatorState {
     active_job: Option<UninstallJob>,
     planning: bool,
     operation_in_flight: bool,
+    cancellation: Option<Arc<AtomicBool>>,
 }
 
 /// Tauri 进程内的单 job 协调器。
@@ -41,6 +45,7 @@ impl UninstallCoordinator {
             return Err(UninstallError::invalid_state("没有正在提交的卸载计划"));
         }
         state.active_job = Some(job);
+        state.cancellation = Some(Arc::new(AtomicBool::new(false)));
         state.planning = false;
         Ok(())
     }
@@ -114,11 +119,55 @@ impl UninstallCoordinator {
         Ok(job.clone())
     }
 
+    pub fn cancellation_token(&self, job_id: &str) -> Result<Arc<AtomicBool>, UninstallError> {
+        let state = self.lock_state()?;
+        verify_job_id(&state, job_id)?;
+        state.cancellation.as_ref().cloned().ok_or_else(|| {
+            UninstallError::new(
+                UninstallErrorCode::InvalidJobState,
+                "当前卸载任务没有可用的取消信号",
+            )
+        })
+    }
+
+    pub fn request_cancellation(&self, job_id: &str) -> Result<(), UninstallError> {
+        let state = self.lock_state()?;
+        verify_job_id(&state, job_id)?;
+        if !state.operation_in_flight {
+            return Err(UninstallError::new(
+                UninstallErrorCode::InvalidJobState,
+                "当前没有可中断的卸载扫描",
+            ));
+        }
+        let cancellation = state.cancellation.as_ref().ok_or_else(|| {
+            UninstallError::new(
+                UninstallErrorCode::InvalidJobState,
+                "当前卸载任务没有可用的取消信号",
+            )
+        })?;
+        cancellation.store(true, Ordering::SeqCst);
+        Ok(())
+    }
+
     fn lock_state(&self) -> Result<std::sync::MutexGuard<'_, CoordinatorState>, UninstallError> {
         self.state.lock().map_err(|_| {
             UninstallError::new(UninstallErrorCode::JobConflict, "卸载任务状态锁已损坏")
         })
     }
+}
+
+fn verify_job_id(state: &CoordinatorState, job_id: &str) -> Result<(), UninstallError> {
+    let job = state
+        .active_job
+        .as_ref()
+        .ok_or_else(|| UninstallError::new(UninstallErrorCode::JobNotFound, "卸载任务不存在"))?;
+    if job.snapshot.job_id.0 != job_id {
+        return Err(UninstallError::new(
+            UninstallErrorCode::JobNotFound,
+            "卸载任务不存在",
+        ));
+    }
+    Ok(())
 }
 
 fn has_active_job(state: &CoordinatorState) -> bool {
@@ -198,5 +247,26 @@ mod tests {
         coordinator
             .begin_plan()
             .expect("terminal job should release slot");
+    }
+
+    #[test]
+    fn in_flight_operation_exposes_a_shared_cancellation_signal() {
+        let coordinator = UninstallCoordinator::new();
+        coordinator.begin_plan().expect("slot should be available");
+        let job = planned_job();
+        let job_id = job.snapshot.job_id.0.clone();
+        coordinator.commit_plan(job).expect("plan should commit");
+        let token = coordinator
+            .cancellation_token(&job_id)
+            .expect("planned job should have a cancellation token");
+        coordinator
+            .begin_operation(&job_id, UninstallPhase::Planned)
+            .expect("operation should start");
+
+        coordinator
+            .request_cancellation(&job_id)
+            .expect("in-flight scan should accept cancellation");
+
+        assert!(token.load(std::sync::atomic::Ordering::SeqCst));
     }
 }

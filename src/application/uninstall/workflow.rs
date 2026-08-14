@@ -87,7 +87,7 @@ where
         Err(error) => return fail_job_with_progress(job, error, &mut on_event),
     };
     if execution.user_cancelled {
-        return fail_job_with_progress(
+        return cancel_job_with_progress(
             job,
             UninstallError::new(UninstallErrorCode::UninstallerCancelled, "用户取消了卸载"),
             &mut on_event,
@@ -139,12 +139,20 @@ where
             .into_iter()
             .filter(|trace| trace.exists)
             .collect::<Vec<_>>(),
+        Err(error) if error.code == UninstallErrorCode::UninstallerCancelled => {
+            return cancel_job_with_progress(job, error, &mut on_event);
+        }
         Err(error) => return fail_job_with_progress(job, error, &mut on_event),
     };
+    let default_selected_ids = traces
+        .iter()
+        .filter(|trace| !trace.is_critical)
+        .map(|trace| trace.id.clone())
+        .collect();
     job.snapshot.traces = traces.clone();
     job.residue_review = ResidueReview {
         traces,
-        default_selected_ids: Vec::new(),
+        default_selected_ids,
     };
     if job.residue_review.traces.is_empty() {
         transition_with_progress(
@@ -368,6 +376,32 @@ where
     Err(error)
 }
 
+fn cancel_job_with_progress<T, F>(
+    job: &mut UninstallJob,
+    error: UninstallError,
+    on_event: &mut F,
+) -> Result<T, UninstallError>
+where
+    F: FnMut(&UninstallEvent),
+{
+    if !job.phase.is_terminal()
+        && transition(
+            job,
+            UninstallPhase::Cancelled,
+            UninstallEventPayload::Finished {
+                success: false,
+                message: error.message.clone(),
+            },
+        )
+        .is_ok()
+    {
+        if let Some(event) = job.events.last() {
+            on_event(event);
+        }
+    }
+    Err(error)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -390,6 +424,7 @@ mod tests {
         program: InstalledProgram,
         traces: Vec<Trace>,
         fail_scan: bool,
+        cancel_scan: bool,
     }
 
     impl FakePort {
@@ -407,6 +442,7 @@ mod tests {
                 )
                 .with_confidence(Confidence::High)],
                 fail_scan: false,
+                cancel_scan: false,
             }
         }
 
@@ -476,6 +512,12 @@ mod tests {
                 return Err(UninstallError::new(
                     UninstallErrorCode::ResidueScanFailed,
                     "scan failed",
+                ));
+            }
+            if self.cancel_scan {
+                return Err(UninstallError::new(
+                    UninstallErrorCode::UninstallerCancelled,
+                    "scan cancelled",
                 ));
             }
             Ok(self.traces.clone())
@@ -563,6 +605,38 @@ mod tests {
             .lock()
             .expect("test mutex should not be poisoned")
             .contains(&"clean"));
+    }
+
+    #[tokio::test]
+    async fn non_critical_residues_are_selected_by_default() {
+        let port = FakePort::new();
+        let mut job = planned_job(&port).await;
+
+        let review = execute_uninstall(&port, &mut job, 1)
+            .await
+            .expect("fake execute should succeed");
+
+        assert_eq!(
+            review.default_selected_ids,
+            vec![review.traces[0].id.clone()]
+        );
+    }
+
+    #[tokio::test]
+    async fn cancelled_residue_scan_transitions_to_cancelled() {
+        let mut port = FakePort::new();
+        port.cancel_scan = true;
+        let mut job = planned_job(&port).await;
+
+        let error = execute_uninstall(&port, &mut job, 1)
+            .await
+            .expect_err("cancelled scan should stop the workflow");
+
+        assert_eq!(error.code, UninstallErrorCode::UninstallerCancelled);
+        assert_eq!(
+            job.phase,
+            crate::application::uninstall::UninstallPhase::Cancelled
+        );
     }
 
     #[tokio::test]

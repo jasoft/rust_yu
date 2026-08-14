@@ -40,7 +40,10 @@ impl UninstallPhase {
     }
 
     pub const fn can_cancel(self) -> bool {
-        matches!(self, Self::Planned | Self::AwaitingCleanupConfirmation)
+        matches!(
+            self,
+            Self::Planned | Self::ScanningResidues | Self::AwaitingCleanupConfirmation
+        )
     }
 }
 
@@ -104,7 +107,7 @@ pub struct UninstallEvent {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ResidueReview {
     pub traces: Vec<Trace>,
-    /// 保守策略：计划刚生成时没有任何默认选择。
+    /// 默认选择所有非关键目标；中、低置信度会在确认框中明确警告。
     pub default_selected_ids: Vec<String>,
 }
 
