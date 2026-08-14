@@ -1,4 +1,8 @@
 use super::models::{Confidence, Trace, TraceType};
+use super::scope::{
+    is_protected_install_location, is_protected_shared_path, normalized_path,
+    strip_extended_prefix, ScanIdentity,
+};
 use crate::modules::common::error::UninstallerError;
 use crate::modules::common::utils;
 use crate::modules::lister::models::InstalledProgram;
@@ -10,10 +14,16 @@ const MAX_INSTALL_LOCATION_ITEMS: usize = 10_000;
 
 /// 扫描文件系统痕迹
 pub fn scan_filesystem_traces(program_name: &str) -> Result<Vec<Trace>, UninstallerError> {
-    let mut traces = Vec::new();
-    let search_pattern = program_name.to_lowercase();
+    scan_filesystem_traces_with_identity(&ScanIdentity::from_name(program_name))
+}
 
-    // 扫描目录
+pub fn scan_filesystem_traces_with_identity(
+    identity: &ScanIdentity,
+) -> Result<Vec<Trace>, UninstallerError> {
+    let mut traces = Vec::new();
+
+    // 只扫描应用安装和机器级应用数据根；桌面、公共文档、开始菜单等
+    // 共享用户区域由快捷方式/用户操作管理，不进行名称启发式删除。
     let dirs_to_scan = get_scan_dirs();
 
     for dir in dirs_to_scan {
@@ -25,7 +35,7 @@ pub fn scan_filesystem_traces(program_name: &str) -> Result<Vec<Trace>, Uninstal
         tracing::debug!("扫描目录: {}", dir_str);
 
         // 扫描目录
-        scan_directory(&dir, &search_pattern, &mut traces);
+        scan_directory(&dir, identity, &mut traces);
     }
 
     Ok(traces)
@@ -35,11 +45,13 @@ pub fn scan_filesystem_traces(program_name: &str) -> Result<Vec<Trace>, Uninstal
 ///
 /// 通用名称扫描只能命中目录本身；卸载器删掉主程序后，剩余日志、配置等文件
 /// 往往不再包含产品名。安装位置来自卸载前快照，因此可以在严格限制范围后逐项展示，
-/// 但仍不自动选择，最终删除继续由确认与备份流程保护。
+/// 名称扫描候选只给中置信度，不进入默认删除集合；只有安装快照明确关联
+/// 的目录内容才给高置信度，最终删除仍由确认与备份流程保护。
 pub fn scan_filesystem_traces_for_program(
     program: &InstalledProgram,
 ) -> Result<Vec<Trace>, UninstallerError> {
-    let mut traces = scan_filesystem_traces(&program.name)?;
+    let identity = ScanIdentity::from_program(program);
+    let mut traces = scan_filesystem_traces_with_identity(&identity)?;
     let Some(raw_install_location) = program.install_location.as_deref() else {
         return Ok(traces);
     };
@@ -69,6 +81,7 @@ fn safe_install_location(raw_install_location: &str) -> Option<PathBuf> {
         || !path.is_dir()
         || path.parent().is_none()
         || utils::is_system_critical_path(&safety_path.to_string_lossy())
+        || is_protected_install_location(&safety_path)
         || is_shared_system_root(&safety_path)
     {
         return None;
@@ -105,17 +118,6 @@ fn safe_install_location(raw_install_location: &str) -> Option<PathBuf> {
     Some(path)
 }
 
-fn strip_extended_prefix(path: &Path) -> PathBuf {
-    let value = path.to_string_lossy();
-    if value.len() >= 8 && value[..8].eq_ignore_ascii_case("\\\\?\\UNC\\") {
-        return PathBuf::from(format!("\\\\{}", &value[8..]));
-    }
-    if value.len() >= 4 && value[..4].eq_ignore_ascii_case("\\\\?\\") {
-        return PathBuf::from(&value[4..]);
-    }
-    path.to_path_buf()
-}
-
 fn is_shared_system_root(path: &Path) -> bool {
     [
         "ProgramFiles",
@@ -142,10 +144,7 @@ fn name_is_common_files_root(path: &Path) -> bool {
 }
 
 fn normalize_path(path: &Path) -> String {
-    path.to_string_lossy()
-        .replace('/', "\\")
-        .trim_end_matches('\\')
-        .to_lowercase()
+    normalized_path(path)
 }
 
 fn append_install_location_contents(program_name: &str, root: &Path, traces: &mut Vec<Trace>) {
@@ -205,22 +204,6 @@ fn get_scan_dirs() -> Vec<std::path::PathBuf> {
         dirs.push(Path::new(&pf86).to_path_buf());
     }
 
-    // 公共文档
-    if let Ok(public) = std::env::var("Public") {
-        let docs = Path::new(&public).join("Documents");
-        if docs.exists() {
-            dirs.push(docs);
-        }
-    }
-
-    // 用户桌面
-    if let Some(home) = dirs::home_dir() {
-        let desktop = home.join("Desktop");
-        if desktop.exists() {
-            dirs.push(desktop);
-        }
-    }
-
     // ProgramData
     if let Ok(program_data) = std::env::var("ProgramData") {
         dirs.push(Path::new(&program_data).to_path_buf());
@@ -230,25 +213,22 @@ fn get_scan_dirs() -> Vec<std::path::PathBuf> {
 }
 
 /// 扫描目录
-fn scan_directory(dir: &Path, pattern: &str, traces: &mut Vec<Trace>) {
+fn scan_directory(dir: &Path, identity: &ScanIdentity, traces: &mut Vec<Trace>) {
     let walker = WalkDir::new(dir)
         .max_depth(3) // 限制深度
-        .follow_links(false);
+        .follow_links(false)
+        .into_iter()
+        .filter_entry(|entry| entry.path() == dir || !is_protected_shared_path(entry.path()));
 
-    for entry in walker.into_iter().filter_map(|e| e.ok()) {
+    for entry in walker.filter_map(|e| e.ok()) {
         let path = entry.path();
         let name = path
             .file_name()
-            .map(|n| n.to_string_lossy().to_lowercase())
+            .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
 
-        // 检查名称是否包含搜索模式
-        if name.contains(pattern) {
-            // 跳过系统目录
-            if is_system_dir(path) {
-                continue;
-            }
-
+        // 只允许完整路径组件命中，禁止 explorer/xplorer 这类子串误判。
+        if identity.matches_component(&name) {
             let trace_type = if path.is_dir() {
                 TraceType::File
             } else if path.extension().map(|e| e == "lnk").unwrap_or(false) {
@@ -273,19 +253,15 @@ fn scan_directory(dir: &Path, pattern: &str, traces: &mut Vec<Trace>) {
                     .unwrap_or_default()
             };
 
-            let confidence = if name.starts_with(pattern) || name == pattern {
-                Confidence::High
-            } else {
-                Confidence::Medium
-            };
-
             let trace = Trace::new(
-                pattern.to_string(),
+                identity.display_name().to_string(),
                 trace_type,
                 path.to_string_lossy().to_string(),
             )
             .with_description(description)
-            .with_confidence(confidence);
+            // 名称扫描只有中置信度；高置信度保留给卸载前快照中的
+            // 明确安装目录内容。
+            .with_confidence(Confidence::Medium);
 
             // 如果是文件，设置大小
             if let Some(s) = size {
@@ -297,26 +273,13 @@ fn scan_directory(dir: &Path, pattern: &str, traces: &mut Vec<Trace>) {
     }
 }
 
-/// 检查是否为系统目录
-fn is_system_dir(path: &Path) -> bool {
-    let path_str = path.to_string_lossy().to_uppercase();
-
-    let system_dirs = [
-        "WINDOWS", "SYSTEM32", "SYSWOW64", "WINSXS", "INF", "DRIVERS",
-    ];
-
-    for sys_dir in &system_dirs {
-        if path_str.contains(sys_dir) {
-            return true;
-        }
-    }
-
-    false
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{append_install_location_contents, safe_install_location, strip_extended_prefix};
+    use super::{
+        append_install_location_contents, safe_install_location, scan_directory,
+        strip_extended_prefix,
+    };
+    use crate::modules::scanner::scope::ScanIdentity;
     use std::fs;
 
     #[test]
@@ -369,5 +332,29 @@ mod tests {
             strip_extended_prefix(std::path::Path::new(r"\\?\UNC\server\share\Demo")),
             std::path::PathBuf::from(r"\\server\share\Demo")
         );
+    }
+
+    #[test]
+    fn name_scan_does_not_match_internet_explorer_substring() {
+        let root = std::env::temp_dir().join(format!(
+            "rust-yu-filesystem-scope-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let explorer = root
+            .join("Microsoft")
+            .join("Internet Explorer")
+            .join("Quick Launch")
+            .join("User Pinned")
+            .join("TaskBar");
+        fs::create_dir_all(&explorer)
+            .unwrap_or_else(|error| panic!("create shell fixture: {error}"));
+        fs::write(explorer.join("Google Chrome.lnk"), b"shortcut")
+            .unwrap_or_else(|error| panic!("write shell fixture: {error}"));
+
+        let mut traces = Vec::new();
+        scan_directory(&root, &ScanIdentity::from_name("Xplorer"), &mut traces);
+        assert!(traces.is_empty());
+
+        let _ = fs::remove_dir_all(root);
     }
 }

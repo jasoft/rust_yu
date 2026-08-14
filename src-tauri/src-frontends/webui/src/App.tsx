@@ -271,7 +271,7 @@ export default function App() {
   useEffect(() => {
     if (!manualScanPending || tracesLoading) return;
     setTraces(scannedTraces);
-    setSelectedTraceIds(new Set(scannedTraces.filter((trace) => !trace.is_critical).map((trace) => trace.id)));
+    setSelectedTraceIds(new Set(scannedTraces.filter((trace) => !trace.is_critical && trace.confidence === "high").map((trace) => trace.id)));
     setManualScanPending(false);
     setScanStatus("complete");
     setStage("review");
@@ -454,7 +454,7 @@ export default function App() {
       void scanTraces(selectedProgram.source.name, selectedProgram.source);
     } else {
       setTraces(demoTraces);
-      setSelectedTraceIds(new Set(demoTraces.filter((trace) => !trace.is_critical).map((trace) => trace.id)));
+      setSelectedTraceIds(new Set(demoTraces.filter((trace) => !trace.is_critical && trace.confidence === "high").map((trace) => trace.id)));
       window.setTimeout(() => {
         setScanStatus("complete");
         setStage("review");

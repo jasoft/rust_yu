@@ -43,12 +43,15 @@ async fn inno_legacy_fixture_uses_application_workflow_and_keeps_residue_review(
             return Err("high-confidence residue review should have default selections".into());
         }
         if review.default_selected_ids.iter().any(|trace_id| {
-            !review
-                .traces
-                .iter()
-                .any(|trace| trace.id == *trace_id && !trace.is_critical)
+            !review.traces.iter().any(|trace| {
+                trace.id == *trace_id
+                    && !trace.is_critical
+                    && trace.confidence == rust_yu_lib::modules::scanner::models::Confidence::High
+            })
         }) {
-            return Err("default residue selections must be non-critical".into());
+            return Err(
+                "default residue selections must be high-confidence and non-critical".into(),
+            );
         }
         if !review
             .traces

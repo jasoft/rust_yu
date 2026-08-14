@@ -2,11 +2,13 @@ pub mod appdata;
 pub mod filesystem;
 pub mod models;
 pub mod registry;
+pub mod scope;
 pub mod shortcuts;
 
 use crate::modules::common::error::UninstallerError;
 use crate::modules::lister::models::InstalledProgram;
 use models::{Trace, TraceType};
+use scope::ScanIdentity;
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -46,6 +48,10 @@ async fn scan_all_traces_internal(
 
     let _all_traces: Vec<Trace> = Vec::new();
     let program_name = program_name.to_string();
+    let identity = program
+        .as_ref()
+        .map(ScanIdentity::from_program)
+        .unwrap_or_else(|| ScanIdentity::from_name(&program_name));
 
     // 使用 Arc 和 Mutex 来收集结果
     let traces = Arc::new(Mutex::new(Vec::<Trace>::new()));
@@ -54,10 +60,10 @@ async fn scan_all_traces_internal(
 
     // 并行扫描不同类型
     if types.contains(&TraceType::RegistryKey) {
-        let name = program_name.clone();
+        let registry_identity = identity.clone();
         let t = traces.clone();
         handles.push(tokio::spawn(async move {
-            match registry::scan_registry_traces(&name) {
+            match registry::scan_registry_traces_for_identity(&registry_identity) {
                 Ok(mut traces) => {
                     let mut guard = t.lock().await;
                     guard.append(&mut traces);
@@ -68,12 +74,12 @@ async fn scan_all_traces_internal(
     }
 
     if types.contains(&TraceType::File) {
-        let name = program_name.clone();
+        let filesystem_identity = identity.clone();
         let filesystem_program = program.clone();
         let t = traces.clone();
         handles.push(tokio::spawn(async move {
             let scan_result = filesystem_program.as_ref().map_or_else(
-                || filesystem::scan_filesystem_traces(&name),
+                || filesystem::scan_filesystem_traces_with_identity(&filesystem_identity),
                 filesystem::scan_filesystem_traces_for_program,
             );
             match scan_result {
@@ -87,10 +93,10 @@ async fn scan_all_traces_internal(
     }
 
     if types.contains(&TraceType::AppData) {
-        let name = program_name.clone();
+        let appdata_identity = identity.clone();
         let t = traces.clone();
         handles.push(tokio::spawn(async move {
-            match appdata::scan_appdata_traces(&name) {
+            match appdata::scan_appdata_traces_with_identity(&appdata_identity) {
                 Ok(mut traces) => {
                     let mut guard = t.lock().await;
                     guard.append(&mut traces);
@@ -101,10 +107,10 @@ async fn scan_all_traces_internal(
     }
 
     if types.contains(&TraceType::Shortcut) {
-        let name = program_name.clone();
+        let shortcut_identity = identity.clone();
         let t = traces.clone();
         handles.push(tokio::spawn(async move {
-            match shortcuts::scan_shortcut_traces(&name) {
+            match shortcuts::scan_shortcut_traces_with_identity(&shortcut_identity) {
                 Ok(mut traces) => {
                     let mut guard = t.lock().await;
                     guard.append(&mut traces);
@@ -152,7 +158,7 @@ async fn scan_all_traces_internal(
     });
 
     // 计算置信度
-    assign_confidence_scores(&program_name, &mut result);
+    assign_confidence_scores(&identity, &mut result);
 
     // 按置信度排序
     result.sort_by(|a, b| b.confidence.cmp(&a.confidence));
@@ -164,12 +170,8 @@ async fn scan_all_traces_internal(
 }
 
 /// 分配置信度分数
-fn assign_confidence_scores(program_name: &str, traces: &mut Vec<Trace>) {
-    let name_lower = program_name.to_lowercase();
-
+fn assign_confidence_scores(identity: &ScanIdentity, traces: &mut Vec<Trace>) {
     for trace in traces.iter_mut() {
-        let path_lower = trace.path.to_lowercase();
-
         if matches!(
             trace.trace_type,
             TraceType::ScheduledTask | TraceType::Service | TraceType::Driver
@@ -181,18 +183,16 @@ fn assign_confidence_scores(program_name: &str, traces: &mut Vec<Trace>) {
             } else {
                 models::Confidence::Low
             };
-        } else {
-            // 检查是否包含程序名
-            let name_match = path_lower.contains(&name_lower);
-
-            // 检查是否完全匹配
-            let exact_match = path_lower.contains(&format!("\\{} ", name_lower))
-                || path_lower.contains(&format!("/{} ", name_lower))
-                || path_lower.contains(&format!("\\{}.", name_lower));
-
-            trace.confidence = if exact_match {
-                models::Confidence::High
-            } else if name_match {
+        } else if trace.confidence != models::Confidence::High {
+            // 扫描器已经根据受限根目录和组件级匹配设置了证据等级。
+            // 这里仅把仍能定位到精确组件的候选提升到中置信度，绝不再
+            // 使用 path.contains(program_name) 这种跨边界启发式。
+            let matches_component = trace
+                .path
+                .replace('/', "\\")
+                .split('\\')
+                .any(|component| identity.matches_component(component));
+            trace.confidence = if matches_component {
                 models::Confidence::Medium
             } else {
                 models::Confidence::Low
@@ -238,10 +238,10 @@ mod tests {
             trace(TraceType::File, r"C:\Temp\another-app\log.txt"),
         ];
 
-        assign_confidence_scores("Demo App", &mut traces);
+        assign_confidence_scores(&ScanIdentity::from_name("Demo App"), &mut traces);
 
-        assert_eq!(traces[0].confidence, models::Confidence::High);
-        assert_eq!(traces[1].confidence, models::Confidence::Medium);
+        assert_eq!(traces[0].confidence, models::Confidence::Medium);
+        assert_eq!(traces[1].confidence, models::Confidence::Low);
         assert_eq!(traces[2].confidence, models::Confidence::Low);
     }
 
@@ -255,7 +255,7 @@ mod tests {
             ),
         ];
 
-        assign_confidence_scores("Demo App", &mut traces);
+        assign_confidence_scores(&ScanIdentity::from_name("Demo App"), &mut traces);
 
         assert!(traces.iter().all(|trace| trace.is_critical));
     }

@@ -1,4 +1,5 @@
 use super::models::{Confidence, Trace, TraceType};
+use super::scope::{is_protected_appdata_path, ScanIdentity};
 use crate::modules::common::error::UninstallerError;
 use crate::modules::common::utils;
 use std::path::Path;
@@ -6,69 +7,56 @@ use walkdir::WalkDir;
 
 /// 扫描 AppData 痕迹
 pub fn scan_appdata_traces(program_name: &str) -> Result<Vec<Trace>, UninstallerError> {
+    scan_appdata_traces_with_identity(&ScanIdentity::from_name(program_name))
+}
+
+pub fn scan_appdata_traces_with_identity(
+    identity: &ScanIdentity,
+) -> Result<Vec<Trace>, UninstallerError> {
     let mut traces = Vec::new();
-    let search_patterns = build_search_patterns(program_name);
 
     // 扫描用户 AppData 目录
     if let Some(home) = dirs::home_dir() {
         // Roaming
         let roaming = home.join("AppData").join("Roaming");
         if roaming.exists() {
-            scan_appdata_dir(&roaming, program_name, &search_patterns, &mut traces);
+            scan_appdata_dir(&roaming, identity, &mut traces);
         }
 
         // Local
         let local = home.join("AppData").join("Local");
         if local.exists() {
-            scan_appdata_dir(&local, program_name, &search_patterns, &mut traces);
+            scan_appdata_dir(&local, identity, &mut traces);
         }
 
         // LocalLow
         let local_low = home.join("AppData").join("LocalLow");
         if local_low.exists() {
-            scan_appdata_dir(&local_low, program_name, &search_patterns, &mut traces);
+            scan_appdata_dir(&local_low, identity, &mut traces);
         }
     }
 
     Ok(traces)
 }
 
-fn build_search_patterns(program_name: &str) -> Vec<String> {
-    let lower_name = program_name.to_lowercase();
-    let compact_name = compact_identifier(program_name);
-    let mut patterns = vec![lower_name];
-
-    // 老程序经常省略空格和通用后缀（例如 App）命名 AppData 目录。
-    // 设置长度门槛，避免把短词误匹配到无关目录。
-    if compact_name.len() >= 8 {
-        patterns.push(compact_name);
-    }
-
-    patterns
-}
-
 /// 扫描 AppData 目录
-fn scan_appdata_dir(dir: &Path, program_name: &str, patterns: &[String], traces: &mut Vec<Trace>) {
+fn scan_appdata_dir(dir: &Path, identity: &ScanIdentity, traces: &mut Vec<Trace>) {
     let walker = WalkDir::new(dir)
         .max_depth(4) // AppData 目录可能比较深
-        .follow_links(false);
+        .follow_links(false)
+        .into_iter()
+        .filter_entry(|entry| entry.path() == dir || !is_protected_appdata_path(entry.path()));
 
-    for entry in walker.into_iter().filter_map(|e| e.ok()) {
+    for entry in walker.filter_map(|e| e.ok()) {
         let path = entry.path();
         let name = path
             .file_name()
-            .map(|n| n.to_string_lossy().to_lowercase())
+            .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
 
-        // 检查名称是否包含搜索模式
-        if matches_appdata_name(&name, patterns) {
-            // 跳过某些系统目录
-            if is_system_appdata_dir(path) {
-                continue;
-            }
-
+        if identity.matches_component(&name) {
             let is_dir = path.is_dir();
-            if is_dir && append_matched_directory_files(path, program_name, traces) {
+            if is_dir && append_matched_directory_files(path, identity, traces) {
                 // 已逐文件展示目录内容，避免同时生成父目录目标造成重叠删除。
                 continue;
             }
@@ -92,19 +80,15 @@ fn scan_appdata_dir(dir: &Path, program_name: &str, patterns: &[String], traces:
                     .unwrap_or_else(|| "用户数据文件".to_string())
             };
 
-            let confidence = if patterns.iter().any(|pattern| name.starts_with(pattern)) {
-                Confidence::High
-            } else {
-                Confidence::Medium
-            };
-
             let mut trace = Trace::new(
-                program_name.to_string(),
+                identity.display_name().to_string(),
                 trace_type,
                 path.to_string_lossy().to_string(),
             )
             .with_description(description)
-            .with_confidence(confidence);
+            // 名称匹配只说明候选目录与程序标识一致；高置信度
+            // 只来自卸载前记录的明确安装目录。
+            .with_confidence(Confidence::Medium);
 
             if let Some(s) = size {
                 trace.size = Some(s);
@@ -117,7 +101,7 @@ fn scan_appdata_dir(dir: &Path, program_name: &str, patterns: &[String], traces:
 
 fn append_matched_directory_files(
     path: &Path,
-    program_name: &str,
+    identity: &ScanIdentity,
     traces: &mut Vec<Trace>,
 ) -> bool {
     const MAX_MATCHED_DIRECTORY_DEPTH: usize = 16;
@@ -130,7 +114,11 @@ fn append_matched_directory_files(
         .follow_links(false)
         .into_iter()
         .filter_map(Result::ok)
-        .filter(|entry| entry.file_type().is_file() && !entry.file_type().is_symlink())
+        .filter(|entry| {
+            entry.file_type().is_file()
+                && !entry.file_type().is_symlink()
+                && !is_protected_appdata_path(entry.path())
+        })
         .take(MAX_MATCHED_DIRECTORY_ITEMS)
     {
         let size = entry.metadata().ok().map(|metadata| metadata.len());
@@ -138,54 +126,17 @@ fn append_matched_directory_files(
             .map(|value| format!("用户数据文件，大小: {}", utils::format_size(value)))
             .unwrap_or_else(|| "用户数据文件".to_string());
         let mut trace = Trace::new(
-            program_name.to_string(),
+            identity.display_name().to_string(),
             TraceType::AppData,
             entry.path().to_string_lossy().into_owned(),
         )
         .with_description(description)
-        .with_confidence(Confidence::High);
+        .with_confidence(Confidence::Medium);
         trace.size = size;
         traces.push(trace);
         matched = true;
     }
     matched
-}
-
-fn matches_appdata_name(name: &str, patterns: &[String]) -> bool {
-    patterns.iter().enumerate().any(|(index, pattern)| {
-        if index == 0 {
-            return name.contains(pattern);
-        }
-
-        let compact_name = compact_identifier(name);
-        compact_name == *pattern || (compact_name.len() >= 8 && pattern.starts_with(&compact_name))
-    })
-}
-
-fn compact_identifier(value: &str) -> String {
-    value
-        .chars()
-        .filter(|character| character.is_ascii_alphanumeric())
-        .flat_map(char::to_lowercase)
-        .collect()
-}
-
-/// 检查是否为系统 AppData 目录
-fn is_system_appdata_dir(path: &Path) -> bool {
-    let path_str = path.to_string_lossy().to_lowercase();
-
-    let _system_dirs = [
-        "microsoft",
-        "windows",
-        "google\\chrome", // 浏览器数据通常很大，但不一定是要清理的
-    ];
-
-    // 只跳过真正的系统目录
-    if path_str.contains("microsoft\\windows\\explorer") {
-        return true;
-    }
-
-    false
 }
 
 /// 计算目录大小
@@ -209,15 +160,15 @@ fn calculate_size(path: &Path) -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_search_patterns, matches_appdata_name, scan_appdata_dir};
+    use super::{scan_appdata_dir, ScanIdentity};
     use std::fs;
 
     #[test]
     fn appdata_matching_accepts_compact_legacy_directory_name() {
-        let patterns = build_search_patterns("RustYu Legacy Test App");
+        let identity = ScanIdentity::from_name("RustYu Legacy Test App");
 
-        assert!(matches_appdata_name("rustyulegacytest", &patterns));
-        assert!(!matches_appdata_name("rusty", &patterns));
+        assert!(identity.matches_component("rustyulegacytest"));
+        assert!(!identity.matches_component("rusty"));
     }
 
     #[test]
@@ -233,9 +184,12 @@ mod tests {
         fs::write(&leftover, b"leftover")
             .unwrap_or_else(|error| panic!("write AppData fixture: {error}"));
 
-        let patterns = build_search_patterns("RustYu Legacy Test App");
         let mut traces = Vec::new();
-        scan_appdata_dir(&root, "RustYu Legacy Test App", &patterns, &mut traces);
+        scan_appdata_dir(
+            &root,
+            &ScanIdentity::from_name("RustYu Legacy Test App"),
+            &mut traces,
+        );
 
         assert!(traces
             .iter()
@@ -243,6 +197,29 @@ mod tests {
         assert!(!traces.iter().any(|trace| trace
             .path
             .eq_ignore_ascii_case(appdata.to_string_lossy().as_ref())));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn appdata_matching_rejects_internet_explorer_for_xplorer() {
+        let root = std::env::temp_dir().join(format!(
+            "rust-yu-appdata-scope-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let shell = root
+            .join("Microsoft")
+            .join("Internet Explorer")
+            .join("Quick Launch")
+            .join("User Pinned")
+            .join("TaskBar");
+        fs::create_dir_all(&shell).unwrap_or_else(|error| panic!("create shell fixture: {error}"));
+        fs::write(shell.join("Google Chrome.lnk"), b"shortcut")
+            .unwrap_or_else(|error| panic!("write shell fixture: {error}"));
+
+        let mut traces = Vec::new();
+        scan_appdata_dir(&root, &ScanIdentity::from_name("Xplorer"), &mut traces);
+        assert!(traces.is_empty());
 
         let _ = fs::remove_dir_all(root);
     }

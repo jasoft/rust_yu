@@ -7,6 +7,7 @@ pub mod shortcuts;
 use crate::modules::common::error::UninstallerError;
 use crate::modules::scanner::models::{Trace, TraceType};
 use models::CleanResult;
+use std::path::Path;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -85,6 +86,18 @@ async fn clean_traces_with_authorization(
     let mut results = Vec::new();
 
     for trace in traces {
+        // 扫描器之外的旧快照、导入报告或手工调用也必须经过同一层
+        // 共享区域保护，避免历史错误候选绕过新的扫描范围规则。
+        if crate::modules::scanner::scope::is_protected_shared_path(Path::new(&trace.path)) {
+            tracing::warn!(path = %trace.path, "跳过受保护共享区域中的残留候选");
+            results.push(failed_result(
+                &trace,
+                "目标位于受保护的系统或共享区域，已跳过清理".to_string(),
+                None,
+            ));
+            continue;
+        }
+
         // 安全检查
         if let Err(e) = safety::pre_delete_check(&trace) {
             tracing::warn!("跳过关键系统项: {}", e);
@@ -314,5 +327,42 @@ mod tests {
             None => std::env::remove_var("RUST_YU_STORAGE_DIR"),
         }
         let _ = fs::remove_dir_all(storage_root);
+    }
+
+    #[tokio::test]
+    async fn reviewed_cleanup_rejects_protected_shared_area() {
+        let _guard = TEST_STORAGE_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let root = std::env::temp_dir().join(format!(
+            "rust-yu-protected-cleaner-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let target = root
+            .join("Microsoft")
+            .join("Internet Explorer")
+            .join("Quick Launch")
+            .join("Google Chrome.lnk");
+        fs::create_dir_all(target.parent().unwrap_or(&root))
+            .unwrap_or_else(|error| panic!("create protected fixture: {error}"));
+        fs::write(&target, b"shared shell data")
+            .unwrap_or_else(|error| panic!("write protected fixture: {error}"));
+
+        let trace = Trace::new(
+            "Xplorer".to_string(),
+            TraceType::Shortcut,
+            target.to_string_lossy().into_owned(),
+        )
+        .with_confidence(crate::modules::scanner::models::Confidence::High);
+        let results = clean_reviewed_traces(vec![trace], true)
+            .await
+            .unwrap_or_else(|error| {
+                panic!("protected cleanup should return a review result: {error}")
+            });
+
+        assert_eq!(results.len(), 1);
+        assert!(!results[0].success);
+        assert!(target.exists());
+        let _ = fs::remove_dir_all(root);
     }
 }

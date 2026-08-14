@@ -146,7 +146,12 @@ where
     };
     let default_selected_ids = traces
         .iter()
-        .filter(|trace| !trace.is_critical)
+        // 默认只选择扫描器能证明为明确关联的高置信度项目；中低置信度
+        // 仍可在用户查看警告后手动选择，绝不因为“非关键系统项”就自动删除。
+        .filter(|trace| {
+            !trace.is_critical
+                && trace.confidence == crate::modules::scanner::models::Confidence::High
+        })
         .map(|trace| trace.id.clone())
         .collect();
     job.snapshot.traces = traces.clone();
@@ -608,8 +613,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn non_critical_residues_are_selected_by_default() {
-        let port = FakePort::new();
+    async fn only_high_confidence_non_critical_residues_are_selected_by_default() {
+        let mut port = FakePort::new();
+        port.traces.push(
+            Trace::new(
+                "Demo".to_string(),
+                TraceType::File,
+                r"C:\Temp\demo-cache.log".to_string(),
+            )
+            .with_confidence(Confidence::Medium),
+        );
         let mut job = planned_job(&port).await;
 
         let review = execute_uninstall(&port, &mut job, 1)
@@ -620,6 +633,7 @@ mod tests {
             review.default_selected_ids,
             vec![review.traces[0].id.clone()]
         );
+        assert!(!review.default_selected_ids.contains(&review.traces[1].id));
     }
 
     #[tokio::test]
