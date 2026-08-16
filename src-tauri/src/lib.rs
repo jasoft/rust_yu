@@ -3,6 +3,7 @@ pub mod commands;
 pub mod elevation;
 pub mod single_instance;
 pub mod state;
+mod window_state;
 
 use commands::*;
 
@@ -168,6 +169,8 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(window_state::plugin())
         .manage(state::UninstallCoordinator::new())
         .manage(DeveloperFixtureInstaller::default())
         .setup(|app| {

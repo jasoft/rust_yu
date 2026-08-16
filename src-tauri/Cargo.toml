@@ -69,3 +69,6 @@ winreg = "0.55.0"
 
 # HTTP 服务器 (用于开发模式)
 warp = "0.3"
+
+[target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
+tauri-plugin-window-state = "2"
