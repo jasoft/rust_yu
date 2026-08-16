@@ -40,6 +40,7 @@ describe("uninstall state reducer", () => {
       next_sequence: 3,
       events: [event(1, "planned"), event(2, "awaiting_cleanup_confirmation")],
       residue_review: { traces: [], default_selected_ids: [] },
+      cleanup_results: [],
       outcome: null,
     };
     const state = hydrateUninstallJob(initialUninstallUiState, job);

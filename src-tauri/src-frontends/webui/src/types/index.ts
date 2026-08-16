@@ -471,6 +471,7 @@ export interface UninstallJob {
   next_sequence: number;
   events: UninstallJobEvent[];
   residue_review: UninstallResidueReview;
+  cleanup_results: CleanResult[];
   outcome: UninstallOutcome | null;
 }
 

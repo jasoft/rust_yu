@@ -152,7 +152,7 @@ export function DeveloperToolsPage() {
     : 0;
 
   return (
-    <div className="page developer-page">
+    <div className="page developer-page" data-testid="developer-tools">
       <div className="section-header developer-header">
         <div>
           <h1><FileCode2 size={22} />{t("developer.title")}</h1>
@@ -189,6 +189,8 @@ export function DeveloperToolsPage() {
                   <button
                     type="button"
                     key={fixture.id}
+                    data-testid="developer-fixture"
+                    data-fixture-id={fixture.id}
                     className={`developer-fixture ${selected ? "selected" : ""}`}
                     disabled={!fixture.available || installing}
                     aria-pressed={selected}
@@ -204,7 +206,7 @@ export function DeveloperToolsPage() {
                     <span className="developer-fixture-meta">
                       <small>{t(fixtureKindKeys[fixture.kind])} · {formatFixtureSize(fixture.size)}</small>
                       {!fixture.available && <em>{t("developer.fixture.missing")}</em>}
-                      {result && <FixtureResult result={result} />}
+                      {result && <span data-testid="developer-fixture-result" data-status={result.status}><FixtureResult result={result} /></span>}
                     </span>
                   </button>
                 );
@@ -223,7 +225,7 @@ export function DeveloperToolsPage() {
           <footer>
             <span>{selectedIds.size === 0 ? t("developer.selection.empty") : t("developer.selection.count", { value0: selectedIds.size })}</span>
             <div>
-              <button className="secondary-button" disabled={installing || availableIds.length === 0} onClick={() => requestInstall(availableIds)}>
+              <button data-testid="developer-install-all" className="secondary-button" disabled={installing || availableIds.length === 0} onClick={() => requestInstall(availableIds)}>
                 <PackagePlus size={15} />{t("developer.action.install_all")}
               </button>
               <button className="primary-button" disabled={installing || selectedIds.size === 0} onClick={() => requestInstall([...selectedIds])}>
@@ -240,7 +242,7 @@ export function DeveloperToolsPage() {
             <header><div><AlertTriangle size={20} /><h2>{t("developer.confirm.title")}</h2></div><button aria-label={t("common.action.close")} onClick={() => setPendingIds(null)}><X size={17} /></button></header>
             <p>{t("developer.confirm.description", { value0: pendingIds.length })}</p>
             <ul>{pendingIds.map((id) => <li key={id}><PackagePlus size={15} />{fixtureName(id)}</li>)}</ul>
-            <footer><button className="secondary-button" onClick={() => setPendingIds(null)}>{t("developer.confirm.cancel")}</button><button className="primary-button" onClick={() => void confirmInstall()}>{t("developer.confirm.submit")}</button></footer>
+            <footer><button className="secondary-button" onClick={() => setPendingIds(null)}>{t("developer.confirm.cancel")}</button><button data-testid="developer-confirm-install" className="primary-button" onClick={() => void confirmInstall()}>{t("developer.confirm.submit")}</button></footer>
           </section>
         </div>
       )}

@@ -226,6 +226,7 @@ export const useProgramsStore = create<ProgramsState>((set, get) => ({
       set({
         uninstallJob: response.job,
         uninstallResult: response.job.outcome,
+        cleanResults: response.job.cleanup_results,
         uninstalling: false,
         uninstallCancelling: false,
       });
@@ -246,6 +247,7 @@ export const useProgramsStore = create<ProgramsState>((set, get) => ({
       set({
         uninstallJob: response.job,
         uninstallResult: response.job.outcome,
+        cleanResults: response.job.cleanup_results,
         uninstalling: false,
         uninstallCancelling: false,
       });
@@ -274,7 +276,7 @@ export const useProgramsStore = create<ProgramsState>((set, get) => ({
   getUninstallJob: async (jobId) => {
     try {
       const response = await invoke<UninstallJobResponse>("get_uninstall_job", { jobId });
-      set({ uninstallJob: response.job, uninstallResult: response.job.outcome });
+      set({ uninstallJob: response.job, uninstallResult: response.job.outcome, cleanResults: response.job.cleanup_results });
       return response.job;
     } catch (e) {
       set({ error: extractErrorMessage(e) });
@@ -282,7 +284,7 @@ export const useProgramsStore = create<ProgramsState>((set, get) => ({
     }
   },
 
-  resetUninstall: () => set({ uninstallResult: null, uninstalling: false, uninstallCancelling: false, uninstallJob: null }),
+  resetUninstall: () => set({ uninstallResult: null, cleanResults: [], uninstalling: false, uninstallCancelling: false, uninstallJob: null }),
   resetTraces: () =>
     set({ traces: [], selectedTraces: new Set(), cleanResults: [], viewMode: "detail" }),
 }));
