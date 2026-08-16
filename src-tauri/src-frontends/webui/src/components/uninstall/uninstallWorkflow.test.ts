@@ -6,8 +6,10 @@ import {
 } from "./uninstallWorkflow";
 
 describe("uninstall workflow navigation", () => {
-  it("keeps scan results visible until the user continues", () => {
-    expect(stageForBackendPhase("uninstall", "scanning_residues")).toBe("scan");
+  it("keeps the built-in uninstaller and scan on one page", () => {
+    expect(stageForBackendPhase("confirm", "running_uninstaller")).toBe("scan");
+    expect(stageForBackendPhase("scan", "verifying_removal")).toBe("scan");
+    expect(stageForBackendPhase("scan", "scanning_residues")).toBe("scan");
     expect(stageForBackendPhase("scan", "awaiting_cleanup_confirmation")).toBe("scan");
     expect(stageForBackendPhase("scan", "completed")).toBe("scan");
   });
@@ -17,15 +19,13 @@ describe("uninstall workflow navigation", () => {
     expect(nextStageAfterScan("completed")).toBe("complete");
   });
 
-  it("shows cleanup as a real stage before completion", () => {
-    expect(stageForBackendPhase("review", "cleaning_residues")).toBe("cleanup");
-    expect(stageForBackendPhase("cleanup", "completed")).toBe("complete");
+  it("keeps cleanup on the review page and removes legacy progress pages", () => {
+    expect(stageForBackendPhase("review", "cleaning_residues")).toBe("review");
+    expect(stageForBackendPhase("review", "completed")).toBe("complete");
     expect(uninstallWorkflowSteps).toEqual([
       "confirm",
-      "uninstall",
       "scan",
       "review",
-      "cleanup",
       "complete",
     ]);
   });

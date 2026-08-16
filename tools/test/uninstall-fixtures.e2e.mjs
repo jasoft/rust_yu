@@ -98,6 +98,13 @@ async function uninstallFixture(page, fixture, artifactIndex) {
 
   const scan = page.getByTestId("workflow-scan");
   await scan.waitFor({ state: "visible", timeout: 420_000 });
+  assert.equal(await workflow.getAttribute("data-workflow-stage"), "scan", "built-in uninstall must open directly inside the scan page");
+  assert.equal(await page.getByTestId("workflow-uninstall").count(), 0, "legacy uninstall progress page must not exist");
+  assert.equal(await page.getByTestId("workflow-cleanup").count(), 0, "legacy cleanup progress page must not exist");
+  const uninstallerRow = page.getByTestId("workflow-uninstaller-row");
+  await uninstallerRow.waitFor({ state: "visible" });
+  assert.ok(["active", "done"].includes((await uninstallerRow.getAttribute("data-state")) ?? ""));
+  await screenshot(page, `${String(artifactIndex).padStart(2, "0")}-${slug(fixture.programName)}-uninstalling.png`);
   await waitFor(async () => (await scan.getAttribute("data-scan-status")) === "complete", 420_000, `${fixture.programName} residue scan`);
   const scanCategories = await scan.locator(".scan-location").evaluateAll((nodes) => nodes.map((node) => node.textContent?.replace(/\s+/g, " ").trim() ?? ""));
   assert.equal(scanCategories.length, 4, "all four scan categories must remain visible");
@@ -105,6 +112,7 @@ async function uninstallFixture(page, fixture, artifactIndex) {
   // 这是本回归测试的核心：扫描结束后不得在用户来不及查看时自动跳页。
   await new Promise((resolve) => setTimeout(resolve, 1_200));
   assert.equal(await workflow.getAttribute("data-workflow-stage"), "scan", "scan results must wait for explicit Next");
+  assert.equal(await page.getByTestId("workflow-scan-next").count(), 1, "the workflow must expose exactly one Next button");
   await screenshot(page, `${String(artifactIndex).padStart(2, "0")}-${slug(fixture.programName)}-scan.png`);
 
   await page.getByTestId("workflow-scan-next").click();
@@ -118,6 +126,7 @@ async function uninstallFixture(page, fixture, artifactIndex) {
     if (await clean.isEnabled()) {
       await clean.click();
       await page.getByTestId("workflow-confirm-clean").click();
+      assert.equal(await page.getByTestId("workflow-cleanup").count(), 0, "cleanup must remain on the review page");
     } else {
       await page.getByTestId("workflow-skip-cleanup").click();
     }

@@ -1,5 +1,5 @@
 import { getLanguage, setLanguage, supportedLanguages, t, type Language } from "./i18n/index.ts";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Activity,
   AppWindow,
@@ -88,6 +88,7 @@ import type {
 } from "./types";
 
 type Stage = UninstallWorkflowStage;
+type ScanStatus = "uninstalling" | "verifying" | "scanning" | "complete";
 type NavKey = "apps" | "health" | "startup" | "cleaner" | "shredder" | "backups" | "traces" | "monitor" | "inventory" | "reports" | "plugins" | "tools" | "developer" | "settings" | "about";
 
 interface UiProgram {
@@ -137,8 +138,14 @@ const initialLogs = [
 
 function getInitialStage(): Stage {
   const value = new URLSearchParams(window.location.search).get("stage");
-  if (value === "progress") return "uninstall";
-  return value === "confirm" || value === "uninstall" || value === "scan" || value === "review" || value === "cleanup" || value === "complete" ? value : "apps";
+  if (value === "progress" || value === "uninstall") return "scan";
+  if (value === "cleanup") return "review";
+  return value === "confirm" || value === "scan" || value === "review" || value === "complete" ? value : "apps";
+}
+
+function getInitialScanStatus(): ScanStatus {
+  const value = new URLSearchParams(window.location.search).get("scanStatus");
+  return value === "uninstalling" || value === "verifying" || value === "scanning" ? value : "complete";
 }
 
 function isTauriRuntime() {
@@ -182,21 +189,20 @@ export default function App() {
   const [developerModeEnabled, setDeveloperMode] = useState(getDeveloperModeEnabled);
   const [selectedId, setSelectedId] = useState("7zip");
   const [query, setQuery] = useState("");
-  const [progress, setProgress] = useState(42);
   const [logs, setLogs] = useState(initialLogs);
   const [traces, setTraces] = useState<Trace[]>(demoTraces);
   const [selectedTraceIds, setSelectedTraceIds] = useState<Set<string>>(
     () => new Set(demoTraces.filter((trace) => trace.confidence === "high" && !trace.is_critical).map((trace) => trace.id)),
   );
   const [cleanConfirm, setCleanConfirm] = useState(false);
+  const [cleanupPending, setCleanupPending] = useState(false);
   const [cleanResults, setCleanResults] = useState<CleanResult[]>([]);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [recordsOpen, setRecordsOpen] = useState(false);
   const [manualScanPending, setManualScanPending] = useState(false);
-  const [scanStatus, setScanStatus] = useState<"idle" | "scanning" | "complete">(
-    () => (!isTauriRuntime() && getInitialStage() === "scan" ? "complete" : "idle"),
+  const [scanStatus, setScanStatus] = useState<ScanStatus>(
+    () => (!isTauriRuntime() && getInitialStage() === "scan" ? getInitialScanStatus() : "uninstalling"),
   );
-  const scanStartedAtRef = useRef<number | null>(null);
   const programs = useProgramsStore((state) => state.programs);
   const loading = useProgramsStore((state) => state.loading);
   const metadataLoading = useProgramsStore((state) => state.metadataLoading);
@@ -300,7 +306,7 @@ export default function App() {
 
   useEffect(() => {
     if (!import.meta.env.DEV) return;
-    const previewStages: Stage[] = ["apps", "confirm", "uninstall", "scan", "review", "cleanup", "complete"];
+    const previewStages: Stage[] = ["apps", "confirm", "scan", "review", "complete"];
     const handlePreviewShortcut = (event: KeyboardEvent) => {
       if (!event.ctrlKey || !event.altKey) return;
       const index = Number(event.key) - 1;
@@ -324,13 +330,11 @@ export default function App() {
         setLogs((current) => [...current, formatUninstallEventLog(payload)]);
         setStage((current) => stageForBackendPhase(current, payload.phase));
         if (payload.phase === "running_uninstaller") {
-          setProgress(38);
+          setScanStatus("uninstalling");
         } else if (payload.phase === "verifying_removal") {
-          setProgress(72);
+          setScanStatus("verifying");
         } else if (payload.phase === "scanning_residues") {
-          setProgress(86);
           setScanStatus("scanning");
-          scanStartedAtRef.current = Date.now();
           setLogs((current) => [
             ...current,
             formatLocalLog(t("app.message_017")),
@@ -340,12 +344,8 @@ export default function App() {
           ]);
         } else if (payload.phase === "awaiting_cleanup_confirmation") {
           setScanStatus("complete");
-        } else if (payload.phase === "cleaning_residues") {
-          setProgress(94);
-        } else if (payload.phase === "failed" || payload.phase === "cancelled") {
-          setScanStatus("complete");
         } else if (payload.phase === "completed") {
-          setProgress(100);
+          setScanStatus("complete");
         }
       }).then((fn) => {
         unlisten = fn;
@@ -353,13 +353,6 @@ export default function App() {
     );
     return () => unlisten?.();
   }, [uninstallJob]);
-
-  useEffect(() => {
-    if (!isTauriRuntime() && (stage === "uninstall" || stage === "cleanup")) {
-      const timer = window.setInterval(() => setProgress((value) => Math.min(value + 2, 84)), 650);
-      return () => window.clearInterval(timer);
-    }
-  }, [stage]);
 
   const sourcePrograms = isTauriRuntime()
     ? programs
@@ -450,7 +443,6 @@ export default function App() {
     setStage("scan");
     setTraces([]);
     setScanStatus("scanning");
-    scanStartedAtRef.current = Date.now();
     if (isTauriRuntime() && selectedProgram.source) {
       setManualScanPending(true);
       void scanTraces(selectedProgram.source.name, selectedProgram.source);
@@ -466,12 +458,10 @@ export default function App() {
 
   const startUninstall = () => {
     if (!selectedProgram) return;
-    setStage("uninstall");
-    setProgress(8);
+    setStage("scan");
     setTraces([]);
     setLogs([t("app.message_021", { value0: new Date().toLocaleTimeString(getLanguage(), { hour12: false }) })]);
-    setScanStatus("idle");
-    scanStartedAtRef.current = null;
+    setScanStatus("uninstalling");
     if (isTauriRuntime() && selectedProgram.source) {
       void (async () => {
         const planned = await planUninstall(selectedProgram.source!.id);
@@ -491,50 +481,72 @@ export default function App() {
       })();
     } else {
       window.setTimeout(() => {
-        setProgress(42);
+        setScanStatus("verifying");
+        setLogs((current) => [...current, formatLocalLog(t("uninstall.scan.uninstaller_complete"))]);
+      }, 650);
+      window.setTimeout(() => {
+        setScanStatus("scanning");
         setLogs(initialLogs);
-      }, 500);
+      }, 1_300);
+      window.setTimeout(() => {
+        setTraces(demoTraces);
+        setSelectedTraceIds(new Set(demoTraces.filter((trace) => !trace.is_critical && trace.confidence === "high").map((trace) => trace.id)));
+        setScanStatus("complete");
+      }, 2_200);
     }
   };
 
   const continueWorkflow = () => {
-    if (stage === "uninstall") {
-      setScanStatus("scanning");
-      setStage("scan");
-    } else if (stage === "scan") {
-      setScanStatus("complete");
+    if (stage === "scan") {
       setStage(isTauriRuntime() ? nextStageAfterScan(uninstallJob?.phase) : "review");
     }
   };
 
   const cleanSelected = async () => {
     const chosen = traces.filter((trace) => selectedTraceIds.has(trace.id));
+    setCleanConfirm(false);
+    setCleanupPending(true);
     if (isTauriRuntime()) {
       const jobId = useProgramsStore.getState().uninstallJob?.snapshot.job_id;
-      if (!jobId) return;
-      setStage("cleanup");
+      if (!jobId) {
+        setCleanupPending(false);
+        return;
+      }
       const result = await cleanUninstallResidues(jobId, {
         trace_ids: chosen.map((trace) => trace.id),
         confirm: true,
       });
+      setCleanupPending(false);
       if (!result) return;
       if (result.phase === "failed") {
-        setStage("cleanup");
         return;
       }
     } else {
-      setStage("cleanup");
       setCleanResults(chosen.map((trace) => ({ trace_id: trace.id, path: trace.path, success: true, error: null, bytes_freed: trace.size ?? 0 })));
+      setCleanupPending(false);
     }
-    setCleanConfirm(false);
     setStage("complete");
+  };
+
+  const skipCleanup = async () => {
+    if (!isTauriRuntime()) {
+      setStage("complete");
+      return;
+    }
+    const jobId = useProgramsStore.getState().uninstallJob?.snapshot.job_id;
+    if (!jobId) return;
+    setCleanupPending(true);
+    const result = await finishUninstall(jobId);
+    setCleanupPending(false);
+    if (completedSuccessfully(result)) setStage("complete");
   };
 
   const exitUninstallFlow = () => {
     setStage("apps");
     setCleanConfirm(false);
+    setCleanupPending(false);
     setCleanResults([]);
-    setScanStatus("idle");
+    setScanStatus("uninstalling");
     resetUninstall();
   };
 
@@ -614,14 +626,14 @@ export default function App() {
               program={workflowProgram}
               onCancel={exitUninstallFlow}
               onStart={startUninstall}
-            /> : stage === "uninstall" ? (
-            <ProgressStage mode="uninstall" program={workflowProgram} progress={progress} logs={logs} error={uninstallFailure} onContinue={continueWorkflow} onExit={exitUninstallFlow} />
-          ) : stage === "scan" ? (
-            <ScanStage program={workflowProgram} traces={traces} logs={logs} status={scanStatus} cancelling={uninstallCancelling} onCancel={() => void cancelResidueScan()} onContinue={continueWorkflow} />
+            /> : stage === "scan" ? (
+            <ScanStage program={workflowProgram} traces={traces} logs={logs} status={scanStatus} error={uninstallFailure} cancelling={uninstallCancelling} onCancel={() => void cancelResidueScan()} onExit={exitUninstallFlow} onContinue={continueWorkflow} />
           ) : stage === "review" ? (
             <ReviewStage
               traces={traces}
               selectedIds={selectedTraceIds}
+              cleanupPending={cleanupPending}
+              error={uninstallFailure}
               onToggle={(id) => setSelectedTraceIds((current) => {
                 const next = new Set(current);
                 if (next.has(id)) next.delete(id); else next.add(id);
@@ -632,23 +644,13 @@ export default function App() {
               }}
               allowBack={!uninstallJob}
               onBack={exitUninstallFlow}
-              onSkip={() => {
-                const jobId = useProgramsStore.getState().uninstallJob?.snapshot.job_id;
-                if (jobId) {
-                  setStage("cleanup");
-                  void finishUninstall(jobId).then((result) => {
-                  if (completedSuccessfully(result)) setStage("complete");
-                  });
-                }
-              }}
+              onSkip={() => void skipCleanup()}
               onRescan={handleManualScan}
               onClean={() => setCleanConfirm(true)}
               confirmOpen={cleanConfirm}
               onConfirmClose={() => setCleanConfirm(false)}
               onConfirm={() => void cleanSelected()}
             />
-          ) : stage === "cleanup" ? (
-            <ProgressStage mode="cleanup" program={workflowProgram} progress={progress} logs={logs} error={uninstallFailure} onContinue={continueWorkflow} onExit={exitUninstallFlow} />
           ) : (
             <CompleteStage
               program={workflowProgram}
@@ -841,10 +843,8 @@ function AppIcon({ program, large = false }: { program: UiProgram; large?: boole
 
 const workflowStepLabels = {
   confirm: "uninstall.workflow.stage.confirm",
-  uninstall: "uninstall.workflow.stage.uninstall",
   scan: "uninstall.workflow.stage.scan",
   review: "uninstall.workflow.stage.review",
-  cleanup: "uninstall.workflow.stage.cleanup",
   complete: "uninstall.workflow.stage.complete",
 } as const;
 
@@ -890,45 +890,25 @@ function ConfirmStage(props: {
   );
 }
 
-function ProgressStage({ mode, program, progress, logs, error, onContinue, onExit }: { mode: "uninstall" | "cleanup"; program: UiProgram; progress: number; logs: string[]; error: string | null; onContinue: () => void; onExit: () => void }) {
-  const nativeWorkflow = isTauriRuntime();
-  const failed = Boolean(error);
-  const cleanupMode = mode === "cleanup";
-  const steps = cleanupMode
-    ? [[t("uninstall.workflow.cleanup.backup"), "done"], [t("uninstall.workflow.cleanup.remove"), failed ? "failed" : "active"], [t("uninstall.workflow.cleanup.verify"), "todo"]]
-    : [[t("uninstall.workflow.snapshot"), "done"], [t("app.message_092"), "done"], [t("app.message_093"), failed ? "failed" : "active"], [t("app.message_094"), "todo"], [t("app.message_095"), "todo"], [t("app.message_096"), "todo"]];
-  return (
-    <div className="page progress-page" data-testid={`workflow-${mode}`}>
-      <SectionHeader title={failed ? t(cleanupMode ? "uninstall.workflow.cleanup.failed" : "app.message_097", { value0: program.name }) : t(cleanupMode ? "uninstall.workflow.cleanup.running" : "app.message_098", { value0: program.name })} subtitle={failed ? t("app.message_099") : t(cleanupMode ? "uninstall.workflow.cleanup.subtitle" : "app.message_100")} />
-      <div className="progress-top">
-        <div className={`progress-ring ${failed ? "failed" : nativeWorkflow ? "indeterminate" : "preview-progress"}`}><div><strong>{failed ? "!" : nativeWorkflow ? "…" : `${progress}%`}</strong><span>{failed ? t("app.message_101") : nativeWorkflow ? t("app.message_102") : t("app.message_103")}</span><small>{failed ? t("app.message_104") : nativeWorkflow ? t("app.message_105") : "00:00:28"}</small></div></div>
-        <div className="steps-list">{steps.map(([label, state]) => <div key={label} className={`step ${state}`}><span>{state === "done" ? <Check size={12} /> : state === "failed" ? <TriangleAlert size={11} /> : ""}</span><strong>{label}</strong><em>{state === "done" ? t("app.message_106") : state === "active" ? t("app.message_107") : state === "failed" ? t("app.message_108") : ""}</em></div>)}</div>
-      </div>
-      <div className={`log-panel card-surface${failed ? " error-state" : ""}`}>
-        <div className="panel-title"><span>{t("app.message_109")}</span><button>{t("app.message_110")}</button></div>
-        {error && <div className="uninstall-error" role="alert"><TriangleAlert size={16} /><div><strong>{t("app.message_101")}</strong><span>{error}</span></div></div>}
-        <div className="log-content">{error && <div className="error-log">{t("app.message_112")} {error}</div>}{logs.map((log, index) => <div key={`${log}-${index}`}>{log}</div>)}</div>
-      </div>
-      <div className="page-footnote"><Info size={15} /><span>{t("app.message_113")}</span>{failed ? <button onClick={onExit}>{t("uninstall.action.back_to_apps")}</button> : !isTauriRuntime() && <button onClick={onContinue}>{t("app.message_114")}</button>}</div>
-    </div>
-  );
-}
-
 function ScanStage({
   program,
   traces,
   logs,
   status,
+  error,
   cancelling,
   onCancel,
+  onExit,
   onContinue,
 }: {
   program: UiProgram;
   traces: Trace[];
   logs: string[];
-  status: "idle" | "scanning" | "complete";
+  status: ScanStatus;
+  error: string | null;
   cancelling: boolean;
   onCancel: () => void;
+  onExit: () => void;
   onContinue: () => void;
 }) {
   const summaries = summarizeTraces(traces);
@@ -939,23 +919,45 @@ function ScanStage({
     { category: "system" as const, icon: ShieldCheck, title: t("app.message_025"), path: t("app.message_123"), hint: t("app.message_124") },
   ];
   const isComplete = status === "complete";
+  const scanActive = status === "scanning";
+  const uninstallerComplete = scanActive || isComplete;
+  const progressValue = status === "uninstalling" ? 15 : status === "verifying" ? 32 : isComplete ? 100 : undefined;
+  const title = status === "uninstalling"
+    ? t("uninstall.scan.uninstaller_running", { value0: program.name })
+    : status === "verifying"
+      ? t("uninstall.scan.verifying", { value0: program.name })
+      : isComplete
+        ? t("app.message_125")
+        : t("app.message_126");
+  const subtitle = status === "uninstalling" || status === "verifying"
+    ? t("uninstall.scan.same_page_hint")
+    : t("app.message_127", { value0: program.name, value1: isComplete ? t("app.message_325") : t("app.message_326") });
   const latestLogs = logs.slice(-4);
   return (
     <div className={`page scan-page ${isComplete ? "scan-complete" : "scan-running"}`} data-testid="workflow-scan" data-scan-status={status}>
-      <SectionHeader title={isComplete ? t("app.message_125") : t("app.message_126")} subtitle={t("app.message_127", { value0: program.name, value1: isComplete ? t("app.message_325") : t("app.message_326") })} />
-      <div className={`scan-progress-bar${isComplete ? " complete" : ""}`} role="progressbar" aria-label={t("uninstall.scan.progress_label")} aria-valuemin={0} aria-valuemax={100} aria-valuenow={isComplete ? 100 : undefined}><span /></div>
+      <SectionHeader title={title} subtitle={subtitle} />
+      <div className={`scan-progress-bar phase-${status}${isComplete ? " complete" : ""}`} role="progressbar" aria-label={t("uninstall.scan.progress_label")} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progressValue}><span /></div>
+      {error && <div className="uninstall-error" role="alert"><TriangleAlert size={16} /><div><strong>{t("app.message_101")}</strong><span>{error}</span></div></div>}
       <div className="scan-scroll-content">
       <div className="scan-main">
-        <div className={`radar ${isComplete ? "done" : ""}`}><div className="radar-sweep" /><span className="radar-dot one" /><span className="radar-dot two" /><span className="radar-dot three" /><div className="radar-center"><strong>{isComplete ? traces.length : "…"}</strong><span>{isComplete ? t("app.message_128") : t("app.message_129")}</span></div></div>
-        <div className="scan-locations"><h3>{t("app.message_130")} <span>{isComplete ? t("app.message_131") : t("app.message_132")}</span></h3>{locationMeta.map(({ category, icon: Icon, title, path, hint }) => {
+        <div className={`radar ${isComplete ? "done" : ""} ${scanActive ? "" : "waiting"}`}><div className="radar-sweep" /><span className="radar-dot one" /><span className="radar-dot two" /><span className="radar-dot three" /><div className="radar-center"><strong>{isComplete ? traces.length : scanActive ? "…" : <Package size={28} />}</strong><span>{isComplete ? t("app.message_128") : scanActive ? t("app.message_129") : t("uninstall.scan.preparing")}</span></div></div>
+        <div className="scan-locations"><h3>{t("uninstall.scan.workflow_title")} <span>{isComplete ? t("app.message_131") : scanActive ? t("app.message_132") : t("uninstall.scan.in_progress")}</span></h3>
+          <div data-testid="workflow-uninstaller-row" data-state={error ? "failed" : uninstallerComplete ? "done" : "active"} className={`uninstaller-row ${error ? "failed" : uninstallerComplete ? "done" : "active"}`}>
+            <Package size={20} />
+            <div><strong>{status === "uninstalling" ? t("uninstall.scan.uninstaller_calling") : status === "verifying" ? t("uninstall.scan.uninstaller_verifying") : t("uninstall.scan.uninstaller_complete")}</strong><span>{program.name}</span><small>{t("uninstall.scan.uninstaller_hint")}</small></div>
+            <em>{error ? t("app.message_108") : uninstallerComplete ? t("app.message_133") : t("uninstall.scan.running")}</em>
+            <b>{error ? "!" : uninstallerComplete ? <Check size={14} /> : <Loader2 size={14} className="spinning" />}</b>
+          </div>
+          {locationMeta.map(({ category, icon: Icon, title: locationTitle, path, hint }) => {
           const summary = summaries.find((item) => item.category === category);
-          return <div className={`scan-location ${isComplete ? "done" : "active"}`} key={category}><Icon size={20} /><div><strong>{title}</strong><span>{path}</span><small>{hint}</small></div><em>{isComplete ? t("app.message_133") : t("app.message_134")}</em><b>{isComplete ? t("app.message_135", { value0: summary?.count ?? 0 }) : t("app.message_136")}</b></div>;
+          const locationState = isComplete ? "done" : scanActive ? "active" : "waiting";
+          return <div className={`scan-location ${locationState}`} key={category}><Icon size={20} /><div><strong>{locationTitle}</strong><span>{path}</span><small>{hint}</small></div><em>{isComplete ? t("app.message_133") : scanActive ? t("app.message_134") : t("uninstall.scan.waiting")}</em><b>{isComplete ? t("app.message_135", { value0: summary?.count ?? 0 }) : scanActive ? t("app.message_136") : "—"}</b></div>;
         })}</div>
       </div>
-      <div className="scan-stats card-surface"><h3>{t("app.message_137")} <span>{isComplete ? t("app.message_138") : t("app.message_139")}</span></h3><div><span>{t("app.message_140")}<strong>4 / 4</strong></span><span>{t("app.message_128")}<strong className="blue">{isComplete ? traces.length : t("app.message_129")}</strong></span><span>{t("app.message_143")}<strong className="blue">{isComplete ? formatBytes(traces.reduce((sum, trace) => sum + (trace.size ?? 0), 0)) : t("app.message_144")}</strong></span><span>{t("app.message_145")}<strong>{isComplete ? t("app.message_146") : t("app.message_147")}</strong></span></div></div>
-      <div className="scan-live-log card-surface"><div className="panel-title"><span><Loader2 size={13} className={isComplete ? "" : "spinning"} />{t("app.message_148")}</span><strong>{isComplete ? t("app.message_149") : t("app.message_150")}</strong></div><div>{latestLogs.length > 0 ? latestLogs.map((log, index) => <p key={`${log}-${index}`}>{log}</p>) : <p>{t("app.message_151")}</p>}</div></div>
+      <div className="scan-stats card-surface"><h3>{t("app.message_137")} <span>{isComplete ? t("app.message_138") : t("app.message_139")}</span></h3><div><span>{t("app.message_140")}<strong>{isComplete ? "4 / 4" : scanActive ? t("app.message_136") : "0 / 4"}</strong></span><span>{t("app.message_128")}<strong className="blue">{isComplete ? traces.length : scanActive ? t("app.message_129") : "—"}</strong></span><span>{t("app.message_143")}<strong className="blue">{isComplete ? formatBytes(traces.reduce((sum, trace) => sum + (trace.size ?? 0), 0)) : scanActive ? t("app.message_144") : "—"}</strong></span><span>{t("app.message_145")}<strong>{isComplete ? t("app.message_146") : scanActive ? t("app.message_147") : t("uninstall.scan.waiting")}</strong></span></div></div>
+      <div className="scan-live-log card-surface"><div className="panel-title"><span>{isComplete ? <Check size={13} /> : <Loader2 size={13} className="spinning" />}{t("app.message_148")}</span><strong>{isComplete ? t("app.message_149") : t("app.message_150")}</strong></div><div>{latestLogs.length > 0 ? latestLogs.map((log, index) => <p key={`${log}-${index}`}>{log}</p>) : <p>{t("app.message_151")}</p>}</div></div>
       </div>
-      <div className="page-footnote"><Info size={15} /><span>{isComplete ? t("uninstall.scan.results_hold") : t("app.message_152")}</span>{!isComplete ? <button className="scan-cancel-button" disabled={cancelling} onClick={onCancel}>{cancelling ? <Loader2 size={13} className="spinning" /> : <X size={13} />}{cancelling ? t("uninstall.action.cancelling") : t("uninstall.action.cancel_scan")}</button> : <button data-testid="workflow-scan-next" className="workflow-next-button" onClick={onContinue}>{traces.length > 0 ? t("uninstall.action.review_residues") : t("uninstall.action.view_result")} <ChevronDown size={13} /></button>}</div>
+      <div className="page-footnote"><Info size={15} /><span>{isComplete ? t("uninstall.scan.results_hold") : t("uninstall.scan.same_page_hint")}</span>{error ? <button onClick={onExit}>{t("uninstall.action.back_to_apps")}</button> : !isComplete ? <button className="scan-cancel-button" disabled={cancelling} onClick={onCancel}>{cancelling ? <Loader2 size={13} className="spinning" /> : <X size={13} />}{cancelling ? t("uninstall.action.cancelling") : t("uninstall.action.cancel_workflow")}</button> : <button data-testid="workflow-scan-next" className="workflow-next-button" onClick={onContinue}>{traces.length > 0 ? t("uninstall.action.review_residues") : t("uninstall.action.view_result")} <ChevronDown size={13} /></button>}</div>
     </div>
   );
 }
@@ -1158,7 +1160,7 @@ function ForceUninstallModal({
 
 function ReviewStage(props: {
   traces: Trace[]; selectedIds: Set<string>; onToggle: (id: string) => void; onToggleAll: () => void; onBack: () => void; onClean: () => void;
-  allowBack: boolean; onSkip: () => void; onRescan: () => void; confirmOpen: boolean; onConfirmClose: () => void; onConfirm: () => void;
+  allowBack: boolean; cleanupPending: boolean; error: string | null; onSkip: () => void; onRescan: () => void; confirmOpen: boolean; onConfirmClose: () => void; onConfirm: () => void;
 }) {
   const systemTraces = props.traces.filter((trace) => trace.trace_type === "scheduled_task" || trace.trace_type === "service" || trace.trace_type === "driver");
   const fileTraces = props.traces.filter((trace) => trace.trace_type !== "registry_key" && trace.trace_type !== "registry_value" && trace.trace_type !== "scheduled_task" && trace.trace_type !== "service" && trace.trace_type !== "driver");
@@ -1168,15 +1170,17 @@ function ReviewStage(props: {
   const allSelected = selectableCount > 0 && props.selectedIds.size === selectableCount;
   const uncertainSelectedCount = props.traces.filter((trace) => props.selectedIds.has(trace.id) && trace.confidence !== "high").length;
   return (
-    <div className="page review-page" data-testid="workflow-review">
-      <SectionHeader title={t("app.message_227")} subtitle={t("app.message_228", { value0: props.traces.length, value1: formatBytes(props.traces.reduce((sum, trace) => sum + (trace.size ?? 0), 0)), value2: props.selectedIds.size })} action={<div className="review-header-actions"><button className="link-button" onClick={props.onToggleAll}><Check size={14} />{allSelected ? t("uninstall.action.clear_all") : t("uninstall.action.select_all")}</button>{props.allowBack && <button className="link-button" onClick={props.onRescan}><RotateCcw size={14} />{t("app.message_229")}</button>}</div>} />
+    <div className={`page review-page${props.cleanupPending ? " is-cleaning" : ""}`} data-testid="workflow-review" aria-busy={props.cleanupPending}>
+      <SectionHeader title={t("app.message_227")} subtitle={t("app.message_228", { value0: props.traces.length, value1: formatBytes(props.traces.reduce((sum, trace) => sum + (trace.size ?? 0), 0)), value2: props.selectedIds.size })} action={<div className="review-header-actions"><button className="link-button" disabled={props.cleanupPending} onClick={props.onToggleAll}><Check size={14} />{allSelected ? t("uninstall.action.clear_all") : t("uninstall.action.select_all")}</button>{props.allowBack && <button className="link-button" disabled={props.cleanupPending} onClick={props.onRescan}><RotateCcw size={14} />{t("app.message_229")}</button>}</div>} />
+      {props.cleanupPending && <div className="review-cleaning-banner" data-testid="workflow-review-cleaning"><Loader2 size={17} className="spinning" /><div><strong>{t("uninstall.review.cleaning")}</strong><span>{t("uninstall.review.cleaning_hint")}</span></div></div>}
+      {props.error && <div className="uninstall-error" role="alert"><TriangleAlert size={16} /><div><strong>{t("app.message_101")}</strong><span>{props.error}</span></div></div>}
       <div className="review-tabs"><button className="active">{t("app.message_230")}{props.traces.length})</button><button>{t("app.message_231")}{fileTraces.length})</button><button>{t("app.message_232")}{registryTraces.length})</button><button>{t("app.message_233")}{systemTraces.length})</button></div>
       <div className="trace-table card-surface">
         <TraceGroup title={t("app.message_234", { value0: fileTraces.length })} traces={fileTraces} selectedIds={props.selectedIds} onToggle={props.onToggle} />
         <TraceGroup title={t("app.message_235", { value0: registryTraces.length })} traces={registryTraces} selectedIds={props.selectedIds} onToggle={props.onToggle} />
         <TraceGroup title={t("app.message_236", { value0: systemTraces.length })} traces={systemTraces} selectedIds={props.selectedIds} onToggle={props.onToggle} />
       </div>
-      <div className="review-footer"><span>{t("app.message_237")}<strong>{formatBytes(selectedSize)}</strong></span><div><button data-testid="workflow-skip-cleanup" className="secondary-button" onClick={props.onSkip}>{t("app.message_238")}</button>{props.allowBack && <button className="secondary-button" onClick={props.onBack}>{t("app.message_239")}</button>}<button data-testid="workflow-clean" className="primary-button" disabled={props.selectedIds.size === 0} onClick={props.onClean}><Trash2 size={16} />{t("app.message_240")}</button></div></div>
+      <div className="review-footer"><span>{t("app.message_237")}<strong>{formatBytes(selectedSize)}</strong></span><div><button data-testid="workflow-skip-cleanup" className="secondary-button" disabled={props.cleanupPending} onClick={props.onSkip}>{t("app.message_238")}</button>{props.allowBack && <button className="secondary-button" disabled={props.cleanupPending} onClick={props.onBack}>{t("app.message_239")}</button>}<button data-testid="workflow-clean" className="primary-button" disabled={props.cleanupPending || props.selectedIds.size === 0} onClick={props.onClean}>{props.cleanupPending ? <Loader2 size={16} className="spinning" /> : <Trash2 size={16} />}{props.cleanupPending ? t("uninstall.review.cleaning_short") : t("app.message_240")}</button></div></div>
       {props.confirmOpen && <div className="modal-backdrop"><div className="safety-modal"><span className="modal-icon"><TriangleAlert size={24} /></span><h2>{t("app.message_241")}</h2><p>{t("uninstall.cleanup.confirm", { value0: props.selectedIds.size, value1: uncertainSelectedCount })}</p><div><button className="secondary-button" onClick={props.onConfirmClose}>{t("app.message_089")}</button><button data-testid="workflow-confirm-clean" className="danger-button" onClick={props.onConfirm}>{t("app.message_245")}</button></div></div></div>}
     </div>
   );
