@@ -52,12 +52,16 @@ impl std::fmt::Display for TraceType {
 
 /// 匹配置信度
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
 pub enum Confidence {
     /// 高置信度 - 直接关联
+    #[serde(alias = "High")]
     High,
     /// 中置信度 - 名称相似
+    #[serde(alias = "Medium")]
     Medium,
     /// 低置信度 - 可能相关
+    #[serde(alias = "Low")]
     Low,
 }
 
@@ -124,6 +128,30 @@ impl Trace {
 #[cfg(test)]
 mod tests {
     use super::{Confidence, Trace, TraceType};
+
+    #[test]
+    fn confidence_serialization_matches_webui_contract() {
+        let cases = [
+            (Confidence::High, "\"high\""),
+            (Confidence::Medium, "\"medium\""),
+            (Confidence::Low, "\"low\""),
+        ];
+
+        for (confidence, expected) in cases {
+            let serialized = serde_json::to_string(&confidence)
+                .unwrap_or_else(|error| panic!("serialize confidence: {error}"));
+            assert_eq!(serialized, expected);
+
+            let round_trip: Confidence = serde_json::from_str(expected)
+                .unwrap_or_else(|error| panic!("deserialize confidence: {error}"));
+            assert_eq!(round_trip, confidence);
+        }
+
+        assert_eq!(
+            serde_json::from_str::<Confidence>("\"High\"").ok(),
+            Some(Confidence::High),
+        );
+    }
 
     #[test]
     fn trace_type_display_is_stable() {

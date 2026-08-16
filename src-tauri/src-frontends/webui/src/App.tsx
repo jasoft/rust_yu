@@ -48,6 +48,7 @@ import {
   type ProgramSourceFilter,
 } from "./lib/programFilters";
 import { useProgramsStore } from "./stores/programs";
+import { useTauriEvent } from "./hooks/useTauriEvent";
 import { useForceUninstallStore } from "./stores/forceUninstall";
 import { useBatchUninstallStore } from "./stores/batchUninstall";
 import { StartupManager } from "./components/StartupManager";
@@ -320,39 +321,29 @@ export default function App() {
     return () => window.removeEventListener("keydown", handlePreviewShortcut);
   }, []);
 
-  useEffect(() => {
-    if (!isTauriRuntime()) return;
-    let unlisten: (() => void) | undefined;
-    void import("@tauri-apps/api/event").then(({ listen }) =>
-      listen<UninstallJobEvent>("uninstall-job-progress", (event) => {
-        const payload = event.payload;
-        if (uninstallJob && payload.job_id !== uninstallJob.snapshot.job_id) return;
-        setLogs((current) => [...current, formatUninstallEventLog(payload)]);
-        setStage((current) => stageForBackendPhase(current, payload.phase));
-        if (payload.phase === "running_uninstaller") {
-          setScanStatus("uninstalling");
-        } else if (payload.phase === "verifying_removal") {
-          setScanStatus("verifying");
-        } else if (payload.phase === "scanning_residues") {
-          setScanStatus("scanning");
-          setLogs((current) => [
-            ...current,
-            formatLocalLog(t("app.message_017")),
-            formatLocalLog(t("app.message_018")),
-            formatLocalLog(t("app.message_019")),
-            formatLocalLog(t("app.message_020")),
-          ]);
-        } else if (payload.phase === "awaiting_cleanup_confirmation") {
-          setScanStatus("complete");
-        } else if (payload.phase === "completed") {
-          setScanStatus("complete");
-        }
-      }).then((fn) => {
-        unlisten = fn;
-      }),
-    );
-    return () => unlisten?.();
-  }, [uninstallJob]);
+  useTauriEvent<UninstallJobEvent>("uninstall-job-progress", (payload) => {
+    if (uninstallJob && payload.job_id !== uninstallJob.snapshot.job_id) return;
+    setLogs((current) => [...current, formatUninstallEventLog(payload)]);
+    setStage((current) => stageForBackendPhase(current, payload.phase));
+    if (payload.phase === "running_uninstaller") {
+      setScanStatus("uninstalling");
+    } else if (payload.phase === "verifying_removal") {
+      setScanStatus("verifying");
+    } else if (payload.phase === "scanning_residues") {
+      setScanStatus("scanning");
+      setLogs((current) => [
+        ...current,
+        formatLocalLog(t("app.message_017")),
+        formatLocalLog(t("app.message_018")),
+        formatLocalLog(t("app.message_019")),
+        formatLocalLog(t("app.message_020")),
+      ]);
+    } else if (payload.phase === "awaiting_cleanup_confirmation") {
+      setScanStatus("complete");
+    } else if (payload.phase === "completed") {
+      setScanStatus("complete");
+    }
+  }, isTauriRuntime());
 
   const sourcePrograms = isTauriRuntime()
     ? programs

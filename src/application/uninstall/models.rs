@@ -107,7 +107,7 @@ pub struct UninstallEvent {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ResidueReview {
     pub traces: Vec<Trace>,
-    /// 默认选择所有非关键目标；中、低置信度会在确认框中明确警告。
+    /// 默认只选择高置信度且非关键的目标；中、低置信度由用户审核后手动选择。
     pub default_selected_ids: Vec<String>,
 }
 
@@ -164,7 +164,7 @@ impl UninstallJob {
 
 #[cfg(test)]
 mod tests {
-    use super::UninstallJobId;
+    use super::{UninstallEvent, UninstallEventPayload, UninstallJobId, UninstallPhase};
     use std::collections::HashSet;
 
     #[test]
@@ -173,5 +173,20 @@ mod tests {
         let unique = ids.iter().collect::<HashSet<_>>();
 
         assert_eq!(unique.len(), ids.len());
+    }
+
+    #[test]
+    fn uninstall_event_serialization_matches_webui_contract() {
+        let event = UninstallEvent {
+            job_id: UninstallJobId("job-1".to_string()),
+            sequence: 4,
+            phase: UninstallPhase::AwaitingCleanupConfirmation,
+            payload: UninstallEventPayload::ResiduesScanned { count: 2 },
+        };
+
+        let value = serde_json::to_value(event)
+            .unwrap_or_else(|error| panic!("serialize uninstall event: {error}"));
+        assert_eq!(value["phase"], "awaiting_cleanup_confirmation");
+        assert_eq!(value["payload"]["kind"], "residues_scanned");
     }
 }

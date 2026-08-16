@@ -113,14 +113,46 @@ async function uninstallFixture(page, fixture, artifactIndex) {
   await new Promise((resolve) => setTimeout(resolve, 1_200));
   assert.equal(await workflow.getAttribute("data-workflow-stage"), "scan", "scan results must wait for explicit Next");
   assert.equal(await page.getByTestId("workflow-scan-next").count(), 1, "the workflow must expose exactly one Next button");
+  const scanLogLines = await scan.locator(".scan-live-log p").allTextContents();
+  const scanCompletionLogCount = scanLogLines.filter((line) => line.includes("扫描完成")).length;
+  assert.equal(scanCompletionLogCount, 1, "the residue scan completion event must be logged exactly once");
   await screenshot(page, `${String(artifactIndex).padStart(2, "0")}-${slug(fixture.programName)}-scan.png`);
 
   await page.getByTestId("workflow-scan-next").click();
   await waitFor(async () => ["review", "complete"].includes((await workflow.getAttribute("data-workflow-stage")) ?? ""), 30_000, `${fixture.programName} post-scan stage`);
   let reviewCount = 0;
+  let reviewRows = [];
   if ((await workflow.getAttribute("data-workflow-stage")) === "review") {
     const review = page.getByTestId("workflow-review");
-    reviewCount = await review.locator(".trace-row").count();
+    const traceRows = review.locator(".trace-row");
+    reviewCount = await traceRows.count();
+    reviewRows = await traceRows.evaluateAll((nodes) => nodes.map((node) => {
+      const checkbox = node.querySelector('input[type="checkbox"]');
+      const confidence = node.querySelector(".confidence");
+      return {
+        path: node.querySelector(".trace-name small")?.textContent?.trim() ?? "",
+        selected: checkbox instanceof HTMLInputElement && checkbox.checked,
+        confidenceClass: confidence?.className ?? "",
+        confidenceText: confidence?.textContent?.trim() ?? "",
+      };
+    }));
+
+    if (fixture.id === "legacy-inno") {
+      const installPrefix = "C:\\Program Files\\RustYu Legacy Test App\\";
+      const installRows = reviewRows.filter((row) => row.path.startsWith(installPrefix));
+      assert.ok(installRows.length > 0, "Legacy fixture must expose recorded install-directory residues");
+      assert.ok(
+        installRows.every((row) => row.selected && row.confidenceClass.split(/\s+/).includes("high")),
+        "recorded install-directory residues must be high confidence and selected by default",
+      );
+
+      const appDataRows = reviewRows.filter((row) => row.path.includes("\\AppData\\"));
+      assert.ok(appDataRows.length > 0, "Legacy fixture must expose its LocalAppData residue");
+      assert.ok(
+        appDataRows.every((row) => !row.selected && row.confidenceClass.split(/\s+/).includes("medium")),
+        "name-matched AppData residues must be medium confidence and preserved by default",
+      );
+    }
     await screenshot(page, `${String(artifactIndex).padStart(2, "0")}-${slug(fixture.programName)}-review.png`);
     const clean = page.getByTestId("workflow-clean");
     if (await clean.isEnabled()) {
@@ -137,7 +169,7 @@ async function uninstallFixture(page, fixture, artifactIndex) {
   const summary = await page.getByTestId("workflow-complete").locator(".summary-grid").innerText();
   await page.getByTestId("workflow-done").click();
   await page.getByTestId("program-search").waitFor({ state: "visible" });
-  return { id: fixture.id, programName: fixture.programName, scanCategories, reviewCount, summary };
+  return { id: fixture.id, programName: fixture.programName, scanCategories, scanCompletionLogCount, reviewCount, reviewRows, summary };
 }
 
 async function connectToWebView(url, timeoutMs) {
