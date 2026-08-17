@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { formatBytes, formatSource } from "../lib/utils";
 import { getProgramIconSrc } from "../lib/icon";
+import { formatWindowsDate } from "../lib/date";
 
 export function ProgramDetail() {
   const { selectedProgram, setViewMode, scanTraces, selectProgram } =
@@ -78,7 +79,7 @@ export function ProgramDetail() {
             <InfoRow label={t("app.message_300")} value={formatSource(p.install_source)} />
             <InfoRow label={t("app.message_301")} value={p.uninstall_kind} />
             <InfoRow label={t("app.message_304")} value={p.install_location} />
-            <InfoRow label={t("app.message_056")} value={p.install_date} />
+            <InfoRow label={t("app.message_056")} value={formatWindowsDate(p.install_date) ?? t("app.message_067")} />
             <InfoRow label={t("app.message_055")} value={p.size ? formatBytes(p.size) : null} />
             <InfoRow label={t("components.programdetail.message_009")} value={p.estimated_size ? formatBytes(p.estimated_size) : null} />
             <InfoRow label={t("app.message_305")} value={p.uninstall_string} mono />

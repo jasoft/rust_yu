@@ -1,5 +1,5 @@
 import { getLanguage, setLanguage, supportedLanguages, t, type Language } from "./i18n/index.ts";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Activity,
   AppWindow,
@@ -40,6 +40,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getProgramIconSrc } from "./lib/icon";
+import { formatWindowsDate } from "./lib/date";
 import { completedSuccessfully, selectAvailableItem, toggleAllSelectableIds } from "./lib/appWorkflow";
 import {
   countProgramsBySource,
@@ -89,12 +90,17 @@ import type {
   UninstallJobEvent,
   UninstallJob,
 } from "./types";
+import {
+  DataGrid,
+  type Column,
+  type ColumnWidths,
+} from "react-data-grid";
 
 type Stage = UninstallWorkflowStage;
 type ScanStatus = "uninstalling" | "verifying" | "scanning" | "complete";
 type NavKey = "apps" | "health" | "startup" | "cleaner" | "shredder" | "backups" | "traces" | "monitor" | "inventory" | "reports" | "plugins" | "tools" | "developer" | "settings" | "about";
 
-interface UiProgram {
+export interface UiProgram {
   id: string;
   name: string;
   publisher: string;
@@ -162,7 +168,7 @@ function toUiProgram(program: InstalledProgram): UiProgram {
     publisher: program.publisher ?? t("app.message_016"),
     version: program.display_version ?? program.version ?? "—",
     size: formatBytes(program.size ?? program.estimated_size),
-    installed: program.install_date ?? "—",
+    installed: formatWindowsDate(program.install_date) ?? t("app.message_067"),
     location: program.install_location ?? "—",
     icon: program.name.slice(0, 2).toUpperCase(),
     iconClass: "generic",
@@ -790,6 +796,76 @@ function SectionHeader({ title, subtitle, action }: { title: string; subtitle?: 
   return <div className="section-header"><div><h1>{title}</h1>{subtitle && <p>{subtitle}</p>}</div>{action}</div>;
 }
 
+type ProgramGridColumnKey = "select" | "name" | "publisher" | "size" | "installed";
+
+const programGridColumnKeys: readonly ProgramGridColumnKey[] = [
+  "select",
+  "name",
+  "publisher",
+  "size",
+  "installed",
+];
+
+const defaultProgramGridWidths: Record<ProgramGridColumnKey, number> = {
+  select: 42,
+  name: 290,
+  publisher: 190,
+  size: 100,
+  installed: 120,
+};
+
+const programGridStorageKey = "rust-yu.apps.program-grid.v1";
+
+interface ProgramGridState {
+  order: ProgramGridColumnKey[];
+  widths: Record<ProgramGridColumnKey, number>;
+}
+
+function isProgramGridColumnKey(value: unknown): value is ProgramGridColumnKey {
+  return typeof value === "string" && programGridColumnKeys.includes(value as ProgramGridColumnKey);
+}
+
+function readProgramGridState(): ProgramGridState {
+  const fallback: ProgramGridState = {
+    order: [...programGridColumnKeys],
+    widths: { ...defaultProgramGridWidths },
+  };
+  if (typeof window === "undefined") return fallback;
+
+  try {
+    const raw = window.localStorage.getItem(programGridStorageKey);
+    if (!raw) return fallback;
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return fallback;
+    const value = parsed as { order?: unknown; widths?: unknown };
+    const persistedOrder = Array.isArray(value.order) && value.order.every(isProgramGridColumnKey)
+      ? value.order
+      : [];
+    const order = [...new Set(persistedOrder)];
+    for (const key of programGridColumnKeys) {
+      if (!order.includes(key)) order.push(key);
+    }
+    const widths = { ...defaultProgramGridWidths };
+    if (value.widths && typeof value.widths === "object") {
+      for (const key of programGridColumnKeys) {
+        const width = (value.widths as Record<string, unknown>)[key];
+        if (typeof width === "number" && Number.isFinite(width) && width >= 42 && width <= 900) {
+          widths[key] = width;
+        }
+      }
+    }
+    return { order, widths };
+  } catch {
+    return fallback;
+  }
+}
+
+function columnWidthsFromState(widths: Record<ProgramGridColumnKey, number>): ColumnWidths {
+  return new Map(
+    programGridColumnKeys.map((key) => [key, { type: "resized", width: widths[key] }]),
+  );
+}
+
 function AppsStage(props: {
   programs: UiProgram[]; selected: UiProgram | null; selectedId: string; loading: boolean; metadataLoading: boolean;
   error: string | null; query: string; sourceFilter: ProgramSourceFilter;
@@ -800,6 +876,117 @@ function AppsStage(props: {
   onForceUninstall: () => void;
   batchSelectedIds: Set<string>; batchActive: boolean; onToggleBatch: (id: string) => void; onOpenBatch: () => void;
 }) {
+  const [gridState, setGridState] = useState<ProgramGridState>(readProgramGridState);
+  const { batchActive, batchSelectedIds, onToggleBatch } = props;
+  const columnWidths = useMemo(() => columnWidthsFromState(gridState.widths), [gridState.widths]);
+  const displayPrograms = useMemo(
+    () => props.programs.map((program) => ({
+      ...program,
+      // 原生程序已经在 toUiProgram 中按 Windows 区域格式化；预览数据仍需在这里统一处理。
+      installed: program.source
+        ? program.installed
+        : formatWindowsDate(program.installed) ?? t("app.message_067"),
+    })),
+    [props.programs],
+  );
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(programGridStorageKey, JSON.stringify(gridState));
+    } catch {
+      // 本地存储不可用时仍保留当前会话中的列宽，不能阻断应用列表。
+    }
+  }, [gridState]);
+
+  const columns = useMemo<readonly Column<UiProgram>[]>(() => {
+    const columnsByKey: Record<ProgramGridColumnKey, Column<UiProgram>> = {
+      select: {
+        key: "select",
+        name: t("app.message_052"),
+        width: gridState.widths.select,
+        minWidth: 42,
+        maxWidth: 42,
+        resizable: false,
+        draggable: false,
+        renderCell: ({ row }) => (
+          <input
+            type="checkbox"
+            aria-label={t("app.message_059", { value0: row.name })}
+            checked={batchSelectedIds.has(row.id)}
+            disabled={batchActive}
+            onClick={(event) => event.stopPropagation()}
+            onChange={() => onToggleBatch(row.id)}
+          />
+        ),
+      },
+      name: {
+        key: "name",
+        name: t("app.message_053"),
+        width: gridState.widths.name,
+        minWidth: 210,
+        renderCell: ({ row }) => (
+          <span className="program-grid-name-cell">
+            <AppIcon program={row} />
+            <strong>{row.name}</strong>
+          </span>
+        ),
+      },
+      publisher: {
+        key: "publisher",
+        name: t("app.message_054"),
+        width: gridState.widths.publisher,
+        minWidth: 150,
+        renderCell: ({ row }) => <span className="program-grid-text-cell">{row.publisher}</span>,
+      },
+      size: {
+        key: "size",
+        name: t("app.message_055"),
+        width: gridState.widths.size,
+        minWidth: 80,
+        renderCell: ({ row }) => <span className="program-grid-text-cell">{row.size}</span>,
+      },
+      installed: {
+        key: "installed",
+        name: t("app.message_056"),
+        width: gridState.widths.installed,
+        minWidth: 100,
+        renderCell: ({ row }) => <span className="program-grid-text-cell">{row.installed}</span>,
+      },
+    };
+    return gridState.order.map((key) => columnsByKey[key]);
+  }, [batchActive, batchSelectedIds, gridState.order, gridState.widths, onToggleBatch]);
+
+  const handleColumnWidthsChange = (nextColumnWidths: ColumnWidths) => {
+    setGridState((current) => {
+      const widths = { ...current.widths };
+      for (const [key, value] of nextColumnWidths) {
+        if (isProgramGridColumnKey(key) && Number.isFinite(value.width)) {
+          widths[key] = value.width;
+        }
+      }
+      return { ...current, widths };
+    });
+  };
+
+  const handleColumnsReorder = (sourceColumnKey: string, targetColumnKey: string) => {
+    if (!isProgramGridColumnKey(sourceColumnKey) || !isProgramGridColumnKey(targetColumnKey)) return;
+    setGridState((current) => {
+      const order = [...current.order];
+      const sourceIndex = order.indexOf(sourceColumnKey);
+      const targetIndex = order.indexOf(targetColumnKey);
+      if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return current;
+      order.splice(sourceIndex, 1);
+      order.splice(order.indexOf(targetColumnKey), 0, sourceColumnKey);
+      return { ...current, order };
+    });
+  };
+
+  const noRowsMessage = props.error
+    ? <div className="table-message error">{props.error}</div>
+    : props.loading && props.programs.length === 0
+      ? <div className="table-message">{t("app.message_057")}</div>
+      : <div className="table-message">{t("app.message_058")}</div>;
+
   return (
     <div className="page apps-page">
       <SectionHeader title={t("app.message_032")} action={<div className="header-actions"><button className="secondary-button compact-button" disabled={!props.batchActive && props.batchSelectedIds.size === 0} onClick={props.onOpenBatch}><ListChecks size={14} />{props.batchActive ? t("app.message_046") : t("app.message_047", { value0: props.batchSelectedIds.size ? ` (${props.batchSelectedIds.size})` : "" })}</button><button className="secondary-button compact-button" onClick={props.onForceUninstall}><Wrench size={14} />{t("app.message_048")}</button><button className="icon-button" disabled={props.loading || props.metadataLoading} title={props.metadataLoading ? t("app.message_049") : t("app.message_050")} onClick={props.onRefresh}><RefreshCw className={props.loading || props.metadataLoading ? "spinning" : ""} size={17} /></button></div>} />
@@ -815,15 +1002,38 @@ function AppsStage(props: {
       </div>
       <div className="apps-layout">
         <div className="program-table card-surface">
-          <div className="table-head"><span>{t("app.message_052")}</span><span>{t("app.message_053")} <ChevronDown size={12} /></span><span>{t("app.message_054")}</span><span>{t("app.message_055")}</span><span>{t("app.message_056")} <ChevronDown size={12} /></span></div>
-          <div className="table-body">
-            {props.error ? <div className="table-message error">{props.error}</div> : props.loading && props.programs.length === 0 ? <div className="table-message">{t("app.message_057")}</div> : props.programs.length === 0 ? <div className="table-message">{t("app.message_058")}</div> : props.programs.map((program) => (
-              <div data-testid="program-row" data-program-name={program.name} key={program.id} className={`program-row ${props.selectedId === program.id ? "selected" : ""}`} role="button" tabIndex={0} aria-selected={props.selectedId === program.id} onClick={() => props.onSelect(program.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); props.onSelect(program.id); } }}>
-                <span className="program-select"><input type="checkbox" aria-label={t("app.message_059", { value0: program.name })} checked={props.batchSelectedIds.has(program.id)} disabled={props.batchActive} onClick={(event) => event.stopPropagation()} onChange={() => props.onToggleBatch(program.id)} /></span>
-                <span className="program-name"><AppIcon program={program} /><strong>{program.name}</strong></span>
-                <span>{program.publisher}</span><span>{program.size}</span><span>{program.installed}</span>
-              </div>
-            ))}
+          <div className="program-grid-shell">
+            <DataGrid
+              className="program-grid rdg-light"
+              data-testid="program-grid"
+              aria-label={t("app.message_032")}
+              columns={columns}
+              rows={props.error ? [] : displayPrograms}
+              rowKeyGetter={(row) => row.id}
+              rowHeight={44}
+              headerRowHeight={38}
+              columnWidths={columnWidths}
+              onColumnWidthsChange={handleColumnWidthsChange}
+              onColumnsReorder={handleColumnsReorder}
+              defaultColumnOptions={{ minWidth: 80, resizable: true, draggable: true }}
+              rowClass={(row) => props.selectedId === row.id ? "program-grid-row-selected" : undefined}
+              onCellClick={(args, event) => {
+                if (args.column.key === "select") {
+                  event.preventGridDefault();
+                  return;
+                }
+                event.preventGridDefault();
+                props.onSelect(args.row.id);
+              }}
+              onCellKeyDown={(args, event) => {
+                if (args.mode !== "ACTIVE" || !args.row || !args.column) return;
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventGridDefault();
+                  props.onSelect(args.row.id);
+                }
+              }}
+              renderers={{ noRowsFallback: noRowsMessage }}
+            />
           </div>
           <div className="table-footer">{t("app.message_060")} {props.programs.length}  {t("app.message_061")}{props.batchSelectedIds.size > 0 ? t("app.message_062", { value0: props.batchSelectedIds.size }) : ""}</div>
         </div>
@@ -1247,7 +1457,7 @@ function ProgramInfoModal({ program, onClose }: { program: UiProgram; onClose: (
     [t("app.message_063"), source?.display_version ?? source?.version ?? program.version],
     [t("app.message_300"), sourceLabel],
     [t("app.message_301"), source?.uninstall_kind],
-    [t("app.message_056"), source?.install_date ?? program.installed],
+    [t("app.message_056"), formatWindowsDate(source?.install_date ?? program.installed) ?? t("app.message_067")],
     [t("app.message_303"), program.size],
     [t("app.message_304"), source?.install_location ?? program.location, true],
     [t("app.message_305"), source?.uninstall_string, true],
