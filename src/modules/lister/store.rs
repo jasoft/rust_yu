@@ -19,7 +19,9 @@ pub fn list_store_apps() -> Result<Vec<InstalledProgram>, UninstallerError> {
                 Where-Object {
                     $_.IsFramework -eq $false -and
                     $_.IsResourcePackage -eq $false -and
-                    $_.SignatureKind -ne 'System'
+                    $_.NonRemovable -eq $false -and
+                    $_.InstallLocation -like 'C:\Program Files\WindowsApps\*' -and
+                    $_.InstallLocation -notlike 'C:\Windows\SystemApps\*'
                 } |
                 ForEach-Object {
                     $package = $_
@@ -55,6 +57,7 @@ pub fn list_store_apps() -> Result<Vec<InstalledProgram>, UninstallerError> {
                         Version = "$($package.Version)"
                         InstallLocation = $package.InstallLocation
                         PackageFullName = $package.PackageFullName
+                        PackageFamilyName = $package.PackageFamilyName
                         Logo = $logo
                     }
                 } | ConvertTo-Json -Compress -Depth 3
@@ -66,7 +69,9 @@ pub fn list_store_apps() -> Result<Vec<InstalledProgram>, UninstallerError> {
     match output {
         Ok(output) if output.status.success() => {
             let json_str = decode_windows_output(&output.stdout);
-            parse_store_apps(&json_str)
+            let mut apps = parse_store_apps(&json_str)?;
+            apps.extend(list_shell_installed_apps());
+            Ok(apps)
         }
         Ok(output) => {
             tracing::warn!(
@@ -96,6 +101,9 @@ fn parse_store_apps(json_str: &str) -> Result<Vec<InstalledProgram>, Uninstaller
 
 fn store_app_to_program(app: StoreAppJson) -> Option<InstalledProgram> {
     let package_name = app.name.and_then(non_empty)?;
+    if is_settings_system_component_package(&package_name) {
+        return None;
+    }
     let install_location = app.install_location.and_then(non_empty);
     let display_name = install_location
         .as_deref()
@@ -126,7 +134,11 @@ fn store_app_to_program(app: StoreAppJson) -> Option<InstalledProgram> {
     }
 
     if let Some(package_full_name) = app.package_full_name.and_then(non_empty) {
-        program.id = package_full_name.clone();
+        let stable_package_id = app
+            .package_family_name
+            .and_then(non_empty)
+            .unwrap_or_else(|| package_full_name.clone());
+        program.id = format!("store:{stable_package_id}");
         program.uninstall_string = Some(format!(
             "powershell -Command \"Remove-AppxPackage -Package '{}'\"",
             package_full_name.replace('\'', "''")
@@ -134,6 +146,76 @@ fn store_app_to_program(app: StoreAppJson) -> Option<InstalledProgram> {
     }
 
     Some(program)
+}
+
+/// 少数 Windows 桌面应用（例如 Remote Desktop Connection）没有可枚举的当前用户
+/// Appx 包，但设置仍会从 AppsFolder/开始菜单注册表把它们列为可安装应用。这里只读取
+/// Shell 的稳定 AUMID，不把所有开始菜单快捷方式泛化成应用。
+fn list_shell_installed_apps() -> Vec<InstalledProgram> {
+    let output = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-Command",
+            &build_powershell_script(
+                r#"
+                Get-StartApps |
+                    Where-Object { $_.Name -match 'Remote Desktop|远程桌面' } |
+                    Select-Object Name, AppID |
+                    ConvertTo-Json -Compress
+                "#,
+            ),
+        ])
+        .output();
+    let Ok(output) = output else {
+        return Vec::new();
+    };
+    if !output.status.success() {
+        return Vec::new();
+    }
+
+    let text = decode_windows_output(&output.stdout);
+    let entries = serde_json::from_str::<ShellAppPayload>(&text)
+        .map(ShellAppPayload::into_vec)
+        .unwrap_or_default();
+    entries
+        .into_iter()
+        .filter_map(|entry| {
+            let name = entry.name.and_then(non_empty)?;
+            let app_id = entry.app_id.and_then(non_empty)?;
+            let mut program = InstalledProgram::new(name, InstallSource::Store);
+            program.id = format!("shell:{app_id}");
+            program.publisher = Some("Microsoft Corporation".to_string());
+            let mstsc = Path::new(r"C:\Windows\System32\mstsc.exe");
+            if mstsc.is_file() {
+                program.icon_path = Some(mstsc.to_string_lossy().to_string());
+                program.icon_source = MetadataSource::Filesystem;
+                program.icon_confidence = MetadataConfidence::High;
+            }
+            Some(program)
+        })
+        .collect()
+}
+
+/// Windows 设置不会把媒体编解码器、商店基础服务或 Shell 扩展放进“安装的应用”
+/// 主列表。它们可能仍然拥有 Appx manifest 和图标，因此仅依赖 IsFramework/SignatureKind
+/// 会把系统组件误列出来。这里按包的功能类别过滤，而不是按显示名称/Publisher 猜测。
+fn is_settings_system_component_package(package_name: &str) -> bool {
+    let name = package_name.to_ascii_lowercase();
+    name == "microsoft.windowsstore"
+        || name == "microsoft.storepurchaseapp"
+        || name == "microsoft.applicationcompatibilityenhancements"
+        || name == "microsoft.gethelp"
+        || name == "winrar.shellextension"
+        || name.ends_with("imageextension")
+        || name.ends_with("videoextension")
+        || name.ends_with("encoder videoextension")
+        || name.contains("avcencodervideoextension")
+        || name.contains("mpeg2videoextension")
+        || name.contains("vp9videoextensions")
+        || name.contains("webpimageextension")
+        || name.contains("heifimageextension")
+        || name.contains("rawimageextension")
+        || name.contains("av1videoextension")
 }
 
 fn non_empty(value: String) -> Option<String> {
@@ -325,13 +407,39 @@ struct StoreAppJson {
     install_location: Option<String>,
     #[serde(rename = "PackageFullName")]
     package_full_name: Option<String>,
+    #[serde(rename = "PackageFamilyName")]
+    package_family_name: Option<String>,
     #[serde(rename = "Logo")]
     logo: Option<String>,
 }
 
+#[derive(serde::Deserialize, Debug)]
+#[serde(untagged)]
+enum ShellAppPayload {
+    Many(Vec<ShellAppJson>),
+    One(ShellAppJson),
+}
+
+impl ShellAppPayload {
+    fn into_vec(self) -> Vec<ShellAppJson> {
+        match self {
+            Self::Many(apps) => apps,
+            Self::One(app) => vec![app],
+        }
+    }
+}
+
+#[derive(serde::Deserialize, Debug)]
+struct ShellAppJson {
+    #[serde(rename = "Name")]
+    name: Option<String>,
+    #[serde(rename = "AppID")]
+    app_id: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{parse_store_apps, resolve_manifest_logo};
+    use super::{is_settings_system_component_package, parse_store_apps, resolve_manifest_logo};
     use crate::modules::lister::models::{MetadataConfidence, MetadataSource, UninstallKind};
     use std::fs;
 
@@ -357,7 +465,10 @@ mod tests {
             programs[0].publisher.as_deref(),
             Some("Microsoft Corporation")
         );
-        assert_eq!(programs[0].id, "Microsoft.WindowsCalculator_1.0.0_x64__abc");
+        assert_eq!(
+            programs[0].id,
+            "store:Microsoft.WindowsCalculator_1.0.0_x64__abc"
+        );
         assert_eq!(programs[0].uninstall_kind, UninstallKind::Store);
         assert!(programs[0]
             .uninstall_string
@@ -422,5 +533,21 @@ mod tests {
         assert_eq!(programs[0].icon_confidence, MetadataConfidence::High);
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn settings_package_policy_excludes_system_components_but_keeps_user_apps() {
+        assert!(is_settings_system_component_package(
+            "Microsoft.AV1VideoExtension"
+        ));
+        assert!(is_settings_system_component_package(
+            "Microsoft.WindowsStore"
+        ));
+        assert!(!is_settings_system_component_package(
+            "Microsoft.WindowsTerminal"
+        ));
+        assert!(!is_settings_system_component_package(
+            "Microsoft.WinAppRuntime.DDLM.8000.806.2252.0-x6"
+        ));
     }
 }

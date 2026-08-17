@@ -28,9 +28,12 @@ pub fn list_registry_programs() -> Result<Vec<InstalledProgram>, UninstallerErro
             Ok(key) => {
                 for name in key.enum_keys().filter_map(|k| k.ok()) {
                     if let Ok(subkey) = key.open_subkey(&name) {
-                        if let Some(program) = parse_registry_entry(*hkey, path, &name, &subkey) {
-                            // 跳过系统组件和更新
-                            if !is_system_component(&program) {
+                        // Windows 的 ARP 列表使用这些注册表标记区分“安装的应用”和
+                        // 系统组件/子组件。名称或 Publisher 不是可靠的判据：例如
+                        // Windows Desktop Runtime、Visual C++ Runtime 仍然应该显示。
+                        if !is_hidden_arp_entry(&subkey, &name) {
+                            if let Some(program) = parse_registry_entry(*hkey, path, &name, &subkey)
+                            {
                                 programs.push(program);
                             }
                         }
@@ -169,42 +172,64 @@ fn build_registry_key_path(hkey: winreg::HKEY, parent_path: &str, subkey_name: &
     format!("{}\\{}\\{}", format_hkey(hkey), parent_path, subkey_name)
 }
 
-fn is_system_component(program: &InstalledProgram) -> bool {
-    let system_components = [
-        "Windows",
-        "Microsoft Visual C++",
-        "Microsoft Visual Studio",
-        "Microsoft .NET",
-        "Windows Defender",
-        "Windows Security",
-    ];
+fn is_hidden_arp_entry(subkey: &RegKey, subkey_name: &str) -> bool {
+    // ARPSYSTEMCOMPONENT=1 是 Windows Installer/ARP 的权威系统组件标记。
+    if registry_flag_is_one(subkey, "SystemComponent") {
+        return true;
+    }
 
-    // 检查名称
-    for component in &system_components {
-        if program
-            .name
-            .to_lowercase()
-            .contains(&component.to_lowercase())
-        {
-            // 但不是所有 Windows 开头的都是系统组件
-            if program.name.to_lowercase().contains("windows") {
-                // 检查是否是第三方程序
-                if let Some(publisher) = &program.publisher {
-                    if publisher.to_lowercase().contains("microsoft") {
-                        return true;
-                    }
-                }
-            }
+    // ParentKeyName/ParentDisplayName 表示安装器注册的子组件；设置中的主列表
+    // 不会把这些独立列出。只要字段存在且非空就排除，不依赖父项是否仍可打开。
+    if registry_value_is_non_empty(subkey, "ParentKeyName")
+        || registry_value_is_non_empty(subkey, "ParentDisplayName")
+    {
+        return true;
+    }
+
+    // 补丁/安全更新没有稳定的 DisplayName 约定，ReleaseType 是剩余的 ARP 语义标记。
+    if let Ok(release_type) = subkey.get_value::<String, _>("ReleaseType") {
+        let normalized = release_type.trim().to_ascii_lowercase();
+        if matches!(
+            normalized.as_str(),
+            "update" | "security update" | "hotfix" | "patch" | "service pack"
+        ) {
+            return true;
         }
     }
 
-    // 检查 ParentKeyName (通常是系统组件)
-    false
+    // 仅保留 KB 名称检查作为没有 ARP 元数据的旧补丁兜底；不能按 Microsoft/Windows
+    // 名称过滤，否则会误删 Windows Runtime、VC Runtime 等设置中可见应用。
+    let name = subkey
+        .get_value::<String, _>("DisplayName")
+        .unwrap_or_else(|_| subkey_name.to_string());
+    name.trim_start().to_ascii_lowercase().starts_with("kb")
+        || name.to_ascii_lowercase().contains("security update")
+}
+
+fn registry_flag_is_one(subkey: &RegKey, value_name: &str) -> bool {
+    subkey
+        .get_value::<u32, _>(value_name)
+        .map(|value| value == 1)
+        .or_else(|_| {
+            subkey
+                .get_value::<String, _>(value_name)
+                .map(|value| value.trim() == "1")
+        })
+        .unwrap_or(false)
+}
+
+fn registry_value_is_non_empty(subkey: &RegKey, value_name: &str) -> bool {
+    subkey
+        .get_value::<String, _>(value_name)
+        .map(|value| !value.trim().is_empty())
+        .unwrap_or(false)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{build_registry_key_path, format_hkey, HKEY_LOCAL_MACHINE};
+    use super::{build_registry_key_path, format_hkey, is_hidden_arp_entry, HKEY_LOCAL_MACHINE};
+    use winreg::enums::HKEY_CURRENT_USER;
+    use winreg::RegKey;
 
     #[test]
     fn registry_program_id_is_derived_from_full_registry_key_path() {
@@ -223,6 +248,20 @@ mod tests {
             format!("registry:{path}"),
             r"registry:HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\demo"
         );
+    }
+
+    #[test]
+    fn name_based_runtime_entries_are_not_hidden_without_arp_markers() {
+        let key = RegKey::predef(HKEY_CURRENT_USER);
+        let temp = key
+            .create_subkey(format!("Software\\RustYuTest\\{}", uuid::Uuid::new_v4()))
+            .expect("测试注册表项应可创建");
+        temp.0
+            .set_value("DisplayName", &"Microsoft Windows Desktop Runtime 8")
+            .expect("测试名称应可写入");
+
+        assert!(!is_hidden_arp_entry(&temp.0, "runtime"));
+        let _ = key.delete_subkey_all("Software\\RustYuTest");
     }
 }
 

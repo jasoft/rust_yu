@@ -37,6 +37,7 @@ import {
   Zap,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getProgramIconSrc } from "./lib/icon";
 import { completedSuccessfully, selectAvailableItem, toggleAllSelectableIds } from "./lib/appWorkflow";
@@ -83,6 +84,7 @@ import type {
   BatchUninstallItem,
   CleanResult,
   InstalledProgram,
+  MetadataWarmupProgress,
   Trace,
   UninstallJobEvent,
   UninstallJob,
@@ -212,6 +214,7 @@ export default function App() {
   const scannedTraces = useProgramsStore((state) => state.traces);
   const tracesLoading = useProgramsStore((state) => state.tracesLoading);
   const reloadPrograms = useProgramsStore((state) => state.reloadPrograms);
+  const applyMetadataProgress = useProgramsStore((state) => state.applyMetadataProgress);
   const setSearchQuery = useProgramsStore((state) => state.setSearchQuery);
   const setSourceFilter = useProgramsStore((state) => state.setSourceFilter);
   const scanTraces = useProgramsStore((state) => state.scanTraces);
@@ -264,6 +267,22 @@ export default function App() {
       cancelled = true;
     };
   }, [reloadPrograms]);
+
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    let active = true;
+    let unlisten: (() => void) | undefined;
+    void listen<MetadataWarmupProgress>("installed-program-metadata-progress", (event) => {
+      if (active) applyMetadataProgress(event.payload);
+    }).then((cleanup) => {
+      if (active) unlisten = cleanup;
+      else cleanup();
+    });
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, [applyMetadataProgress]);
 
   useEffect(() => {
     if (!isTauriRuntime()) return;

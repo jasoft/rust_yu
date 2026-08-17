@@ -24,7 +24,7 @@ const CACHE_METADATA_TABLE_NAME: &str = "cache_metadata";
 const META_KEY_SCHEMA_VERSION: &str = "schema_version";
 const META_KEY_GENERATED_AT: &str = "generated_at";
 // 程序 ID 已改为稳定的注册表项路径；递增版本以淘汰旧的随机 UUID 缓存。
-pub const CACHE_SCHEMA_VERSION: u32 = 8;
+pub const CACHE_SCHEMA_VERSION: u32 = 9;
 pub const DEFAULT_CACHE_TTL_SECONDS: i64 = 86_400;
 
 #[cfg(test)]
@@ -124,6 +124,8 @@ fn open_scan_cache_connection() -> Result<Connection, UninstallerError> {
                 icon_path TEXT,
                 icon_cache_path_32 TEXT,
                 icon_cache_path_48 TEXT,
+                icon_blob_32 BLOB,
+                icon_blob_48 BLOB,
                 size_last_updated_at TEXT,
                 payload_json TEXT NOT NULL,
                 updated_at TEXT NOT NULL
@@ -143,7 +145,49 @@ fn open_scan_cache_connection() -> Result<Connection, UninstallerError> {
         ))
         .map_err(|error| map_sqlite_error("初始化缓存数据库结构失败", error))?;
 
+    // v8 及更早缓存只保存外部图标路径；新增 BLOB 列后即使缓存目录被清理，
+    // 启动仍可从 SQLite 恢复图标。ALTER 只在列不存在时执行，保证旧数据库可迁移。
+    ensure_cache_column(&connection, "icon_blob_32", "BLOB")?;
+    ensure_cache_column(&connection, "icon_blob_48", "BLOB")?;
+    connection
+        .execute(
+            &format!(
+                "UPDATE {} SET value = ?1 WHERE key LIKE ?2 AND value = '8'",
+                CACHE_METADATA_TABLE_NAME
+            ),
+            params![
+                CACHE_SCHEMA_VERSION.to_string(),
+                format!("{META_KEY_SCHEMA_VERSION}:%")
+            ],
+        )
+        .map_err(|error| map_sqlite_error("迁移缓存版本号失败", error))?;
+
     Ok(connection)
+}
+
+fn ensure_cache_column(
+    connection: &Connection,
+    column_name: &str,
+    column_type: &str,
+) -> Result<(), UninstallerError> {
+    let mut statement = connection
+        .prepare("SELECT 1 FROM pragma_table_info(?1) WHERE name = ?2 LIMIT 1")
+        .map_err(|error| map_sqlite_error("检查缓存列失败", error))?;
+    let exists = statement
+        .exists(params![CACHE_TABLE_NAME, column_name])
+        .map_err(|error| map_sqlite_error("读取缓存列信息失败", error))?;
+    if !exists {
+        connection
+            .execute(
+                &format!(
+                    "ALTER TABLE {} ADD COLUMN {} {}",
+                    CACHE_TABLE_NAME, column_name, column_type
+                ),
+                [],
+            )
+            .map_err(|error| map_sqlite_error("迁移缓存列失败", error))?;
+    }
+    Ok(())
 }
 
 fn read_cache_metadata(
@@ -344,6 +388,13 @@ pub fn save_scan_cache(
         .transaction()
         .map_err(|error| map_sqlite_error("开启缓存事务失败", error))?;
 
+    if source == InstallSourceSelector::All {
+        // 全量扫描是当前设备的权威快照，淘汰旧的来源分区，避免启动时误读过期条目。
+        transaction
+            .execute(&format!("DELETE FROM {}", CACHE_TABLE_NAME), [])
+            .map_err(|error| map_sqlite_error("清理旧缓存失败", error))?;
+    }
+
     transaction
         .execute(
             &format!(
@@ -374,10 +425,12 @@ pub fn save_scan_cache(
                     icon_path,
                     icon_cache_path_32,
                     icon_cache_path_48,
-                    size_last_updated_at,
-                    payload_json,
-                    updated_at
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+                size_last_updated_at,
+                icon_blob_32,
+                icon_blob_48,
+                payload_json,
+                updated_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
                 CACHE_TABLE_NAME
             ))
             .map_err(|error| map_sqlite_error("准备写入缓存失败", error))?;
@@ -385,6 +438,8 @@ pub fn save_scan_cache(
         for program in entries {
             let payload_json = serde_json::to_string(program)
                 .map_err(|error| UninstallerError::Serde(error.to_string()))?;
+            let icon_blob_32 = read_icon_blob(program.icon_cache_path_32.as_deref());
+            let icon_blob_48 = read_icon_blob(program.icon_cache_path_48.as_deref());
             statement
                 .execute(params![
                     source.as_str(),
@@ -402,6 +457,8 @@ pub fn save_scan_cache(
                     program.icon_cache_path_32,
                     program.icon_cache_path_48,
                     program.size_last_updated_at,
+                    icon_blob_32,
+                    icon_blob_48,
                     payload_json,
                     now,
                 ])
@@ -484,23 +541,17 @@ pub fn read_scan_cache(
         }
     };
 
+    // 过期只表示需要后台刷新，不表示启动时不能显示已有数据。调用方会读取
+    // cache_hit=true/cache_valid=false，并在不清空列表的情况下启动增量扫描。
     let ttl = ttl_seconds.max(1);
-    if Utc::now()
+    let cache_expired = Utc::now()
         .signed_duration_since(generated_at_time)
         .num_seconds()
-        > ttl
-    {
-        return Ok(ScanCacheReadResult {
-            schema_version,
-            generated_at: Some(generated_at_value),
-            reason: Some("cache_expired".to_string()),
-            ..ScanCacheReadResult::default()
-        });
-    }
+        > ttl;
 
     let mut statement = connection
         .prepare(&format!(
-            "SELECT payload_json FROM {} WHERE source_selector = ?1 ORDER BY name COLLATE NOCASE",
+            "SELECT payload_json, icon_blob_32, icon_blob_48 FROM {} WHERE source_selector = ?1 ORDER BY name COLLATE NOCASE",
             CACHE_TABLE_NAME
         ))
         .map_err(|error| map_sqlite_error("准备读取缓存列表失败", error))?;
@@ -517,6 +568,12 @@ pub fn read_scan_cache(
         let payload_json = row
             .get::<usize, String>(0)
             .map_err(|error| map_sqlite_error("读取缓存负载失败", error))?;
+        let icon_blob_32 = row
+            .get::<usize, Option<Vec<u8>>>(1)
+            .map_err(|error| map_sqlite_error("读取 32px 图标缓存失败", error))?;
+        let icon_blob_48 = row
+            .get::<usize, Option<Vec<u8>>>(2)
+            .map_err(|error| map_sqlite_error("读取 48px 图标缓存失败", error))?;
         if let Ok(mut program) = serde_json::from_str::<InstalledProgram>(&payload_json) {
             program.normalize_uninstall_kind();
             // SQLite 中保存的是持久化索引，图标文件仍可能被用户或清理工具移除。
@@ -539,6 +596,12 @@ pub fn read_scan_cache(
             {
                 program.icon_cache_path_48 = None;
             }
+            if program.icon_cache_path_32.is_none() {
+                program.icon_cache_path_32 = materialize_icon_blob(icon_blob_32.as_deref(), 32);
+            }
+            if program.icon_cache_path_48.is_none() {
+                program.icon_cache_path_48 = materialize_icon_blob(icon_blob_48.as_deref(), 48);
+            }
             programs.push(program);
         }
     }
@@ -555,11 +618,36 @@ pub fn read_scan_cache(
     Ok(ScanCacheReadResult {
         entries: Some(programs),
         cache_hit: true,
-        cache_valid: true,
+        cache_valid: !cache_expired,
         schema_version,
         generated_at: Some(generated_at_value),
-        reason: None,
+        reason: cache_expired.then_some("cache_expired".to_string()),
     })
+}
+
+const MAX_ICON_BLOB_BYTES: usize = 2 * 1024 * 1024;
+
+fn read_icon_blob(path: Option<&str>) -> Option<Vec<u8>> {
+    let path = path?;
+    let bytes = std::fs::read(path).ok()?;
+    (bytes.len() <= MAX_ICON_BLOB_BYTES).then_some(bytes)
+}
+
+fn materialize_icon_blob(bytes: Option<&[u8]>, size: u32) -> Option<String> {
+    let bytes = bytes?;
+    if bytes.is_empty() || bytes.len() > MAX_ICON_BLOB_BYTES {
+        return None;
+    }
+    let mut hasher = DefaultHasher::new();
+    size.hash(&mut hasher);
+    bytes.hash(&mut hasher);
+    let cache_dir = get_icon_cache_dir().ok()?.join(size.to_string());
+    std::fs::create_dir_all(&cache_dir).ok()?;
+    let path = cache_dir.join(format!("sqlite-{:016x}.png", hasher.finish()));
+    if !path.is_file() && std::fs::write(&path, bytes).is_err() {
+        return None;
+    }
+    Some(path.to_string_lossy().to_string())
 }
 
 /// 使扫描缓存失效
@@ -571,9 +659,19 @@ pub fn invalidate_scan_cache() -> Result<(), UninstallerError> {
     Ok(())
 }
 
-/// 按程序名称使缓存失效（当前实现保守地整表失效）
-pub fn invalidate_scan_cache_for_program(_program_name: &str) -> Result<(), UninstallerError> {
-    invalidate_scan_cache()
+/// 按程序名称移除单个缓存项，避免卸载一个应用时让整个列表失效。
+pub fn invalidate_scan_cache_for_program(program_name: &str) -> Result<(), UninstallerError> {
+    let connection = open_scan_cache_connection()?;
+    connection
+        .execute(
+            &format!(
+                "DELETE FROM {} WHERE lower(name) = lower(?1)",
+                CACHE_TABLE_NAME
+            ),
+            params![program_name],
+        )
+        .map_err(|error| map_sqlite_error("移除单个程序缓存失败", error))?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -629,6 +727,32 @@ mod tests {
         assert!(result.cache_valid);
         assert!(result.entries.unwrap_or_default().len() == 1);
 
+        cleanup_storage_root(&root);
+    }
+
+    #[test]
+    fn read_scan_cache_keeps_expired_entries_for_background_refresh() {
+        let _guard = super::TEST_STORAGE_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let root = with_storage_root("expired-visible");
+        let program =
+            InstalledProgram::new("Stale but visible".to_string(), InstallSource::Registry);
+        assert!(save_scan_cache(InstallSourceSelector::All, &[program]).is_ok());
+        let connection = open_scan_cache_connection().expect("cache should open");
+        let old_time = (Utc::now() - chrono::Duration::days(2)).to_rfc3339();
+        assert!(write_cache_metadata(
+            &connection,
+            &cache_metadata_key(META_KEY_GENERATED_AT, InstallSourceSelector::All),
+            &old_time,
+        )
+        .is_ok());
+
+        let result = read_scan_cache(InstallSourceSelector::All, 1).unwrap_or_default();
+        assert!(result.cache_hit);
+        assert!(!result.cache_valid);
+        assert_eq!(result.reason.as_deref(), Some("cache_expired"));
+        assert_eq!(result.entries.unwrap_or_default().len(), 1);
         cleanup_storage_root(&root);
     }
 
@@ -795,6 +919,31 @@ mod tests {
             standard_entries.first().map(|program| program.name.clone()),
             Some("StandardOnly".to_string())
         );
+
+        cleanup_storage_root(&root);
+    }
+
+    #[test]
+    fn save_all_scan_cache_removes_stale_source_partitions() {
+        let _guard = super::TEST_STORAGE_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let root = with_storage_root("all-replaces-source-partitions");
+        let stale = InstalledProgram::new("Stale Registry".to_string(), InstallSource::Registry);
+        let fresh = InstalledProgram::new("Fresh Store".to_string(), InstallSource::Store);
+
+        assert!(save_scan_cache(InstallSourceSelector::Standard, &[stale]).is_ok());
+        assert!(save_scan_cache(InstallSourceSelector::All, &[fresh]).is_ok());
+
+        let connection = open_scan_cache_connection().expect("cache should open");
+        let count: i64 = connection
+            .query_row(
+                &format!("SELECT COUNT(*) FROM {}", CACHE_TABLE_NAME),
+                [],
+                |row| row.get(0),
+            )
+            .expect("cache count should be readable");
+        assert_eq!(count, 1);
 
         cleanup_storage_root(&root);
     }

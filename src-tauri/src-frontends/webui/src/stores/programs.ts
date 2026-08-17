@@ -10,6 +10,7 @@ import type {
   CleanupSelection,
   UninstallJob,
   UninstallJobResponse,
+  MetadataWarmupProgress,
 } from "../types";
 import type { ProgramSourceFilter } from "../lib/programFilters";
 import { hasMissingProgramIcons } from "../lib/programFilters";
@@ -36,6 +37,8 @@ interface ProgramsState {
 
   loadPrograms: (options?: { refresh?: boolean }) => Promise<void>;
   reloadPrograms: (options?: { refresh?: boolean }) => Promise<void>;
+  refreshProgramsInBackground: () => Promise<void>;
+  applyMetadataProgress: (progress: MetadataWarmupProgress) => void;
   warmupIcons: () => Promise<boolean>;
   setSearchQuery: (query: string) => void;
   setSourceFilter: (source: ProgramSourceFilter) => void;
@@ -62,6 +65,8 @@ function extractErrorMessage(error: unknown): string {
   }
   return String(error);
 }
+
+let backgroundRefreshPromise: Promise<void> | null = null;
 
 export const useProgramsStore = create<ProgramsState>((set, get) => ({
   programs: [],
@@ -100,13 +105,66 @@ export const useProgramsStore = create<ProgramsState>((set, get) => ({
   },
 
   reloadPrograms: async (options) => {
-    await get().loadPrograms(options);
+    // 先显示 SQLite 中的上次结果；即使缓存过期也不能把列表清空。
+    await get().loadPrograms({ refresh: false });
     if (get().error) return;
 
-    // 基础列表不会同步生成图标文件；等待预热完成后再读取一次列表，
-    // 确保 UI 使用最新的缓存图标路径。
-    const iconsUpdated = await get().warmupIcons();
-    if (iconsUpdated && !get().error) await get().loadPrograms();
+    const refreshPromise = get().refreshProgramsInBackground();
+    // 手动刷新按钮需要等待清单刷新完成；启动路径则立刻返回，把所有 I/O
+    // 放到后台，用户可以马上使用已有列表。
+    if (options?.refresh) await refreshPromise;
+    else void refreshPromise;
+  },
+
+  refreshProgramsInBackground: async () => {
+    if (backgroundRefreshPromise) return backgroundRefreshPromise;
+
+    backgroundRefreshPromise = (async () => {
+      try {
+        const response = await invoke<ProgramListResponse>("list_programs", {
+          options: { source: "all", search: undefined, refresh: true },
+        });
+        // 增量扫描完成后才替换清单；扫描期间旧列表仍然可交互。
+        set({ programs: response.programs, error: null });
+        set({ metadataLoading: true });
+
+        await invoke("warmup_program_metadata", {
+          options: {
+            source: "all",
+            refresh: false,
+            icons: true,
+            sizes: true,
+            progress_event: "installed-program-metadata-progress",
+          },
+        });
+
+        // 预热按应用逐项写入 SQLite，最后只读取缓存，不再次扫描系统。
+        const finalResponse = await invoke<ProgramListResponse>("list_programs", {
+          options: { source: "all", search: undefined, refresh: false },
+        });
+        set({ programs: finalResponse.programs, error: null });
+      } catch (e) {
+        // 后台刷新失败不能覆盖已经可用的缓存列表；仅保留错误供状态栏显示。
+        set({ error: extractErrorMessage(e) });
+      } finally {
+        set({ metadataLoading: false });
+        backgroundRefreshPromise = null;
+      }
+    })();
+
+    return backgroundRefreshPromise;
+  },
+
+  applyMetadataProgress: (progress) => {
+    const updated = progress.program;
+    if (!updated) return;
+    set((state) => ({
+      programs: state.programs.map((program) =>
+        program.id === updated.id ? updated : program,
+      ),
+      selectedProgram:
+        state.selectedProgram?.id === updated.id ? updated : state.selectedProgram,
+    }));
   },
 
   warmupIcons: async () => {

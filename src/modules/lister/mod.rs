@@ -49,11 +49,11 @@ pub fn list_programs_with_cache(
         cache_state.generated_at = cached.generated_at.clone();
         cache_state.reason = cached.reason.clone();
 
-        if cached.cache_hit && cached.cache_valid {
+        if cached.cache_hit {
             let mut cached_programs = cached.entries.unwrap_or_default();
             apply_search_filter(&mut cached_programs, query.search.as_deref());
             cache_state.cache_hit = true;
-            cache_state.cache_valid = true;
+            cache_state.cache_valid = cached.cache_valid;
             cache_state.refreshed = false;
             return Ok(ProgramListResponse {
                 programs: cached_programs,
@@ -279,16 +279,46 @@ fn collect_programs(source: InstallSourceSelector) -> Vec<InstalledProgram> {
     let mut all_programs = Vec::new();
     let sources = collect_program_sources(source);
 
+    // Registry 与 MSI 是同一套 ARP 数据的两个分类视图。旧实现分别扫描后再按
+    // 显示名称去重，会丢失同名应用并让 MSI 子组件重新进入列表；这里一次扫描，
+    // 再按稳定来源过滤，确保 All 不产生重复条目。
+    let registry_programs = if sources
+        .iter()
+        .any(|source| matches!(source, InstallSource::Registry | InstallSource::Msi))
+    {
+        match registry::list_registry_programs() {
+            Ok(programs) => Some(programs),
+            Err(error) => {
+                tracing::warn!("读取注册表程序失败: {}", error);
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     for src in &sources {
         match src {
-            InstallSource::Registry => match registry::list_registry_programs() {
-                Ok(programs) => all_programs.extend(programs),
-                Err(error) => tracing::warn!("读取注册表程序失败: {}", error),
-            },
-            InstallSource::Msi => match msi::list_msi_products() {
-                Ok(programs) => all_programs.extend(programs),
-                Err(error) => tracing::warn!("读取 MSI 程序失败: {}", error),
-            },
+            InstallSource::Registry => {
+                if let Some(programs) = registry_programs.as_ref() {
+                    all_programs.extend(
+                        programs
+                            .iter()
+                            .filter(|program| program.install_source == InstallSource::Registry)
+                            .cloned(),
+                    );
+                }
+            }
+            InstallSource::Msi => {
+                if let Some(programs) = registry_programs.as_ref() {
+                    all_programs.extend(
+                        programs
+                            .iter()
+                            .filter(|program| program.install_source == InstallSource::Msi)
+                            .cloned(),
+                    );
+                }
+            }
             InstallSource::Store => match store::list_store_apps() {
                 Ok(programs) => all_programs.extend(programs),
                 Err(error) => tracing::warn!("读取商店应用失败: {}", error),
@@ -347,7 +377,37 @@ fn restore_cached_icon_metadata(
 
 fn dedupe_and_sort(programs: &mut Vec<InstalledProgram>) {
     let mut seen = std::collections::HashSet::new();
-    programs.retain(|program| seen.insert(program.name.to_lowercase()));
+    let mut seen_display_aliases = std::collections::HashSet::new();
+    // 只有稳定身份相同时才合并；同名不同厂商/来源的应用必须同时保留。
+    programs.retain(|program| {
+        let display_alias = format!(
+            "{}|{}",
+            program.name.trim().to_ascii_lowercase(),
+            program
+                .publisher
+                .as_deref()
+                .unwrap_or_default()
+                .trim()
+                .to_ascii_lowercase()
+        );
+        // 同一产品可能同时注册 ARP 和 Appx（典型例子是 Microsoft Edge）。
+        // Windows 设置合并为一个条目；优先保留 ARP/ MSI 的可卸载身份，跳过后来的
+        // Store 别名。不同发布者的同名应用仍由稳定身份逻辑分别保留。
+        if program.install_source == InstallSource::Store
+            && seen_display_aliases.contains(&display_alias)
+        {
+            return false;
+        }
+        seen_display_aliases.insert(display_alias);
+        let identity = if program.id.starts_with("registry:")
+            || program.install_source == InstallSource::Store
+        {
+            program.id.to_ascii_lowercase()
+        } else {
+            storage::build_program_cache_key(program)
+        };
+        seen.insert(identity)
+    });
     programs.sort_by(|left, right| left.name.to_lowercase().cmp(&right.name.to_lowercase()));
 }
 
@@ -411,7 +471,7 @@ mod tests {
     }
 
     #[test]
-    fn dedupe_and_sort_collapses_case_insensitive_duplicates() {
+    fn dedupe_and_sort_preserves_same_name_from_different_publishers() {
         let mut programs = vec![
             sample_program("beta", None),
             sample_program("Alpha", None),
@@ -421,7 +481,10 @@ mod tests {
         dedupe_and_sort(&mut programs);
 
         let names: Vec<_> = programs.into_iter().map(|program| program.name).collect();
-        assert_eq!(names, vec!["Alpha".to_string(), "beta".to_string()]);
+        assert_eq!(
+            names,
+            vec!["Alpha".to_string(), "alpha".to_string(), "beta".to_string()]
+        );
     }
 
     #[test]

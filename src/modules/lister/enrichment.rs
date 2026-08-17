@@ -53,6 +53,7 @@ pub fn sanitize_icon_path(raw: &str) -> Option<String> {
 
 /// 对程序元数据做增强和保守降级
 pub fn enrich_program(program: &mut InstalledProgram) {
+    enrich_msi_metadata(program);
     // Delphi 版会在 LoadAdditionalInfo 中用卸载器命令反推真实安装目录；
     // 列表阶段只做轻量分析，不执行目录大小扫描，避免阻塞主线程。
     if let Some(analysis) = analyzer::analyze_program(program) {
@@ -385,9 +386,19 @@ fn decode_fixed_legacy_text(bytes: &[u8], offset: usize, length: usize) -> Optio
 }
 
 fn resolve_program_icon_path(program: &mut InstalledProgram) {
+    if program.icon_path.is_none() {
+        program.icon_path = find_app_paths_icon(program);
+    }
+    if program.icon_path.is_none() {
+        program.icon_path = find_icon_from_uninstall_command(program);
+    }
     let sanitized_registry_icon = program.icon_path.as_deref().and_then(sanitize_icon_path);
     let fallback_icon = find_icon_from_install_location(program.install_location.as_deref());
-    let resolved_icon_path = sanitized_registry_icon.clone().or(fallback_icon);
+    let uninstall_icon = find_icon_from_uninstall_command(program);
+    let resolved_icon_path = sanitized_registry_icon
+        .clone()
+        .or(fallback_icon)
+        .or(uninstall_icon);
 
     if let Some(icon_path) = resolved_icon_path {
         program.icon_path = Some(icon_path);
@@ -415,6 +426,17 @@ fn resolve_program_icon_path(program: &mut InstalledProgram) {
         program.icon_source = MetadataSource::Unknown;
         program.icon_confidence = MetadataConfidence::Low;
     }
+}
+
+fn find_icon_from_uninstall_command(program: &InstalledProgram) -> Option<String> {
+    [
+        program.uninstall_string.as_deref(),
+        program.quiet_uninstall_string.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .filter_map(extract_icon_path_candidate)
+    .find_map(|candidate| sanitize_icon_path(&candidate))
 }
 
 fn refresh_metadata_confidence(program: &mut InstalledProgram) {
@@ -532,43 +554,227 @@ fn find_icon_from_install_location(install_location: Option<&str>) -> Option<Str
         return None;
     }
 
+    let root_hint = root
+        .file_name()
+        .map(|value| value.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
     let mut scanned = 0usize;
-    let mut fallback: Option<PathBuf> = None;
-    let entries = std::fs::read_dir(root).ok()?;
+    let mut candidates: Vec<(i32, PathBuf)> = Vec::new();
+    let mut pending = vec![(root.to_path_buf(), 0usize)];
 
-    for entry in entries.flatten() {
-        if scanned >= ICON_SCAN_MAX_ENTRIES {
-            break;
-        }
-        scanned += 1;
-
-        let path = entry.path();
-        if !path.is_file() {
+    // Legacy 安装器常把真正的主程序放在 bin/app 子目录；只下探一层并设置上限，
+    // 既能覆盖更多图标，又不会把整个安装目录变成同步扫描任务。
+    while let Some((directory, depth)) = pending.pop() {
+        let Ok(entries) = std::fs::read_dir(&directory) else {
             continue;
-        }
-
-        let extension = path
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .map(|ext| ext.to_ascii_lowercase());
-
-        match extension.as_deref() {
-            Some("ico") => return Some(path.to_string_lossy().to_string()),
-            Some("exe") => {
-                if fallback.is_none() {
-                    fallback = Some(path);
-                }
+        };
+        for entry in entries.flatten() {
+            if scanned >= ICON_SCAN_MAX_ENTRIES {
+                break;
             }
-            Some("dll") => {
-                if fallback.is_none() {
-                    fallback = Some(path);
-                }
+            scanned += 1;
+            let path = entry.path();
+            if path.is_dir() && depth == 0 {
+                pending.push((path, depth + 1));
+                continue;
             }
-            _ => {}
+            if !path.is_file() {
+                continue;
+            }
+
+            let extension = path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .map(|ext| ext.to_ascii_lowercase());
+            let Some(extension) = extension.as_deref() else {
+                continue;
+            };
+            let supported = matches!(extension, "ico" | "exe" | "dll");
+            if !supported {
+                continue;
+            }
+
+            let stem = path
+                .file_stem()
+                .map(|value| value.to_string_lossy().to_ascii_lowercase())
+                .unwrap_or_default();
+            let mut score = match extension {
+                "ico" => 100,
+                "exe" => 70,
+                "dll" => 45,
+                _ => 0,
+            };
+            if !root_hint.is_empty() && stem.contains(&root_hint) {
+                score += 35;
+            }
+            if stem.contains("uninstall") || stem.contains("unins") || stem.contains("setup") {
+                score -= 30;
+            }
+            if depth > 0 {
+                score -= 5;
+            }
+            candidates.push((score, path));
         }
     }
 
-    fallback.map(|path| path.to_string_lossy().to_string())
+    candidates
+        .into_iter()
+        .max_by_key(|(score, _)| *score)
+        .map(|(_, path)| path.to_string_lossy().to_string())
+}
+
+#[cfg(windows)]
+fn enrich_msi_metadata(program: &mut InstalledProgram) {
+    if program.install_source != InstallSource::Msi {
+        return;
+    }
+    let Some(product_code) = program
+        .uninstall_registry_key_path
+        .as_deref()
+        .and_then(|path| path.rsplit('\\').next())
+        .filter(|value| value.starts_with('{') && value.ends_with('}'))
+    else {
+        return;
+    };
+
+    if program
+        .install_location
+        .as_deref()
+        .map(Path::new)
+        .map(|path| !path.is_dir())
+        .unwrap_or(true)
+    {
+        if let Some(location) = msi_product_property(product_code, windows::Win32::System::ApplicationInstallationAndServicing::INSTALLPROPERTY_INSTALLLOCATION) {
+            let location_path = Path::new(&location);
+            if location_path.is_dir() {
+                program.install_location = Some(location);
+            }
+        }
+    }
+
+    if program.icon_path.is_none() {
+        program.icon_path = msi_product_property(
+            product_code,
+            windows::Win32::System::ApplicationInstallationAndServicing::INSTALLPROPERTY_PRODUCTICON,
+        );
+        if program.icon_path.is_some() {
+            program.icon_source = MetadataSource::Derived;
+            program.icon_confidence = MetadataConfidence::High;
+        }
+    }
+}
+
+#[cfg(windows)]
+fn msi_product_property(product_code: &str, property: windows::core::PCWSTR) -> Option<String> {
+    use windows::core::{PCWSTR, PWSTR};
+    use windows::Win32::Foundation::{ERROR_MORE_DATA, ERROR_SUCCESS};
+    use windows::Win32::System::ApplicationInstallationAndServicing::MsiGetProductInfoW;
+
+    let product_code_utf16 = product_code
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    let product_code = PCWSTR::from_raw(product_code_utf16.as_ptr());
+    let mut buffer = vec![0u16; 1024];
+    let mut length = buffer.len() as u32;
+    let mut status = unsafe {
+        MsiGetProductInfoW(
+            product_code,
+            property,
+            Some(PWSTR(buffer.as_mut_ptr())),
+            Some(&mut length),
+        )
+    };
+    if status == ERROR_MORE_DATA.0 {
+        let required = usize::try_from(length).ok()?.saturating_add(1);
+        if required > 64 * 1024 {
+            return None;
+        }
+        buffer.resize(required, 0);
+        length = buffer.len() as u32;
+        status = unsafe {
+            MsiGetProductInfoW(
+                product_code,
+                property,
+                Some(PWSTR(buffer.as_mut_ptr())),
+                Some(&mut length),
+            )
+        };
+    }
+    if status != ERROR_SUCCESS.0 {
+        return None;
+    }
+    let end = usize::try_from(length).ok()?.min(buffer.len());
+    let value = String::from_utf16_lossy(&buffer[..end]).trim().to_string();
+    (!value.is_empty()).then_some(value)
+}
+
+#[cfg(not(windows))]
+fn enrich_msi_metadata(_program: &mut InstalledProgram) {}
+
+#[cfg(windows)]
+fn find_app_paths_icon(program: &InstalledProgram) -> Option<String> {
+    use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
+    use winreg::RegKey;
+
+    let roots = [HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE];
+    let normalized_name = program.name.to_ascii_lowercase();
+    let app_paths = r"Software\Microsoft\Windows\CurrentVersion\App Paths";
+    let mut best: Option<(i32, String)> = None;
+
+    for hive in roots {
+        let Ok(root) = RegKey::predef(hive).open_subkey(app_paths) else {
+            continue;
+        };
+        for key_name in root.enum_keys().filter_map(Result::ok).take(256) {
+            let Ok(key) = root.open_subkey(&key_name) else {
+                continue;
+            };
+            let executable_stem = Path::new(&key_name)
+                .file_stem()
+                .map(|value| value.to_string_lossy().to_ascii_lowercase())
+                .unwrap_or_default();
+            if executable_stem.is_empty() {
+                continue;
+            }
+            let name_match = normalized_name.contains(&executable_stem)
+                || executable_stem.contains(
+                    normalized_name
+                        .split_whitespace()
+                        .next()
+                        .unwrap_or_default(),
+                );
+            if !name_match {
+                continue;
+            }
+
+            let raw_icon = key
+                .get_value::<String, _>("DefaultIcon")
+                .ok()
+                .or_else(|| key.get_value::<String, _>("").ok());
+            let Some(raw_icon) = raw_icon else {
+                continue;
+            };
+            let Some(icon_path) = sanitize_icon_path(&raw_icon) else {
+                continue;
+            };
+            let score = if normalized_name.contains(&executable_stem) {
+                20
+            } else {
+                10
+            };
+            if best.as_ref().map(|(old, _)| *old < score).unwrap_or(true) {
+                best = Some((score, icon_path));
+            }
+        }
+    }
+
+    best.map(|(_, path)| path)
+}
+
+#[cfg(not(windows))]
+fn find_app_paths_icon(_program: &InstalledProgram) -> Option<String> {
+    None
 }
 
 #[derive(Debug, Clone)]
