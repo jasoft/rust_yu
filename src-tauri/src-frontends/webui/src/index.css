@@ -75,10 +75,11 @@ button { color: inherit; }
 .program-table { min-width: 0; overflow: hidden; display: flex; flex-direction: column; }
 .program-grid-shell { min-width: 0; min-height: 0; flex: 1; display: flex; }
 .program-grid { min-width: 0; min-height: 0; flex: 1; height: 100%; border: 0; border-radius: 0; --rdg-font-size: 14px; --rdg-color-scheme: light; --rdg-color: var(--text); --rdg-background-color: var(--surface); --rdg-header-background-color: #f8fafc; --rdg-border-color: var(--border-soft); --rdg-row-hover-background-color: #f6f9fc; --rdg-row-selected-background-color: #e8f3fd; --rdg-row-selected-hover-background-color: #e8f3fd; --rdg-selection-color: transparent; }
-.program-grid [role="columnheader"] { color: #71808e; font-size: 13px; font-weight: 600; position: relative; }
+.program-grid [role="columnheader"] { color: #71808e; font-size: 13px; font-weight: 600; position: relative; padding-inline-end: 14px; }
 .program-grid [role="columnheader"]:not(:last-child)::after { content: ""; position: absolute; inset-block: 7px; inset-inline-end: 0; inline-size: 1px; background: #d8e1e8; pointer-events: none; }
 .program-grid [role="columnheader"]:first-child,
 .program-grid [role="gridcell"]:first-child { padding-inline-start: 13px; }
+.program-grid [role="columnheader"]:first-child { padding-inline-end: 8px; }
 .program-grid .rdg-resize-handle { inline-size: 16px; inset-block: 7px; }
 .program-grid .rdg-resize-handle:hover,
 .program-grid .rdg-resize-handle:focus-visible { background: repeating-linear-gradient(to bottom, #8298aa 0 2px, transparent 2px 4px) right center / 2px 100% no-repeat; }
