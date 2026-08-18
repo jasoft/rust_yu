@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:preview": "vite --host 127.0.0.1",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "test": "npm run test:i18n && vitest run --exclude tests/programFilters.test.mjs --exclude tests/softwareInformationArchitecture.test.mjs && node --experimental-strip-types --test tests/programFilters.test.mjs tests/softwareInformationArchitecture.test.mjs",

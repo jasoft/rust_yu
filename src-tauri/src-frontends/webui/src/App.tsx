@@ -122,6 +122,30 @@ const mockPrograms: UiProgram[] = [
   { id: "terminal", name: "Windows Terminal", publisher: "Microsoft Corporation", version: "1.20", size: "74.1 MB", installed: "2025/05/06", location: "C:\\Program Files\\WindowsApps", icon: ">_", iconClass: "terminal" },
   { id: "discord", name: "Discord", publisher: "Discord Inc.", version: "1.0", size: "106 MB", installed: "2025/04/30", location: "C:\\Users\\Admin\\AppData\\Local\\Discord", icon: "D", iconClass: "discord" },
   { id: "everything", name: "Everything 1.4.1.1026 (x64)", publisher: "voidtools", version: "1.4.1", size: "3.14 MB", installed: "2025/05/03", location: "C:\\Program Files\\Everything", icon: "Q", iconClass: "everything" },
+  ...Array.from({ length: 70 }, (_, index): UiProgram => {
+    const row = index + 1;
+    const names = ["Rust Yu Preview Utility", "Windows SDK Components", "Acme Document Suite", "Contoso Media Tools", "Northwind Data Client"];
+    const publishers = ["Rust Yu Team", "Microsoft Corporation", "Acme Software Ltd.", "Contoso Labs", "Northwind Systems"];
+    const name = row % 10 === 0
+      ? `Enterprise Integration Toolkit ${row} - Windows x64 Preview Edition`
+      : `${names[index % names.length]} ${row}`;
+    const publisher = row % 8 === 0
+      ? "East China Software Services (Preview)"
+      : publishers[index % publishers.length];
+    const month = String((row % 12) + 1).padStart(2, "0");
+    const day = String((row % 27) + 1).padStart(2, "0");
+    return {
+      id: `preview-${row}`,
+      name,
+      publisher,
+      version: `1.${row}.0`,
+      size: row % 4 === 0 ? `${(row * 37) % 900 + 100} MB` : `${(row * 13) % 4 + 1}.${row % 10} GB`,
+      installed: `2025/${month}/${day}`,
+      location: `C:\\Program Files\\RustYuPreview\\Package-${row}`,
+      icon: publishers[index % publishers.length].slice(0, 2).toUpperCase(),
+      iconClass: "generic",
+    };
+  }),
 ];
 
 const demoTraces: Trace[] = [
