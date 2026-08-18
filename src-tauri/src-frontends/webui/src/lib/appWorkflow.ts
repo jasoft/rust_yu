@@ -11,6 +11,13 @@ export function completedSuccessfully(result: { phase: string } | null): boolean
   return result?.phase === "completed";
 }
 
+export function shouldFinalizeSkippedCleanupLocally(
+  nativeRuntime: boolean,
+  jobId: string | null | undefined,
+): boolean {
+  return !nativeRuntime || !jobId;
+}
+
 export function toggleAllSelectableIds<T extends { id: string; is_critical?: boolean }>(
   items: T[],
   selectedIds: ReadonlySet<string>,

@@ -41,7 +41,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getProgramIconSrc } from "./lib/icon";
 import { formatWindowsDate } from "./lib/date";
-import { completedSuccessfully, selectAvailableItem, toggleAllSelectableIds } from "./lib/appWorkflow";
+import { completedSuccessfully, selectAvailableItem, shouldFinalizeSkippedCleanupLocally, toggleAllSelectableIds } from "./lib/appWorkflow";
 import {
   countProgramsBySource,
   filterPrograms,
@@ -255,6 +255,7 @@ export default function App() {
   const [selectedTraceIds, setSelectedTraceIds] = useState<Set<string>>(new Set());
   const [cleanConfirm, setCleanConfirm] = useState(false);
   const [cleanupPending, setCleanupPending] = useState(false);
+  const [skipCleanupFailure, setSkipCleanupFailure] = useState<string | null>(null);
   const [cleanResults, setCleanResults] = useState<CleanResult[]>([]);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [manualScanPending, setManualScanPending] = useState(false);
@@ -602,22 +603,32 @@ export default function App() {
   };
 
   const skipCleanup = async () => {
-    if (!isTauriRuntime()) {
+    if (cleanupPending) return;
+    setSkipCleanupFailure(null);
+    const jobId = useProgramsStore.getState().uninstallJob?.snapshot.job_id;
+    if (shouldFinalizeSkippedCleanupLocally(isTauriRuntime(), jobId)) {
+      setCleanResults([]);
+      setCleanupPending(false);
       setStage("complete");
       return;
     }
-    const jobId = useProgramsStore.getState().uninstallJob?.snapshot.job_id;
     if (!jobId) return;
     setCleanupPending(true);
-    const result = await finishUninstall(jobId);
-    setCleanupPending(false);
-    if (completedSuccessfully(result)) setStage("complete");
+    try {
+      const result = await finishUninstall(jobId);
+      if (completedSuccessfully(result)) setStage("complete");
+    } catch (error) {
+      setSkipCleanupFailure(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCleanupPending(false);
+    }
   };
 
   const exitUninstallFlow = () => {
     setStage("apps");
     setCleanConfirm(false);
     setCleanupPending(false);
+    setSkipCleanupFailure(null);
     setCleanResults([]);
     setScanStatus("uninstalling");
     setScanMode("uninstall");
@@ -709,7 +720,7 @@ export default function App() {
               traces={traces}
               selectedIds={selectedTraceIds}
               cleanupPending={cleanupPending}
-              error={uninstallFailure}
+              error={skipCleanupFailure ?? uninstallFailure}
               onToggle={(id) => setSelectedTraceIds((current) => {
                 const next = new Set(current);
                 if (next.has(id)) next.delete(id); else next.add(id);
@@ -718,8 +729,8 @@ export default function App() {
               onToggleAll={() => {
                 setSelectedTraceIds((current) => toggleAllSelectableIds(traces, current));
               }}
-              allowBack={!uninstallJob}
-              onBack={exitUninstallFlow}
+              allowCancel={!uninstallJob}
+              onCancel={exitUninstallFlow}
               onSkip={() => void skipCleanup()}
               onRescan={handleManualScan}
               onClean={() => setCleanConfirm(true)}
@@ -1467,8 +1478,8 @@ function ForceUninstallModal({
 }
 
 function ReviewStage(props: {
-  traces: Trace[]; selectedIds: Set<string>; onToggle: (id: string) => void; onToggleAll: () => void; onBack: () => void; onClean: () => void;
-  allowBack: boolean; cleanupPending: boolean; error: string | null; onSkip: () => void; onRescan: () => void; confirmOpen: boolean; onConfirmClose: () => void; onConfirm: () => void;
+  traces: Trace[]; selectedIds: Set<string>; onToggle: (id: string) => void; onToggleAll: () => void; onCancel: () => void; onClean: () => void;
+  allowCancel: boolean; cleanupPending: boolean; error: string | null; onSkip: () => void; onRescan: () => void; confirmOpen: boolean; onConfirmClose: () => void; onConfirm: () => void;
 }) {
   const systemTraces = props.traces.filter((trace) => trace.trace_type === "scheduled_task" || trace.trace_type === "service" || trace.trace_type === "driver");
   const fileTraces = props.traces.filter((trace) => trace.trace_type !== "registry_key" && trace.trace_type !== "registry_value" && trace.trace_type !== "scheduled_task" && trace.trace_type !== "service" && trace.trace_type !== "driver");
@@ -1479,7 +1490,7 @@ function ReviewStage(props: {
   const uncertainSelectedCount = props.traces.filter((trace) => props.selectedIds.has(trace.id) && trace.confidence !== "high").length;
   return (
     <div className={`page review-page${props.cleanupPending ? " is-cleaning" : ""}`} data-testid="workflow-review" aria-busy={props.cleanupPending}>
-      <SectionHeader title={t("app.message_227")} subtitle={t("app.message_228", { value0: props.traces.length, value1: formatBytes(props.traces.reduce((sum, trace) => sum + (trace.size ?? 0), 0)), value2: props.selectedIds.size })} action={<div className="review-header-actions"><button className="link-button" disabled={props.cleanupPending} onClick={props.onToggleAll}><Check size={14} />{allSelected ? t("uninstall.action.clear_all") : t("uninstall.action.select_all")}</button>{props.allowBack && <button className="link-button" disabled={props.cleanupPending} onClick={props.onRescan}><RotateCcw size={14} />{t("app.message_229")}</button>}</div>} />
+      <SectionHeader title={t("app.message_227")} subtitle={t("app.message_228", { value0: props.traces.length, value1: formatBytes(props.traces.reduce((sum, trace) => sum + (trace.size ?? 0), 0)), value2: props.selectedIds.size })} action={<div className="review-header-actions"><button className="link-button" disabled={props.cleanupPending} onClick={props.onToggleAll}><Check size={14} />{allSelected ? t("uninstall.action.clear_all") : t("uninstall.action.select_all")}</button>{props.allowCancel && <button className="link-button" disabled={props.cleanupPending} onClick={props.onRescan}><RotateCcw size={14} />{t("app.message_229")}</button>}</div>} />
       {props.cleanupPending && <div className="review-cleaning-banner" data-testid="workflow-review-cleaning"><Loader2 size={17} className="spinning" /><div><strong>{t("uninstall.review.cleaning")}</strong><span>{t("uninstall.review.cleaning_hint")}</span></div></div>}
       {props.error && <div className="uninstall-error" role="alert"><TriangleAlert size={16} /><div><strong>{t("app.message_101")}</strong><span>{props.error}</span></div></div>}
       <div className="review-tabs"><button className="active">{t("app.message_230")}{props.traces.length})</button><button>{t("app.message_231")}{fileTraces.length})</button><button>{t("app.message_232")}{registryTraces.length})</button><button>{t("app.message_233")}{systemTraces.length})</button></div>
@@ -1488,7 +1499,7 @@ function ReviewStage(props: {
         <TraceGroup title={t("app.message_235", { value0: registryTraces.length })} traces={registryTraces} selectedIds={props.selectedIds} onToggle={props.onToggle} />
         <TraceGroup title={t("app.message_236", { value0: systemTraces.length })} traces={systemTraces} selectedIds={props.selectedIds} onToggle={props.onToggle} />
       </div>
-      <div className="review-footer"><span>{t("app.message_237")}<strong>{formatBytes(selectedSize)}</strong></span><div><button data-testid="workflow-skip-cleanup" className="secondary-button" disabled={props.cleanupPending} onClick={props.onSkip}>{t("app.message_238")}</button>{props.allowBack && <button className="secondary-button" disabled={props.cleanupPending} onClick={props.onBack}>{t("app.message_239")}</button>}<button data-testid="workflow-clean" className="primary-button" disabled={props.cleanupPending || props.selectedIds.size === 0} onClick={props.onClean}>{props.cleanupPending ? <Loader2 size={16} className="spinning" /> : <Trash2 size={16} />}{props.cleanupPending ? t("uninstall.review.cleaning_short") : t("app.message_240")}</button></div></div>
+      <div className="review-footer"><span>{t("app.message_237")}<strong>{formatBytes(selectedSize)}</strong></span><div><button data-testid="workflow-skip-cleanup" className="secondary-button" disabled={props.cleanupPending} onClick={props.onSkip}>{t("app.message_238")}</button>{props.allowCancel && <button className="secondary-button" disabled={props.cleanupPending} onClick={props.onCancel}>{t("app.message_239")}</button>}<button data-testid="workflow-clean" className="primary-button" disabled={props.cleanupPending || props.selectedIds.size === 0} onClick={props.onClean}>{props.cleanupPending ? <Loader2 size={16} className="spinning" /> : <Trash2 size={16} />}{props.cleanupPending ? t("uninstall.review.cleaning_short") : t("app.message_240")}</button></div></div>
       {props.confirmOpen && <div className="modal-backdrop"><div className="safety-modal"><span className="modal-icon"><TriangleAlert size={24} /></span><h2>{t("app.message_241")}</h2><p>{t("uninstall.cleanup.confirm", { value0: props.selectedIds.size, value1: uncertainSelectedCount })}</p><div><button className="secondary-button" onClick={props.onConfirmClose}>{t("app.message_089")}</button><button data-testid="workflow-confirm-clean" className="danger-button" onClick={props.onConfirm}>{t("app.message_245")}</button></div></div></div>}
     </div>
   );

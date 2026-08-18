@@ -216,7 +216,7 @@ const enUS = {
   "app.message_236": "System Integration ({value0} items)",
   "app.message_237": "Recyclable space:",
   "app.message_238": "Skip cleanup",
-  "app.message_239": "return",
+  "app.message_239": "Cancel",
   "app.message_240": "Clear selected",
   "app.message_241": "Are you sure you want to clean the selected residue?",
   "app.message_242": "will be permanently deleted",

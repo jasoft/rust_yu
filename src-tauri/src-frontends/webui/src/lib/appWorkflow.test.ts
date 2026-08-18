@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { completedSuccessfully, selectAvailableItem, toggleAllSelectableIds } from "./appWorkflow";
+import { completedSuccessfully, selectAvailableItem, shouldFinalizeSkippedCleanupLocally, toggleAllSelectableIds } from "./appWorkflow";
 
 describe("selectAvailableItem", () => {
   it("does not show details for an item hidden by filters", () => {
@@ -18,6 +18,21 @@ describe("completedSuccessfully", () => {
     expect(completedSuccessfully(null)).toBe(false);
     expect(completedSuccessfully({ phase: "failed" })).toBe(false);
     expect(completedSuccessfully({ phase: "completed" })).toBe(true);
+  });
+});
+
+describe("shouldFinalizeSkippedCleanupLocally", () => {
+  it("finishes locally when the review has no backend job", () => {
+    expect(shouldFinalizeSkippedCleanupLocally(true, null)).toBe(true);
+    expect(shouldFinalizeSkippedCleanupLocally(true, undefined)).toBe(true);
+  });
+
+  it("uses the backend for a native uninstall job", () => {
+    expect(shouldFinalizeSkippedCleanupLocally(true, "job-1")).toBe(false);
+  });
+
+  it("keeps browser preview cleanup local", () => {
+    expect(shouldFinalizeSkippedCleanupLocally(false, "preview-job")).toBe(true);
   });
 });
 

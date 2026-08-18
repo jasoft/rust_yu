@@ -64,4 +64,22 @@ cargo check --workspace --target x86_64-pc-windows-msvc
 
 旧的 `-SkipCheck` 参数仍保留用于兼容已有脚本，但快速初始化现在已经是默认行为。
 
+## 日常 WebUI 检查
+
+已经完成工作树初始化、且前端依赖已存在时，纯 WebUI 检查不需要重复运行
+`Initialize-Worktree.ps1`。它们只需要确认当前 Node.js 是 x64，然后直接执行：
+
+```powershell
+.\tools\dev\Run-WebUiChecks.ps1
+```
+
+默认运行 `npm test` 和 `npm run lint`；需要验证前端生产产物时再明确追加构建：
+
+```powershell
+.\tools\dev\Run-WebUiChecks.ps1 -Build
+```
+
+涉及 Rust、Tauri、原生 Node 依赖安装或真实管理员 GUI 时，仍使用
+`Initialize-Worktree.ps1` 和对应的 Cargo/Tauri/`Run-Gui.ps1` 门禁。
+
 不要把 `target/` 或 `node_modules/` 强行复制到其他 worktree；它们包含路径相关的缓存，可能让 Cargo/Vite 使用错误 checkout 的产物。创建 worktree 后应以当前 worktree 的绝对路径重新执行初始化。若脚本提示缺少 `link.exe`，先从 Visual Studio Installer 安装 x64 MSVC 工具链；若提示缺少 X64 Node.js，则安装 Windows x64 版 Node 或设置 `RUST_YU_NODE_X64`。不要退回 ARM64 GNU/LLVM-MinGW 或 ARM64 Node。

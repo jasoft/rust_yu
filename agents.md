@@ -18,7 +18,7 @@
 ### X64 工具链（强制）
 
 - 开发机虽然是 Windows 11 ARM，但 Rust Yu **只允许**使用 `x86_64-pc-windows-msvc` 构建和发布；Node.js、npm 原生依赖、Rust、MSVC linker 也必须全部为 X64，禁止退回 ARM64 GNU/LLVM 或 ARM64 Node。
-- 在任何 Cargo、Tauri、测试或 GUI 命令前，必须从仓库根目录运行 `tools\dev\Initialize-Worktree.ps1`（可按任务使用 `-SkipFrontend` / `-RunCheck`），并确认输出中的 Rust host、Node architecture 和 `link.exe` 都是 X64。
+- 在任何 Cargo、Tauri 或 GUI 命令前，必须从仓库根目录运行 `tools\dev\Initialize-Worktree.ps1`（可按任务使用 `-SkipFrontend` / `-RunCheck`），并确认输出中的 Rust host、Node architecture 和 `link.exe` 都是 X64。纯 WebUI 的 `npm test`、`npm run lint` 和前端检查不需要重复初始化工作树；使用 `tools\dev\Run-WebUiChecks.ps1` 做轻量 x64 Node 校验即可。
 - 不得直接依赖提权 PowerShell 继承的 PATH。`%USERPROFILE%\.cargo\bin` 必须优先于系统中旧的 ARM Rust，Node/npm/npx 必须来自同一个 X64 Node.js 目录。
 - 机器首次配置或需要修复全局环境时，必须在管理员 PowerShell 7（`pwsh.exe`）运行 `tools\dev\Configure-X64Environment.ps1`；它会把 Rustup 默认 toolchain、用户/机器 PATH、MSVC/Windows SDK 环境和 `RUST_YU_NODE_X64` 固定到 X64。ARM64 版 PowerShell 7 作为脚本宿主是允许的，编译目标仍必须是 X64。配置后必须关闭并重新打开 Terminal，再用 `rustc -vV` 和 `node -p process.arch` 复核。
 
@@ -117,7 +117,7 @@
 ### B. 每次交付必须完成
 
 1. 确认当前实际运行的 checkout 就是本次修改所在 checkout，并检查 `git status`，不得覆盖用户或其他任务的并发改动。
-2. 运行 `tools\dev\Initialize-Worktree.ps1`，确认 Rust、Node 和 MSVC linker 均为 X64。
+2. 涉及 Rust、Tauri 或 GUI 时运行 `tools\dev\Initialize-Worktree.ps1`，确认 Rust、Node 和 MSVC linker 均为 X64；纯 WebUI 改动使用 `tools\dev\Run-WebUiChecks.ps1`，不重复执行工作树初始化。
 3. 运行与改动相关的完整 Rust 测试；涉及 workspace/Tauri 集成时，必须运行 `cargo test --workspace -- --test-threads=1`。GUI 正在运行并锁住默认产物时，使用当前 checkout 下独立的 `CARGO_TARGET_DIR`，不得因此跳过测试。
 4. 涉及 WebUI 时，在 `src-tauri\src-frontends\webui` 运行 `npm test`、`npm run lint`、`npm run build`；界面文案变更必须包含 `test:i18n`。
 5. **必须实际运行 `tools\dev\Run-Gui.ps1`，接受 UAC，并看到当前 checkout 构建出的 Rust Yu Tauri 窗口成功显示。** 至少确认窗口可响应、没有启动错误页、能够读取原生已安装程序数据；涉及的页面/功能必须在真实桌面窗口中打开并完成最小安全交互验证。

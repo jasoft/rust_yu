@@ -216,7 +216,7 @@ const zhCN = {
   "app.message_236": "系统集成 ({value0} 项)",
   "app.message_237": "可回收空间：",
   "app.message_238": "跳过清理",
-  "app.message_239": "返回",
+  "app.message_239": "取消",
   "app.message_240": "清理所选",
   "app.message_241": "确认清理所选残留？",
   "app.message_242": "将永久删除",
