@@ -51,6 +51,7 @@ pub fn list_programs_with_cache(
 
         if cached.cache_hit {
             let mut cached_programs = cached.entries.unwrap_or_default();
+            enrichment::refresh_installation_health(&mut cached_programs);
             attach_last_used(&mut cached_programs);
             apply_search_filter(&mut cached_programs, query.search.as_deref());
             cache_state.cache_hit = true;

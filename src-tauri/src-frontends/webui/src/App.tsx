@@ -996,7 +996,8 @@ function AppsStage(props: {
             <AppIcon program={row} />
             <span className="program-grid-name-copy">
               <span className="program-grid-name-line">
-                <strong>{row.name}</strong>
+                {row.source?.is_broken_installation && <span className="program-grid-broken-icon" title={t("app.installation_status.broken")} aria-label={t("app.installation_status.broken")}><TriangleAlert size={14} /></span>}
+                <strong className={row.source?.is_broken_installation ? "program-grid-name-broken" : undefined}>{row.name}</strong>
                 {hasExplicitInstallLocation(row) && <span className="program-grid-analysis-badge">{t("app.deep_analysis.badge")}</span>}
               </span>
               <span className="program-grid-publisher">{row.publisher}</span>
@@ -1117,7 +1118,7 @@ function AppsStage(props: {
           <div className="table-footer">{t("app.message_060")} {props.programs.length}  {t("app.message_061")}{props.batchSelectedIds.size > 0 ? t("app.message_062", { value0: props.batchSelectedIds.size }) : ""}</div>
         </div>
         {props.selected && <aside className="program-detail card-surface">
-          <div className="detail-app"><AppIcon program={props.selected} large /><h2>{props.selected.name}</h2><p>{props.selected.publisher}</p><span>{props.selected.size}</span></div>
+          <div className="detail-app"><AppIcon program={props.selected} large /><h2 className={props.selected.source?.is_broken_installation ? "program-name-broken" : undefined}>{props.selected.source?.is_broken_installation && <TriangleAlert className="program-name-warning-icon" size={15} aria-label={t("app.installation_status.broken")} />}{props.selected.name}</h2><p>{props.selected.publisher}</p><span>{props.selected.size}</span></div>
           <dl><div><dt>{t("app.message_063")}</dt><dd>{props.selected.version}</dd></div><div><dt>{t("app.message_056")}</dt><dd>{props.selected.installed}</dd></div></dl>
           <p className="install-path">{props.selected.location}</p>
           <div className="detail-actions">
@@ -1555,7 +1556,7 @@ function ProgramInfoModal({ program, onClose }: { program: UiProgram; onClose: (
     <div className="modal-backdrop" onMouseDown={onClose}>
       <section className="program-info-modal" onMouseDown={(event) => event.stopPropagation()}>
         <header>
-          <div><AppIcon program={program} large /><span><h2>{program.name}</h2><p>{program.publisher}</p></span></div>
+          <div><AppIcon program={program} large /><span><h2 className={source?.is_broken_installation ? "program-name-broken" : undefined}>{source?.is_broken_installation && <TriangleAlert className="program-name-warning-icon" size={15} aria-label={t("app.installation_status.broken")} />}{program.name}</h2><p>{program.publisher}</p></span></div>
           <button aria-label={t("app.message_308")} onClick={onClose}><X size={17} /></button>
         </header>
         <div className="program-info-rows">

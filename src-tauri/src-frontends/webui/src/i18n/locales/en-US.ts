@@ -56,6 +56,7 @@ const enUS = {
   "app.last_used": "Last used",
   "app.message_057": "Reading installed programs...",
   "app.message_058": "No matching program found",
+  "app.installation_status.broken": "Installation record is invalid: the program files or uninstaller no longer exists",
   "app.message_059": "Select {value0}",
   "app.message_060": "Showing",
   "app.message_061": "apps",

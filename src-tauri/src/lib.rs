@@ -59,6 +59,7 @@ fn start_api_server() {
                             "publisher": p.publisher,
                             "version": p.version,
                             "install_location": p.install_location,
+                            "is_broken_installation": p.is_broken_installation,
                             "install_date": p.install_date,
                             "last_used": p.last_used,
                             "uninstall_string": p.uninstall_string,

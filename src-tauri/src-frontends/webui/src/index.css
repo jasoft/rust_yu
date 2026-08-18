@@ -90,6 +90,8 @@ button { color: inherit; }
 .program-grid-name-copy { min-width: 0; display: flex; flex: 1; flex-direction: column; gap: 2px; }
 .program-grid-name-line { min-width: 0; display: flex; align-items: center; gap: 6px; }
 .program-grid-name-line strong { min-width: 0; overflow: hidden; flex: 1; color: #26313b; font-size: 14px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.program-grid-broken-icon { flex: 0 0 auto; display: inline-flex; color: #c64b4b; }
+.program-grid-name-line strong.program-grid-name-broken { color: #c64b4b; }
 .program-grid-publisher { min-width: 0; overflow: hidden; color: #8996a1; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .program-grid-analysis-badge { flex: 0 0 auto; padding: 1px 5px; border: 1px solid #b8dfc1; border-radius: 8px; color: #287e42; background: #edf9f0; font-size: 10px; font-weight: 600; line-height: 1.35; white-space: nowrap; }
 .program-grid-text-cell { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -118,6 +120,8 @@ img.app-icon.large.store-icon { padding: 9px; }
 .table-footer { height: 29px; display: flex; align-items: center; padding: 0 14px; border-top: 1px solid var(--border-soft); color: #8b97a2; font-size: 14px; }
 .program-detail { min-width: 0; display: flex; flex-direction: column; padding: 16px 14px 14px; }
 .detail-app { display: flex; flex-direction: column; align-items: center; text-align: center; padding-bottom: 12px; border-bottom: 1px solid var(--border-soft); }
+.program-name-broken { color: #c64b4b !important; }
+.program-name-warning-icon { margin-inline-end: 5px; vertical-align: -2px; color: #c64b4b; }
 .detail-app h2 { margin: 10px 0 2px; font-size: 16px; color: var(--text); }.detail-app p, .detail-app span { margin: 0; color: var(--muted); font-size: 14px; }
 .program-detail dl { margin: 12px 0 0; font-size: 14px; }
 .program-detail dl div { display: flex; justify-content: space-between; margin-bottom: 7px; }.program-detail dt { color: #7b8792; }.program-detail dd { margin: 0; color: #2f3b46; }

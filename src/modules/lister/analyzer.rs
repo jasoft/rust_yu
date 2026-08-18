@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use super::models::InstalledProgram;
+use super::models::{InstallSource, InstalledProgram};
 use crate::modules::common::utils::split_command_for_spawn;
 
 /// 安装位置分析结果。
@@ -12,6 +12,103 @@ pub struct AppAnalysisResult {
     pub executable_path: Option<PathBuf>,
     /// 命中的分析器名称，便于日志和诊断。
     pub analyzer: &'static str,
+}
+
+/// 判断注册表/MSI 条目是否已经失效。
+///
+/// Windows 设置会继续显示只剩注册表项的程序。这里仅在存在明确的文件系统引用，
+/// 且安装目录、卸载程序和显示图标没有任何一个仍然存在时标记失效；没有办法证明
+/// 文件状态的 Store 条目或 `MsiExec.exe` 不会被误判。
+pub fn is_broken_installation(program: &InstalledProgram) -> bool {
+    if !matches!(
+        program.install_source,
+        InstallSource::Registry | InstallSource::Msi
+    ) {
+        return false;
+    }
+
+    let mut has_explicit_reference = false;
+    let mut has_valid_reference = false;
+
+    if let Some(location) = non_empty(program.install_location.as_deref()) {
+        has_explicit_reference = true;
+        has_valid_reference |= Path::new(&expand_windows_environment_variables(location)).is_dir();
+    }
+
+    for command in [
+        program.uninstall_string.as_deref(),
+        program.quiet_uninstall_string.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if let Some(reference_exists) = assess_uninstaller_reference(command) {
+            has_explicit_reference = true;
+            has_valid_reference |= reference_exists;
+        }
+    }
+
+    if let Some(icon) = non_empty(program.icon_path.as_deref()) {
+        if let Some(path) = parse_icon_reference(icon) {
+            has_explicit_reference = true;
+            has_valid_reference |= path.is_file();
+        }
+    }
+
+    has_explicit_reference && !has_valid_reference
+}
+
+fn assess_uninstaller_reference(command: &str) -> Option<bool> {
+    let (executable, _) = split_command_for_spawn(command).ok()?;
+    let executable = expand_windows_environment_variables(executable.trim());
+    let path = Path::new(&executable);
+
+    // 裸的系统卸载器名称（例如 MsiExec.exe）不能证明应用本体是否存在，
+    // 因此不把它作为“有效引用”或“失效引用”参与判断。
+    if is_system_uninstaller_name(&executable) || !looks_like_file_path(&executable) {
+        return None;
+    }
+
+    Some(path.is_file())
+}
+
+fn parse_icon_reference(raw: &str) -> Option<PathBuf> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let path = if let Some(quoted) = trimmed.strip_prefix('"') {
+        quoted.split('"').next().unwrap_or_default().trim()
+    } else {
+        trimmed.split(',').next().unwrap_or_default().trim()
+    };
+    let path = expand_windows_environment_variables(path);
+    (!path.is_empty() && looks_like_file_path(&path)).then(|| PathBuf::from(path))
+}
+
+fn is_system_uninstaller_name(path: &str) -> bool {
+    let normalized = Path::new(path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(path)
+        .to_ascii_lowercase();
+    matches!(
+        normalized.as_str(),
+        "msiexec.exe" | "msiexec" | "rundll32.exe" | "rundll32" | "wusa.exe" | "wusa"
+    )
+}
+
+fn looks_like_file_path(value: &str) -> bool {
+    let normalized = value.trim();
+    Path::new(normalized).is_absolute()
+        || normalized.contains('\\')
+        || normalized.contains('/')
+        || normalized.starts_with('%')
+}
+
+fn non_empty(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
 }
 
 /// 按 Delphi 版 `TInstallLocationAnalyser` 的顺序分析卸载命令。
@@ -176,7 +273,10 @@ fn expand_windows_environment_variables(value: &str) -> String {
 mod tests {
     use std::fs;
 
-    use super::{analyze_uninstall_command, expand_windows_environment_variables};
+    use super::{
+        analyze_uninstall_command, expand_windows_environment_variables, is_broken_installation,
+    };
+    use crate::modules::lister::models::{InstallSource, InstalledProgram};
 
     #[test]
     fn default_analyzer_rejects_missing_executable() {
@@ -189,6 +289,37 @@ mod tests {
             expand_windows_environment_variables(r#"%RUST_YU_UNKNOWN%\App"#),
             r#"%RUST_YU_UNKNOWN%\App"#
         );
+    }
+
+    #[test]
+    fn broken_registry_entry_has_no_existing_file_reference() {
+        let mut program = InstalledProgram::new("Choice".to_string(), InstallSource::Registry);
+        program.uninstall_string = Some(r#"C:\Eastmoney\Choice\uninst.exe"#.to_string());
+        program.icon_path = Some(r#"C:\Eastmoney\Choice\Choice.exe"#.to_string());
+
+        assert!(is_broken_installation(&program));
+    }
+
+    #[test]
+    fn existing_uninstaller_keeps_registry_entry_healthy() {
+        let root = std::env::temp_dir().join(format!("rust-yu-health-{}", uuid::Uuid::new_v4()));
+        assert!(fs::create_dir_all(&root).is_ok());
+        let uninstaller = root.join("uninstall.exe");
+        assert!(fs::write(&uninstaller, b"fixture").is_ok());
+
+        let mut program = InstalledProgram::new("Demo".to_string(), InstallSource::Registry);
+        program.uninstall_string = Some(format!(r#""{}" /S"#, uninstaller.display()));
+
+        assert!(!is_broken_installation(&program));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn generic_msi_command_without_paths_is_not_marked_broken() {
+        let mut program = InstalledProgram::new("Demo MSI".to_string(), InstallSource::Msi);
+        program.uninstall_string = Some("MsiExec.exe /I{DEMO}".to_string());
+
+        assert!(!is_broken_installation(&program));
     }
 
     #[test]

@@ -20,6 +20,7 @@ function program(id: string): InstalledProgram {
     version: "1.0.0",
     install_date: null,
     last_used: null,
+    is_broken_installation: false,
     install_location: `C:\\Program Files\\Demo ${id}`,
     uninstall_string: `C:\\Program Files\\Demo ${id}\\uninstall.exe`,
     quiet_uninstall_string: null,

@@ -52,6 +52,9 @@ pub struct InstalledProgram {
     pub install_date: Option<String>,
     #[serde(default)]
     pub last_used: Option<String>,
+    /// 注册表仍保留，但明确的安装目录、卸载程序和图标引用都已失效。
+    #[serde(default)]
+    pub is_broken_installation: bool,
     pub install_location: Option<String>,
     pub uninstall_string: Option<String>,
     #[serde(default)]
@@ -105,6 +108,7 @@ impl InstalledProgram {
             version: None,
             install_date: None,
             last_used: None,
+            is_broken_installation: false,
             install_location: None,
             uninstall_string: None,
             quiet_uninstall_string: None,

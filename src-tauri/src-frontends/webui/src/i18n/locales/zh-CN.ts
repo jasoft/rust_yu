@@ -56,6 +56,7 @@ const zhCN = {
   "app.last_used": "最后使用时间",
   "app.message_057": "正在读取已安装程序…",
   "app.message_058": "没有找到符合条件的程序",
+  "app.installation_status.broken": "安装记录失效：程序文件或卸载程序已不存在",
   "app.message_059": "选择 {value0}",
   "app.message_060": "显示",
   "app.message_061": "个应用",

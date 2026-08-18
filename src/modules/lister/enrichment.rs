@@ -96,6 +96,8 @@ pub fn enrich_program(program: &mut InstalledProgram) {
     }
 
     // 图标：列表阶段仅解析来源路径，不同步生成图标缓存文件。
+    // 在清洗失效图标路径之前完成判断，避免把“原注册表引用已丢失”的证据抹掉。
+    program.is_broken_installation = analyzer::is_broken_installation(program);
     resolve_program_icon_path(program);
 
     // 大小：列表阶段仅使用注册表中的 EstimatedSize。
@@ -114,6 +116,16 @@ pub fn enrich_program(program: &mut InstalledProgram) {
 pub fn enrich_programs(programs: &mut [InstalledProgram]) {
     for program in programs {
         enrich_program(program);
+    }
+}
+
+/// 重新检查缓存中的安装引用。旧缓存没有该字段时会按默认值恢复，
+/// 但已经确认失效的条目要保留标记，直到下一次真实注册表刷新。
+pub fn refresh_installation_health(programs: &mut [InstalledProgram]) {
+    for program in programs {
+        if !program.is_broken_installation {
+            program.is_broken_installation = analyzer::is_broken_installation(program);
+        }
     }
 }
 
