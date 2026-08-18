@@ -107,6 +107,7 @@ export interface UiProgram {
   version: string;
   size: string;
   installed: string;
+  lastUsed: string;
   location: string;
   icon: string;
   iconClass: string;
@@ -114,14 +115,14 @@ export interface UiProgram {
 }
 
 const mockPrograms: UiProgram[] = [
-  { id: "chrome", name: "Google Chrome", publisher: "Google LLC", version: "126.0", size: "1.12 GB", installed: "2025/05/10", location: "C:\\Program Files\\Google\\Chrome", icon: "G", iconClass: "chrome" },
-  { id: "7zip", name: "7-Zip 24.09", publisher: "Igor Pavlov", version: "24.09", size: "5.52 MB", installed: "2025/05/18", location: "C:\\Program Files\\7-Zip", icon: "7z", iconClass: "sevenzip" },
-  { id: "vc", name: "Microsoft Visual C++ 2015–2022", publisher: "Microsoft Corporation", version: "14.42", size: "20.5 MB", installed: "2025/04/22", location: "C:\\Program Files\\Microsoft Visual Studio", icon: "++", iconClass: "visual" },
-  { id: "edge", name: "Microsoft Edge", publisher: "Microsoft Corporation", version: "126.0", size: "654 MB", installed: "2025/05/11", location: "C:\\Program Files (x86)\\Microsoft\\Edge", icon: "e", iconClass: "edge" },
-  { id: "notepad", name: "Notepad++ (64-bit x64)", publisher: "Notepad++ Team", version: "8.6.7", size: "16.0 MB", installed: "2025/05/04", location: "C:\\Program Files\\Notepad++", icon: "N", iconClass: "notepad" },
-  { id: "terminal", name: "Windows Terminal", publisher: "Microsoft Corporation", version: "1.20", size: "74.1 MB", installed: "2025/05/06", location: "C:\\Program Files\\WindowsApps", icon: ">_", iconClass: "terminal" },
-  { id: "discord", name: "Discord", publisher: "Discord Inc.", version: "1.0", size: "106 MB", installed: "2025/04/30", location: "C:\\Users\\Admin\\AppData\\Local\\Discord", icon: "D", iconClass: "discord" },
-  { id: "everything", name: "Everything 1.4.1.1026 (x64)", publisher: "voidtools", version: "1.4.1", size: "3.14 MB", installed: "2025/05/03", location: "C:\\Program Files\\Everything", icon: "Q", iconClass: "everything" },
+  { id: "chrome", name: "Google Chrome", publisher: "Google LLC", version: "126.0", size: "1.12 GB", installed: "2025/05/10", lastUsed: "2025/08/16", location: "C:\\Program Files\\Google\\Chrome", icon: "G", iconClass: "chrome" },
+  { id: "7zip", name: "7-Zip 24.09", publisher: "Igor Pavlov", version: "24.09", size: "5.52 MB", installed: "2025/05/18", lastUsed: "2025/08/15", location: "C:\\Program Files\\7-Zip", icon: "7z", iconClass: "sevenzip" },
+  { id: "vc", name: "Microsoft Visual C++ 2015–2022", publisher: "Microsoft Corporation", version: "14.42", size: "20.5 MB", installed: "2025/04/22", lastUsed: "2025/07/29", location: "C:\\Program Files\\Microsoft Visual Studio", icon: "++", iconClass: "visual" },
+  { id: "edge", name: "Microsoft Edge", publisher: "Microsoft Corporation", version: "126.0", size: "654 MB", installed: "2025/05/11", lastUsed: "2025/08/17", location: "C:\\Program Files (x86)\\Microsoft\\Edge", icon: "e", iconClass: "edge" },
+  { id: "notepad", name: "Notepad++ (64-bit x64)", publisher: "Notepad++ Team", version: "8.6.7", size: "16.0 MB", installed: "2025/05/04", lastUsed: "2025/08/12", location: "C:\\Program Files\\Notepad++", icon: "N", iconClass: "notepad" },
+  { id: "terminal", name: "Windows Terminal", publisher: "Microsoft Corporation", version: "1.20", size: "74.1 MB", installed: "2025/05/06", lastUsed: "2025/08/10", location: "C:\\Program Files\\WindowsApps", icon: ">_", iconClass: "terminal" },
+  { id: "discord", name: "Discord", publisher: "Discord Inc.", version: "1.0", size: "106 MB", installed: "2025/04/30", lastUsed: "2025/08/14", location: "C:\\Users\\Admin\\AppData\\Local\\Discord", icon: "D", iconClass: "discord" },
+  { id: "everything", name: "Everything 1.4.1.1026 (x64)", publisher: "voidtools", version: "1.4.1", size: "3.14 MB", installed: "2025/05/03", lastUsed: "2025/08/09", location: "C:\\Program Files\\Everything", icon: "Q", iconClass: "everything" },
   ...Array.from({ length: 70 }, (_, index): UiProgram => {
     const row = index + 1;
     const names = ["Rust Yu Preview Utility", "Windows SDK Components", "Acme Document Suite", "Contoso Media Tools", "Northwind Data Client"];
@@ -141,6 +142,7 @@ const mockPrograms: UiProgram[] = [
       version: `1.${row}.0`,
       size: row % 4 === 0 ? `${(row * 37) % 900 + 100} MB` : `${(row * 13) % 4 + 1}.${row % 10} GB`,
       installed: `2025/${month}/${day}`,
+      lastUsed: row % 9 === 0 ? "—" : `2025/08/${String(18 - (row % 17)).padStart(2, "0")}`,
       location: `C:\\Program Files\\RustYuPreview\\Package-${row}`,
       icon: publishers[index % publishers.length].slice(0, 2).toUpperCase(),
       iconClass: "generic",
@@ -193,6 +195,7 @@ function toUiProgram(program: InstalledProgram): UiProgram {
     version: program.display_version ?? program.version ?? "—",
     size: formatBytes(program.size ?? program.estimated_size),
     installed: formatWindowsDate(program.install_date) ?? t("app.message_067"),
+    lastUsed: formatWindowsDate(program.last_used) ?? t("app.message_067"),
     location: program.install_location ?? "—",
     icon: program.name.slice(0, 2).toUpperCase(),
     iconClass: "generic",
@@ -479,7 +482,7 @@ export default function App() {
   };
 
   const handleManualScan = () => {
-    if (!selectedProgram) return;
+    if (!selectedProgram || !hasExplicitInstallLocation(selectedProgram)) return;
     setStage("scan");
     setTraces([]);
     setScanStatus("scanning");
@@ -650,6 +653,7 @@ export default function App() {
               onSelect={setSelectedId}
               onUninstall={() => { if (selectedProgram) setStage("confirm"); }}
               onScan={handleManualScan}
+              canDeepAnalyze={hasExplicitInstallLocation(selectedProgram)}
               onDetails={() => setDetailsOpen(true)}
               onRecords={() => setRecordsOpen(true)}
               canInspectRecords={isTauriRuntime() && Boolean(selectedProgram?.source)}
@@ -812,6 +816,11 @@ function Sidebar({ active, developerModeEnabled, disabled, onNavigate }: { activ
   );
 }
 
+function hasExplicitInstallLocation(program: UiProgram | null | undefined): boolean {
+  const location = program?.source?.install_location ?? (program?.source ? null : program?.location);
+  return Boolean(location?.trim() && location.trim() !== "—");
+}
+
 function NavButton({ id, label, icon: Icon, active, disabled, onClick }: { id: NavKey; label: string; icon: typeof Package; active: boolean; disabled: boolean; onClick: () => void }) {
   return <button data-testid={`nav-${id}`} className={`nav-button ${active ? "active" : ""}`} disabled={disabled} onClick={onClick}><Icon size={17} /><span>{label}</span></button>;
 }
@@ -820,25 +829,25 @@ function SectionHeader({ title, subtitle, action }: { title: string; subtitle?: 
   return <div className="section-header"><div><h1>{title}</h1>{subtitle && <p>{subtitle}</p>}</div>{action}</div>;
 }
 
-type ProgramGridColumnKey = "select" | "name" | "publisher" | "size" | "installed";
+type ProgramGridColumnKey = "select" | "name" | "size" | "lastUsed" | "installed";
 
 const programGridColumnKeys: readonly ProgramGridColumnKey[] = [
   "select",
   "name",
-  "publisher",
   "size",
+  "lastUsed",
   "installed",
 ];
 
 const defaultProgramGridWidths: Record<ProgramGridColumnKey, number> = {
   select: 42,
-  name: 290,
-  publisher: 190,
-  size: 100,
+  name: 350,
+  size: 110,
+  lastUsed: 125,
   installed: 120,
 };
 
-const programGridStorageKey = "rust-yu.apps.program-grid.v1";
+const programGridStorageKey = "rust-yu.apps.program-grid.v2";
 
 interface ProgramGridState {
   order: ProgramGridColumnKey[];
@@ -896,6 +905,7 @@ function AppsStage(props: {
   sourceCounts: Record<ProgramSourceFilter, number>;
   onQuery: (value: string) => void; onSourceFilter: (value: ProgramSourceFilter) => void; onSelect: (id: string) => void;
   onUninstall: () => void; onScan: () => void; onDetails: () => void; onRecords: () => void; onRefresh: () => void;
+  canDeepAnalyze: boolean;
   canInspectRecords: boolean;
   onForceUninstall: () => void;
   batchSelectedIds: Set<string>; batchActive: boolean; onToggleBatch: (id: string) => void; onOpenBatch: () => void;
@@ -910,6 +920,9 @@ function AppsStage(props: {
       installed: program.source
         ? program.installed
         : formatWindowsDate(program.installed) ?? t("app.message_067"),
+      lastUsed: program.source
+        ? program.lastUsed
+        : formatWindowsDate(program.lastUsed) ?? t("app.message_067"),
     })),
     [props.programs],
   );
@@ -951,16 +964,15 @@ function AppsStage(props: {
         renderCell: ({ row }) => (
           <span className="program-grid-name-cell">
             <AppIcon program={row} />
-            <strong>{row.name}</strong>
+            <span className="program-grid-name-copy">
+              <span className="program-grid-name-line">
+                <strong>{row.name}</strong>
+                {hasExplicitInstallLocation(row) && <span className="program-grid-analysis-badge">{t("app.deep_analysis.badge")}</span>}
+              </span>
+              <span className="program-grid-publisher">{row.publisher}</span>
+            </span>
           </span>
         ),
-      },
-      publisher: {
-        key: "publisher",
-        name: t("app.message_054"),
-        width: gridState.widths.publisher,
-        minWidth: 150,
-        renderCell: ({ row }) => <span className="program-grid-text-cell">{row.publisher}</span>,
       },
       size: {
         key: "size",
@@ -970,6 +982,15 @@ function AppsStage(props: {
         cellClass: "program-grid-size-cell",
         headerCellClass: "program-grid-size-header",
         renderCell: ({ row }) => <span className="program-grid-text-cell">{row.size}</span>,
+      },
+      lastUsed: {
+        key: "lastUsed",
+        name: t("app.last_used"),
+        width: gridState.widths.lastUsed,
+        minWidth: 115,
+        cellClass: "program-grid-last-used-cell",
+        headerCellClass: "program-grid-last-used-header",
+        renderCell: ({ row }) => <span className="program-grid-text-cell">{row.lastUsed}</span>,
       },
       installed: {
         key: "installed",
@@ -1038,7 +1059,7 @@ function AppsStage(props: {
               columns={columns}
               rows={props.error ? [] : displayPrograms}
               rowKeyGetter={(row) => row.id}
-              rowHeight={44}
+              rowHeight={52}
               headerRowHeight={38}
               columnWidths={columnWidths}
               onColumnWidthsChange={handleColumnWidthsChange}
@@ -1071,9 +1092,8 @@ function AppsStage(props: {
           <p className="install-path">{props.selected.location}</p>
           <div className="detail-actions">
             <button onClick={props.onDetails}><Info size={14} />{t("app.message_068")}</button>
-            <button onClick={props.onScan}><Search size={14} />{t("app.message_069")}</button>
-            <button disabled={!props.canInspectRecords} onClick={props.onRecords}><FileCode2 size={14} />{t("components.softwarerecords.action")}</button>
-            <button onClick={props.onForceUninstall}><Wrench size={14} />{t("app.message_048")}</button>
+            <button disabled={!props.canDeepAnalyze} onClick={props.onScan}><Search size={14} />{t("app.deep_analysis.action")}</button>
+            <button disabled={!props.canInspectRecords} title={!props.canInspectRecords ? t("app.records.disabled_reason") : undefined} onClick={props.onRecords}><FileCode2 size={14} />{t("components.softwarerecords.action")}</button>
           </div>
           <button data-testid="program-uninstall" className="primary-button uninstall-button" onClick={props.onUninstall}><Trash2 size={16} />{t("app.message_071")}</button>
         </aside>}

@@ -5,6 +5,7 @@ export interface InstalledProgram {
   publisher: string | null;
   version: string | null;
   install_date: string | null;
+  last_used: string | null;
   install_location: string | null;
   uninstall_string: string | null;
   quiet_uninstall_string: string | null;

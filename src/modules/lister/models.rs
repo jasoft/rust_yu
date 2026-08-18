@@ -50,6 +50,8 @@ pub struct InstalledProgram {
     pub publisher: Option<String>,
     pub version: Option<String>,
     pub install_date: Option<String>,
+    #[serde(default)]
+    pub last_used: Option<String>,
     pub install_location: Option<String>,
     pub uninstall_string: Option<String>,
     #[serde(default)]
@@ -102,6 +104,7 @@ impl InstalledProgram {
             publisher: None,
             version: None,
             install_date: None,
+            last_used: None,
             install_location: None,
             uninstall_string: None,
             quiet_uninstall_string: None,

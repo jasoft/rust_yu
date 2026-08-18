@@ -19,6 +19,7 @@ function program(id: string): InstalledProgram {
     publisher: "Rust Yu Test",
     version: "1.0.0",
     install_date: null,
+    last_used: null,
     install_location: `C:\\Program Files\\Demo ${id}`,
     uninstall_string: `C:\\Program Files\\Demo ${id}\\uninstall.exe`,
     quiet_uninstall_string: null,

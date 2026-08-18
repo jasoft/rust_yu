@@ -104,7 +104,7 @@ export function ProgramDetail() {
           >
             <SearchCode className="h-4 w-4" />
 
-            {t("app.message_069")}
+            {t("app.deep_analysis.action")}
           </Button>
           {p.install_location && (
             <a

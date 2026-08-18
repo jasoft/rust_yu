@@ -51,6 +51,7 @@ pub fn list_programs_with_cache(
 
         if cached.cache_hit {
             let mut cached_programs = cached.entries.unwrap_or_default();
+            attach_last_used(&mut cached_programs);
             apply_search_filter(&mut cached_programs, query.search.as_deref());
             cache_state.cache_hit = true;
             cache_state.cache_valid = cached.cache_valid;
@@ -75,6 +76,7 @@ pub fn list_programs_with_cache(
     let mut all_programs = collect_programs(query.source);
     enrichment::enrich_programs(&mut all_programs);
     restore_cached_icon_metadata(&mut all_programs, &cached_programs);
+    attach_last_used(&mut all_programs);
     dedupe_and_sort(&mut all_programs);
 
     if cache_eligible {
@@ -372,6 +374,24 @@ fn restore_cached_icon_metadata(
         program.icon_data_url = cached.icon_data_url.clone();
         program.icon_data_url_32 = cached.icon_data_url_32.clone();
         program.icon_data_url_48 = cached.icon_data_url_48.clone();
+    }
+}
+
+/// 将历史使用缓存中的最后访问时间附加到列表模型。
+///
+/// 该读取过程只在 `spawn_blocking` 的列表任务中执行，不阻塞 Tauri 主线程；
+/// 旧版本缓存没有该字段时也会按需补齐，并继续兼容原有条目。
+fn attach_last_used(programs: &mut [InstalledProgram]) {
+    for program in programs {
+        if program.last_used.is_none() {
+            let slow_info = enrichment::load_slow_app_info(program);
+            // 只有 ARPCache/YUCache 命中时才认定为“最后使用时间”。
+            // 图标或安装目录的文件访问时间可能只是 Rust Yu 自己读取元数据造成的，
+            // 不能把这种时间误显示成用户实际启动应用的时间。
+            if slow_info.cache_hit {
+                program.last_used = slow_info.last_used;
+            }
+        }
     }
 }
 

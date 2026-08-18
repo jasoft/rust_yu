@@ -60,6 +60,7 @@ fn start_api_server() {
                             "version": p.version,
                             "install_location": p.install_location,
                             "install_date": p.install_date,
+                            "last_used": p.last_used,
                             "uninstall_string": p.uninstall_string,
                             "install_source": p.install_source.to_string(),
                             "size": p.size,

@@ -87,10 +87,16 @@ button { color: inherit; }
 .program-grid .program-grid-row-selected { background: #e8f3fd; box-shadow: inset 3px 0 var(--blue); }
 .program-grid .program-grid-row-selected:hover { background: #e8f3fd; }
 .program-grid-name-cell { min-width: 0; display: flex; align-items: center; gap: 9px; }
-.program-grid-name-cell strong { min-width: 0; overflow: hidden; color: #26313b; font-size: 14px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.program-grid-name-copy { min-width: 0; display: flex; flex: 1; flex-direction: column; gap: 2px; }
+.program-grid-name-line { min-width: 0; display: flex; align-items: center; gap: 6px; }
+.program-grid-name-line strong { min-width: 0; overflow: hidden; flex: 1; color: #26313b; font-size: 14px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.program-grid-publisher { min-width: 0; overflow: hidden; color: #8996a1; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.program-grid-analysis-badge { flex: 0 0 auto; padding: 1px 5px; border: 1px solid #b8dfc1; border-radius: 8px; color: #287e42; background: #edf9f0; font-size: 10px; font-weight: 600; line-height: 1.35; white-space: nowrap; }
 .program-grid-text-cell { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .program-grid-size-cell,
 .program-grid-size-header { padding-inline-end: 18px; text-align: right; }
+.program-grid-last-used-cell,
+.program-grid-last-used-header { padding-inline: 14px; }
 .program-grid-installed-cell,
 .program-grid-installed-header { padding-inline-start: 18px; }
 .program-grid input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--blue); cursor: pointer; }
