@@ -79,7 +79,7 @@ button { color: inherit; }
 .program-grid [role="columnheader"]:not(:last-child)::after { content: ""; position: absolute; inset-block: 7px; inset-inline-end: 0; inline-size: 1px; background: #d8e1e8; pointer-events: none; }
 .program-grid [role="columnheader"]:first-child,
 .program-grid [role="gridcell"]:first-child { padding-inline-start: 13px; }
-.program-grid [role="columnheader"]:first-child { padding-inline-end: 8px; }
+.program-grid [role="columnheader"]:first-child { padding-inline-start: 8px; padding-inline-end: 4px; }
 .program-grid .rdg-resize-handle { inline-size: 16px; inset-block: 7px; }
 .program-grid .rdg-resize-handle:hover,
 .program-grid .rdg-resize-handle:focus-visible { background: repeating-linear-gradient(to bottom, #8298aa 0 2px, transparent 2px 4px) right center / 2px 100% no-repeat; }
