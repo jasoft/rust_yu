@@ -98,6 +98,7 @@ import {
 
 type Stage = UninstallWorkflowStage;
 type ScanStatus = "uninstalling" | "verifying" | "scanning" | "complete";
+type ScanMode = "uninstall" | "deep-analysis";
 type NavKey = "apps" | "health" | "startup" | "cleaner" | "shredder" | "backups" | "traces" | "monitor" | "inventory" | "reports" | "plugins" | "tools" | "developer" | "settings" | "about";
 
 export interface UiProgram {
@@ -150,26 +151,51 @@ const mockPrograms: UiProgram[] = [
   }),
 ];
 
-const demoTraces: Trace[] = [
-  { id: "t1", program_name: "7-Zip 24.09", trace_type: "file", path: "C:\\Program Files\\7-Zip\\", exists: true, size: 5_570_560, confidence: "high", description: t("app.message_001") },
-  { id: "t2", program_name: "7-Zip 24.09", trace_type: "appdata", path: "C:\\Users\\Admin\\AppData\\Roaming\\7-Zip\\", exists: true, size: 3_276_800, confidence: "high", description: t("app.message_002") },
-  { id: "t3", program_name: "7-Zip 24.09", trace_type: "appdata", path: "C:\\Users\\Admin\\AppData\\Local\\7-Zip\\", exists: true, size: 1_310_720, confidence: "medium", description: t("app.message_003") },
-  { id: "t4", program_name: "7-Zip 24.09", trace_type: "file", path: "C:\\Users\\Admin\\AppData\\Local\\Temp\\7zFM\\", exists: true, size: 430_080, confidence: "low", description: t("app.message_004") },
-  { id: "t5", program_name: "7-Zip 24.09", trace_type: "shortcut", path: "C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\7-Zip.lnk", exists: true, size: 379_000, confidence: "medium", description: t("app.message_005") },
-  { id: "t6", program_name: "7-Zip 24.09", trace_type: "registry_key", path: "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\7zFM.exe", exists: true, size: 3_200, confidence: "high", description: t("app.message_006") },
-  { id: "t7", program_name: "7-Zip 24.09", trace_type: "registry_key", path: "HKCU\\Software\\Classes\\7z.*", exists: true, size: 196_000, confidence: "medium", description: t("app.message_007") },
-  { id: "t8", program_name: "7-Zip 24.09", trace_type: "registry_key", path: "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\.7z", exists: true, size: 56_000, confidence: "low", description: t("app.message_008") },
-];
+function mockPathSegment(name: string) {
+  return name.replace(/[<>:"/\\|?*]+/g, " ").replace(/\s+/g, " ").trim() || "Application";
+}
 
-const initialLogs = [
-  t("app.message_009"),
-  t("app.message_010"),
-  t("app.message_011"),
-  t("app.message_012"),
-  t("app.message_013"),
-  t("app.message_014"),
-  t("app.message_015"),
-];
+function mockInstallRoot(program: UiProgram) {
+  return program.location && program.location !== "—" ? program.location : `C:\\Program Files\\${mockPathSegment(program.name)}`;
+}
+
+function createMockTraces(program: UiProgram): Trace[] {
+  const root = mockInstallRoot(program);
+  const segment = mockPathSegment(program.name);
+  return [
+    { id: "t1", program_name: program.name, trace_type: "file", path: `${root}\\`, exists: true, size: 5_570_560, confidence: "high", description: t("app.message_001") },
+    { id: "t2", program_name: program.name, trace_type: "appdata", path: `%APPDATA%\\${segment}\\`, exists: true, size: 3_276_800, confidence: "high", description: t("app.message_002") },
+    { id: "t3", program_name: program.name, trace_type: "appdata", path: `%LOCALAPPDATA%\\${segment}\\`, exists: true, size: 1_310_720, confidence: "medium", description: t("app.message_003") },
+    { id: "t4", program_name: program.name, trace_type: "file", path: `%TEMP%\\${segment}\\`, exists: true, size: 430_080, confidence: "low", description: t("app.message_004") },
+    { id: "t5", program_name: program.name, trace_type: "shortcut", path: `%PROGRAMDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\${segment}.lnk`, exists: true, size: 379_000, confidence: "medium", description: t("app.message_005") },
+    { id: "t6", program_name: program.name, trace_type: "registry_key", path: `HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${segment}.exe`, exists: true, size: 3_200, confidence: "high", description: t("app.message_006") },
+    { id: "t7", program_name: program.name, trace_type: "registry_key", path: `HKCU\\Software\\${segment}`, exists: true, size: 196_000, confidence: "medium", description: t("app.message_007") },
+    { id: "t8", program_name: program.name, trace_type: "registry_key", path: `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\.${segment.toLowerCase()}`, exists: true, size: 56_000, confidence: "low", description: t("app.message_008") },
+  ];
+}
+
+function createMockUninstallLogs(program: UiProgram) {
+  const root = mockInstallRoot(program);
+  const segment = mockPathSegment(program.name);
+  return [
+    formatLocalLog(t("app.message_009")),
+    formatLocalLog(t("app.message_010")),
+    formatLocalLog(t("app.message_011", { value0: `${root}\\Uninstall.exe` })),
+    formatLocalLog(t("app.message_012")),
+    formatLocalLog(t("app.message_013", { value0: `${root}\\${segment}.exe` })),
+    formatLocalLog(t("app.message_014", { value0: `${root}\\${segment}-manager.exe` })),
+    formatLocalLog(t("app.message_015", { value0: `${root}\\${segment}.chm` })),
+  ];
+}
+
+function createMockAnalysisLogs() {
+  return [
+    formatLocalLog(t("app.message_017")),
+    formatLocalLog(t("app.message_018")),
+    formatLocalLog(t("app.message_019")),
+    formatLocalLog(t("app.message_020")),
+  ];
+}
 
 function getInitialStage(): Stage {
   const value = new URLSearchParams(window.location.search).get("stage");
@@ -225,17 +251,16 @@ export default function App() {
   const [developerModeEnabled, setDeveloperMode] = useState(getDeveloperModeEnabled);
   const [selectedId, setSelectedId] = useState("7zip");
   const [query, setQuery] = useState("");
-  const [logs, setLogs] = useState(initialLogs);
-  const [traces, setTraces] = useState<Trace[]>(demoTraces);
-  const [selectedTraceIds, setSelectedTraceIds] = useState<Set<string>>(
-    () => new Set(demoTraces.filter((trace) => trace.confidence === "high" && !trace.is_critical).map((trace) => trace.id)),
-  );
+  const [logs, setLogs] = useState<string[]>([]);
+  const [traces, setTraces] = useState<Trace[]>([]);
+  const [selectedTraceIds, setSelectedTraceIds] = useState<Set<string>>(new Set());
   const [cleanConfirm, setCleanConfirm] = useState(false);
   const [cleanupPending, setCleanupPending] = useState(false);
   const [cleanResults, setCleanResults] = useState<CleanResult[]>([]);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [recordsOpen, setRecordsOpen] = useState(false);
   const [manualScanPending, setManualScanPending] = useState(false);
+  const [scanMode, setScanMode] = useState<ScanMode>("uninstall");
   const [scanStatus, setScanStatus] = useState<ScanStatus>(
     () => (!isTauriRuntime() && getInitialStage() === "scan" ? getInitialScanStatus() : "uninstalling"),
   );
@@ -483,15 +508,19 @@ export default function App() {
 
   const handleManualScan = () => {
     if (!selectedProgram || !hasExplicitInstallLocation(selectedProgram)) return;
+    setScanMode("deep-analysis");
     setStage("scan");
     setTraces([]);
+    setSelectedTraceIds(new Set());
+    setLogs(createMockAnalysisLogs());
     setScanStatus("scanning");
     if (isTauriRuntime() && selectedProgram.source) {
       setManualScanPending(true);
       void scanTraces(selectedProgram.source.name, selectedProgram.source);
     } else {
-      setTraces(demoTraces);
-      setSelectedTraceIds(new Set(demoTraces.filter((trace) => !trace.is_critical && trace.confidence === "high").map((trace) => trace.id)));
+      const mockTraces = createMockTraces(selectedProgram);
+      setTraces(mockTraces);
+      setSelectedTraceIds(new Set(mockTraces.filter((trace) => !trace.is_critical && trace.confidence === "high").map((trace) => trace.id)));
       window.setTimeout(() => {
         setScanStatus("complete");
         setStage("review");
@@ -501,6 +530,7 @@ export default function App() {
 
   const startUninstall = () => {
     if (!selectedProgram) return;
+    setScanMode("uninstall");
     setStage("scan");
     setTraces([]);
     setLogs([t("app.message_021", { value0: new Date().toLocaleTimeString(getLanguage(), { hour12: false }) })]);
@@ -529,11 +559,12 @@ export default function App() {
       }, 650);
       window.setTimeout(() => {
         setScanStatus("scanning");
-        setLogs(initialLogs);
+        setLogs(createMockUninstallLogs(selectedProgram));
       }, 1_300);
       window.setTimeout(() => {
-        setTraces(demoTraces);
-        setSelectedTraceIds(new Set(demoTraces.filter((trace) => !trace.is_critical && trace.confidence === "high").map((trace) => trace.id)));
+        const mockTraces = createMockTraces(selectedProgram);
+        setTraces(mockTraces);
+        setSelectedTraceIds(new Set(mockTraces.filter((trace) => !trace.is_critical && trace.confidence === "high").map((trace) => trace.id)));
         setScanStatus("complete");
       }, 2_200);
     }
@@ -590,6 +621,10 @@ export default function App() {
     setCleanupPending(false);
     setCleanResults([]);
     setScanStatus("uninstalling");
+    setScanMode("uninstall");
+    setLogs([]);
+    setTraces([]);
+    setSelectedTraceIds(new Set());
     resetUninstall();
   };
 
@@ -671,7 +706,7 @@ export default function App() {
               onCancel={exitUninstallFlow}
               onStart={startUninstall}
             /> : stage === "scan" ? (
-            <ScanStage program={workflowProgram} traces={traces} logs={logs} status={scanStatus} error={uninstallFailure} cancelling={uninstallCancelling} onCancel={() => void cancelResidueScan()} onExit={exitUninstallFlow} onContinue={continueWorkflow} />
+            <ScanStage program={workflowProgram} traces={traces} logs={logs} status={scanStatus} skipUninstaller={scanMode === "deep-analysis"} error={uninstallFailure} cancelling={uninstallCancelling} onCancel={() => void cancelResidueScan()} onExit={exitUninstallFlow} onContinue={continueWorkflow} />
           ) : stage === "review" ? (
             <ReviewStage
               traces={traces}
@@ -1163,6 +1198,7 @@ function ScanStage({
   traces,
   logs,
   status,
+  skipUninstaller,
   error,
   cancelling,
   onCancel,
@@ -1173,6 +1209,7 @@ function ScanStage({
   traces: Trace[];
   logs: string[];
   status: ScanStatus;
+  skipUninstaller: boolean;
   error: string | null;
   cancelling: boolean;
   onCancel: () => void;
@@ -1189,6 +1226,14 @@ function ScanStage({
   const isComplete = status === "complete";
   const scanActive = status === "scanning";
   const uninstallerComplete = scanActive || isComplete;
+  const uninstallerLabel = skipUninstaller
+    ? t("uninstall.scan.uninstaller_skipped")
+    : status === "uninstalling"
+      ? t("uninstall.scan.uninstaller_calling")
+      : status === "verifying"
+        ? t("uninstall.scan.uninstaller_verifying")
+        : t("uninstall.scan.uninstaller_complete");
+  const processHint = skipUninstaller ? t("uninstall.scan.deep_analysis_hint") : t("uninstall.scan.same_page_hint");
   const progressValue = status === "uninstalling" ? 15 : status === "verifying" ? 32 : isComplete ? 100 : undefined;
   const title = status === "uninstalling"
     ? t("uninstall.scan.uninstaller_running", { value0: program.name })
@@ -1198,7 +1243,7 @@ function ScanStage({
         ? t("app.message_125")
         : t("app.message_126");
   const subtitle = status === "uninstalling" || status === "verifying"
-    ? t("uninstall.scan.same_page_hint")
+    ? processHint
     : t("app.message_127", { value0: program.name, value1: isComplete ? t("app.message_325") : t("app.message_326") });
   const latestLogs = logs.slice(-4);
   return (
@@ -1212,8 +1257,8 @@ function ScanStage({
         <div className="scan-locations"><h3>{t("uninstall.scan.workflow_title")} <span>{isComplete ? t("app.message_131") : scanActive ? t("app.message_132") : t("uninstall.scan.in_progress")}</span></h3>
           <div data-testid="workflow-uninstaller-row" data-state={error ? "failed" : uninstallerComplete ? "done" : "active"} className={`uninstaller-row ${error ? "failed" : uninstallerComplete ? "done" : "active"}`}>
             <Package size={20} />
-            <div><strong>{status === "uninstalling" ? t("uninstall.scan.uninstaller_calling") : status === "verifying" ? t("uninstall.scan.uninstaller_verifying") : t("uninstall.scan.uninstaller_complete")}</strong><span>{program.name}</span><small>{t("uninstall.scan.uninstaller_hint")}</small></div>
-            <em>{error ? t("app.message_108") : uninstallerComplete ? t("app.message_133") : t("uninstall.scan.running")}</em>
+            <div><strong>{uninstallerLabel}</strong><span>{program.name}</span><small>{skipUninstaller ? t("uninstall.scan.deep_analysis_hint") : t("uninstall.scan.uninstaller_hint")}</small></div>
+            <em>{error ? t("app.message_108") : uninstallerComplete ? (skipUninstaller ? t("uninstall.scan.uninstaller_skipped") : t("app.message_133")) : t("uninstall.scan.running")}</em>
             <b>{error ? "!" : uninstallerComplete ? <Check size={14} /> : <Loader2 size={14} className="spinning" />}</b>
           </div>
           {locationMeta.map(({ category, icon: Icon, title: locationTitle, path, hint }) => {
@@ -1225,7 +1270,7 @@ function ScanStage({
       <div className="scan-stats card-surface"><h3>{t("app.message_137")} <span>{isComplete ? t("app.message_138") : t("app.message_139")}</span></h3><div><span>{t("app.message_140")}<strong>{isComplete ? "4 / 4" : scanActive ? t("app.message_136") : "0 / 4"}</strong></span><span>{t("app.message_128")}<strong className="blue">{isComplete ? traces.length : scanActive ? t("app.message_129") : "—"}</strong></span><span>{t("app.message_143")}<strong className="blue">{isComplete ? formatBytes(traces.reduce((sum, trace) => sum + (trace.size ?? 0), 0)) : scanActive ? t("app.message_144") : "—"}</strong></span><span>{t("app.message_145")}<strong>{isComplete ? t("app.message_146") : scanActive ? t("app.message_147") : t("uninstall.scan.waiting")}</strong></span></div></div>
       <div className="scan-live-log card-surface"><div className="panel-title"><span>{isComplete ? <Check size={13} /> : <Loader2 size={13} className="spinning" />}{t("app.message_148")}</span><strong>{isComplete ? t("app.message_149") : t("app.message_150")}</strong></div><div>{latestLogs.length > 0 ? latestLogs.map((log, index) => <p key={`${log}-${index}`}>{log}</p>) : <p>{t("app.message_151")}</p>}</div></div>
       </div>
-      <div className="page-footnote"><Info size={15} /><span>{isComplete ? t("uninstall.scan.results_hold") : t("uninstall.scan.same_page_hint")}</span>{error ? <button onClick={onExit}>{t("uninstall.action.back_to_apps")}</button> : !isComplete ? <button className="scan-cancel-button" disabled={cancelling} onClick={onCancel}>{cancelling ? <Loader2 size={13} className="spinning" /> : <X size={13} />}{cancelling ? t("uninstall.action.cancelling") : t("uninstall.action.cancel_workflow")}</button> : <button data-testid="workflow-scan-next" className="workflow-next-button" onClick={onContinue}>{traces.length > 0 ? t("uninstall.action.review_residues") : t("uninstall.action.view_result")} <ChevronDown size={13} /></button>}</div>
+      <div className="page-footnote"><Info size={15} /><span>{isComplete ? t("uninstall.scan.results_hold") : processHint}</span>{error ? <button onClick={onExit}>{t("uninstall.action.back_to_apps")}</button> : !isComplete ? <button className="scan-cancel-button" disabled={cancelling} onClick={onCancel}>{cancelling ? <Loader2 size={13} className="spinning" /> : <X size={13} />}{cancelling ? t("uninstall.action.cancelling") : t("uninstall.action.cancel_workflow")}</button> : <button data-testid="workflow-scan-next" className="workflow-next-button" onClick={onContinue}>{traces.length > 0 ? t("uninstall.action.review_residues") : t("uninstall.action.view_result")} <ChevronDown size={13} /></button>}</div>
     </div>
   );
 }
