@@ -1537,6 +1537,8 @@ function UninstallReportModal({ program, traces, selectedIds, summaries, logs, o
 }
 
 function ProgramInfoModal({ program, onClose }: { program: UiProgram; onClose: () => void }) {
+  const [directoryOpening, setDirectoryOpening] = useState(false);
+  const [directoryOpenError, setDirectoryOpenError] = useState<string | null>(null);
   const source = program.source;
   const sourceLabel = source?.install_source === "msi" ? t("common.format.msi") : source?.install_source === "store" ? t("common.source.microsoft_store") : source?.install_source === "registry" ? t("app.message_024") : t("app.message_296");
   const rows: Array<[string, string | null | undefined, boolean?]> = [
@@ -1552,6 +1554,19 @@ function ProgramInfoModal({ program, onClose }: { program: UiProgram; onClose: (
     [t("app.message_306"), source?.quiet_uninstall_string, true],
     [t("app.message_307"), source?.uninstall_registry_key_path, true],
   ];
+  const openInstallLocation = async () => {
+    if (!source?.install_location || directoryOpening) return;
+    setDirectoryOpening(true);
+    setDirectoryOpenError(null);
+    try {
+      await invoke("open_program_install_location", { path: source.install_location });
+    } catch (error) {
+      console.error(t("app.message_310"), error);
+      setDirectoryOpenError(t("app.message_310"));
+    } finally {
+      setDirectoryOpening(false);
+    }
+  };
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
       <section className="program-info-modal" onMouseDown={(event) => event.stopPropagation()}>
@@ -1565,7 +1580,8 @@ function ProgramInfoModal({ program, onClose }: { program: UiProgram; onClose: (
           ))}
         </div>
         <footer>
-          {source?.install_location && <a href={`file:///${source.install_location}`} target="_blank" rel="noreferrer"><FolderOpen size={15} />{t("app.message_309")}</a>}
+          {directoryOpenError && <span className="program-info-directory-error" role="alert"><TriangleAlert size={14} />{directoryOpenError}</span>}
+          {source?.install_location && <button type="button" className="program-info-open-directory secondary-button" onClick={() => void openInstallLocation()} disabled={directoryOpening}><FolderOpen size={15} />{directoryOpening ? t("app.message_311") : t("app.message_309")}</button>}
           <button className="secondary-button" onClick={onClose}>{t("app.message_031")}</button>
         </footer>
       </section>

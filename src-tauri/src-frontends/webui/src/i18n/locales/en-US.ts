@@ -262,6 +262,8 @@ const enUS = {
   "app.message_307": "Registry path",
   "app.message_308": "Close details",
   "app.message_309": "Open the installation directory",
+  "app.message_310": "Could not open the installation directory. Please confirm that the path still exists.",
+  "app.message_311": "Opening…",
   "app.message_324": "This module will be available in a subsequent release.",
   "components.backupcenter.message_001": "Backed up, not cleaned",
   "components.backupcenter.message_002": "Cleanup attempted, recoverable",

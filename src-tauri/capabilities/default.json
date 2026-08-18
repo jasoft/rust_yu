@@ -38,6 +38,7 @@
     "allow-get-program-health",
     "allow-list-programs",
     "allow-warmup-program-metadata",
+    "allow-open-program-install-location",
     "allow-search-programs",
     "allow-scan-traces",
     "allow-clean-traces",

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-open-program-install-location"
+description = "Enables the open_program_install_location command without any pre-configured scope."
+commands.allow = ["open_program_install_location"]
+
+[[permission]]
+identifier = "deny-open-program-install-location"
+description = "Denies the open_program_install_location command without any pre-configured scope."
+commands.deny = ["open_program_install_location"]

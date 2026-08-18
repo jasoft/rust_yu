@@ -34,6 +34,7 @@ fn main() {
         "get_program_health",
         "list_programs",
         "warmup_program_metadata",
+        "open_program_install_location",
         "search_programs",
         "scan_traces",
         "clean_traces",

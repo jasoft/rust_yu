@@ -262,6 +262,8 @@ const zhCN = {
   "app.message_307": "注册表路径",
   "app.message_308": "关闭详细信息",
   "app.message_309": "打开安装目录",
+  "app.message_310": "无法打开安装目录，请确认该路径仍然存在。",
+  "app.message_311": "正在打开…",
   "app.message_324": "该模块将在后续版本中提供。",
   "components.backupcenter.message_001": "已备份，未清理",
   "components.backupcenter.message_002": "已尝试清理，可恢复",

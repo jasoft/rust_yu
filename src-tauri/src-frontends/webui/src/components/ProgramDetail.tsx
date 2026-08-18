@@ -1,11 +1,14 @@
 import { t } from "../i18n/index.ts";
+import { invoke } from "@tauri-apps/api/core";
 import {
   Trash2,
   SearchCode,
   FolderOpen,
-    ArrowLeft,
+  TriangleAlert,
+  ArrowLeft,
   Package,
 } from "lucide-react";
+import { useState } from "react";
 import { useProgramsStore } from "../stores/programs";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader } from "./ui/card";
@@ -17,10 +20,25 @@ import { formatWindowsDate } from "../lib/date";
 export function ProgramDetail() {
   const { selectedProgram, setViewMode, scanTraces, selectProgram } =
     useProgramsStore();
+  const [directoryOpening, setDirectoryOpening] = useState(false);
+  const [directoryOpenError, setDirectoryOpenError] = useState(false);
 
   if (!selectedProgram) return null;
   const p = selectedProgram;
   const iconSrc = getProgramIconSrc(p);
+  const openInstallLocation = async () => {
+    if (!p.install_location || directoryOpening) return;
+    setDirectoryOpening(true);
+    setDirectoryOpenError(false);
+    try {
+      await invoke("open_program_install_location", { path: p.install_location });
+    } catch (error) {
+      console.error(t("app.message_310"), error);
+      setDirectoryOpenError(true);
+    } finally {
+      setDirectoryOpening(false);
+    }
+  };
 
   return (
     <div className="flex min-w-0 flex-col h-full overflow-y-auto overflow-x-hidden">
@@ -107,18 +125,19 @@ export function ProgramDetail() {
             {t("app.deep_analysis.action")}
           </Button>
           {p.install_location && (
-            <a
-              href={`file:///${p.install_location}`}
-              target="_blank"
-              rel="noreferrer"
+            <button
+              type="button"
+              onClick={() => void openInstallLocation()}
+              disabled={directoryOpening}
               className="inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-700 hover:text-white transition-colors"
             >
               <FolderOpen className="h-4 w-4" />
 
-              {t("components.programdetail.message_015")}
-            </a>
+              {directoryOpening ? t("app.message_311") : t("components.programdetail.message_015")}
+            </button>
           )}
         </div>
+        {directoryOpenError && <p role="alert" className="flex items-center gap-1 text-sm text-red-400"><TriangleAlert className="h-4 w-4" />{t("app.message_310")}</p>}
       </div>
     </div>
   );
