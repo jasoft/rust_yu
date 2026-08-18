@@ -80,7 +80,7 @@ button { color: inherit; }
 .program-grid [role="columnheader"]:first-child,
 .program-grid [role="gridcell"]:first-child { padding-inline-start: 13px; }
 .program-grid [role="columnheader"]:first-child { padding-inline-start: 8px; padding-inline-end: 4px; }
-.program-grid .rdg-resize-handle { inline-size: 16px; inset-block: 7px; }
+.program-grid .rdg-resize-handle { z-index: 2; inline-size: 18px; inset-block: 7px; }
 .program-grid .rdg-resize-handle:hover,
 .program-grid .rdg-resize-handle:focus-visible { background: repeating-linear-gradient(to bottom, #8298aa 0 2px, transparent 2px 4px) right center / 2px 100% no-repeat; }
 .program-grid [role="gridcell"] { color: #52606d; }
@@ -90,7 +90,9 @@ button { color: inherit; }
 .program-grid-name-cell strong { min-width: 0; overflow: hidden; color: #26313b; font-size: 14px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .program-grid-text-cell { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .program-grid-size-cell,
-.program-grid-size-header { text-align: right; }
+.program-grid-size-header { padding-inline-end: 18px; text-align: right; }
+.program-grid-installed-cell,
+.program-grid-installed-header { padding-inline-start: 18px; }
 .program-grid input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--blue); cursor: pointer; }
 .program-grid input[type="checkbox"]:disabled { cursor: default; opacity: .55; }
 .table-message { height: 100%; min-height: 150px; display: grid; place-items: center; padding: 24px; color: #7b8894; font-size: 14px; text-align: center; }
