@@ -1,20 +1,11 @@
 use super::error::CommandError;
 use rust_yu_lib::modules::advanced::{
     self, CleanupPolicyProfile, HibernationPlan, HibernationResult, InventoryBaseline,
-    InventoryComparison, ReconstructedEvidencePacket,
+    InventoryComparison,
 };
 use rust_yu_lib::modules::lister::models::{
     InstallSourceSelector, InstalledProgram, ListProgramsQuery,
 };
-
-#[tauri::command]
-pub async fn reconstruct_installation(
-    program: InstalledProgram,
-) -> Result<ReconstructedEvidencePacket, CommandError> {
-    advanced::reconstruct_installation(program)
-        .await
-        .map_err(CommandError::from)
-}
 
 #[tauri::command]
 pub async fn list_cleanup_policy_profiles() -> Result<Vec<CleanupPolicyProfile>, CommandError> {

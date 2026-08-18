@@ -346,19 +346,6 @@ export interface MonitorEvidenceEvent {
 
 export type EvidenceConfidence = "high" | "medium" | "low" | "unknown";
 
-export interface EvidenceRecord {
-  id: string; category: string; target: string; source: string; observed_at: string;
-  confidence: EvidenceConfidence; exists: boolean | null; result: string;
-  destructive_eligible: boolean; note: string;
-}
-
-export interface ReconstructedEvidencePacket {
-  id: string; schema_version: number; generated_at: string; program: InstalledProgram;
-  inference_notice: string; vendor: string | null; signature_status: string;
-  signature_subject: string | null; evidence: EvidenceRecord[]; warnings: string[];
-  immutable_sha256: string;
-}
-
 export type CleanupPolicyKind = "audit" | "safe" | "recovery";
 export interface CleanupPolicyProfile {
   kind: CleanupPolicyKind; title: string; description: string; analyze_only: boolean;

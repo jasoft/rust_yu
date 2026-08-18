@@ -12,7 +12,8 @@ test("removes the ambiguous evidence-and-policy destination", () => {
 });
 
 test("places each software task in a user-oriented destination", () => {
-  assert.match(app, /<SoftwareRecordDialog/);
+  assert.equal(existsSync(new URL("../src/components/SoftwareRecordDialog.tsx", import.meta.url)), false);
+  assert.doesNotMatch(app, /SoftwareRecordDialog|softwarerecords|安装记录/);
   assert.match(app, /activeNav === "inventory"/);
   assert.match(app, /<SoftwareInventoryComparison/);
   assert.match(app, /<CleanupSafetyRules/);

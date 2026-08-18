@@ -9,9 +9,9 @@ import {
   ChevronDown,
   CircleHelp,
   Database,
-  FileCode2,
   FileText,
   FileWarning,
+  FileCode2,
   Folder,
   FolderOpen,
   Grid2X2,
@@ -64,7 +64,6 @@ import { BrowserPluginsPage } from "./components/BrowserPluginsPage";
 import { ToolboxPage } from "./components/ToolboxPage";
 import { CleanupSafetyRules } from "./components/CleanupSafetyRules";
 import { SoftwareInventoryComparison } from "./components/SoftwareInventoryComparison";
-import { SoftwareRecordDialog } from "./components/SoftwareRecordDialog";
 import { TracePanel } from "./components/TracePanel";
 import { AboutPage } from "./components/AboutPage";
 import { DeveloperToolsPage } from "./components/DeveloperToolsPage";
@@ -258,7 +257,6 @@ export default function App() {
   const [cleanupPending, setCleanupPending] = useState(false);
   const [cleanResults, setCleanResults] = useState<CleanResult[]>([]);
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const [recordsOpen, setRecordsOpen] = useState(false);
   const [manualScanPending, setManualScanPending] = useState(false);
   const [scanMode, setScanMode] = useState<ScanMode>("uninstall");
   const [scanStatus, setScanStatus] = useState<ScanStatus>(
@@ -691,8 +689,6 @@ export default function App() {
               onScan={handleManualScan}
               canDeepAnalyze={hasExplicitInstallLocation(selectedProgram)}
               onDetails={() => setDetailsOpen(true)}
-              onRecords={() => setRecordsOpen(true)}
-              canInspectRecords={isTauriRuntime() && Boolean(selectedProgram?.source)}
               onForceUninstall={() => { resetForce(); setForceOpen(true); }}
               batchSelectedIds={batchSelectedIds}
               batchActive={batchActive}
@@ -746,7 +742,6 @@ export default function App() {
         </main>
       </div>
       {detailsOpen && selectedProgram && <ProgramInfoModal program={selectedProgram} onClose={() => setDetailsOpen(false)} />}
-      {recordsOpen && selectedProgram?.source && <SoftwareRecordDialog program={selectedProgram.source} onClose={() => setRecordsOpen(false)} />}
       {batchOpen && <BatchUninstallModal
         selectedPrograms={selectedBatchPrograms}
         items={batchItems}
@@ -940,9 +935,8 @@ function AppsStage(props: {
   error: string | null; query: string; sourceFilter: ProgramSourceFilter;
   sourceCounts: Record<ProgramSourceFilter, number>;
   onQuery: (value: string) => void; onSourceFilter: (value: ProgramSourceFilter) => void; onSelect: (id: string) => void;
-  onUninstall: () => void; onScan: () => void; onDetails: () => void; onRecords: () => void; onRefresh: () => void;
+  onUninstall: () => void; onScan: () => void; onDetails: () => void; onRefresh: () => void;
   canDeepAnalyze: boolean;
-  canInspectRecords: boolean;
   onForceUninstall: () => void;
   batchSelectedIds: Set<string>; batchActive: boolean; onToggleBatch: (id: string) => void; onOpenBatch: () => void;
 }) {
@@ -1129,7 +1123,6 @@ function AppsStage(props: {
           <div className="detail-actions">
             <button onClick={props.onDetails}><Info size={14} />{t("app.message_068")}</button>
             <button disabled={!props.canDeepAnalyze} onClick={props.onScan}><Search size={14} />{t("app.deep_analysis.action")}</button>
-            <button disabled={!props.canInspectRecords} title={!props.canInspectRecords ? t("app.records.disabled_reason") : undefined} onClick={props.onRecords}><FileCode2 size={14} />{t("components.softwarerecords.action")}</button>
           </div>
           <button data-testid="program-uninstall" className="primary-button uninstall-button" onClick={props.onUninstall}><Trash2 size={16} />{t("app.message_071")}</button>
         </aside>}

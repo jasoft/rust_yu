@@ -477,12 +477,6 @@
           "markdownDescription": "Enables the plan_uninstall command without any pre-configured scope."
         },
         {
-          "description": "Enables the reconstruct_installation command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-reconstruct-installation",
-          "markdownDescription": "Enables the reconstruct_installation command without any pre-configured scope."
-        },
-        {
           "description": "Enables the record_install_monitor_process command without any pre-configured scope.",
           "type": "string",
           "const": "allow-record-install-monitor-process",
@@ -847,12 +841,6 @@
           "type": "string",
           "const": "deny-plan-uninstall",
           "markdownDescription": "Denies the plan_uninstall command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the reconstruct_installation command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-reconstruct-installation",
-          "markdownDescription": "Denies the reconstruct_installation command without any pre-configured scope."
         },
         {
           "description": "Denies the record_install_monitor_process command without any pre-configured scope.",

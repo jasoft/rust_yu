@@ -4,7 +4,6 @@ fn main() {
     // AppManifest 是 Tauri v2 的应用 command ACL 来源；新增 handler 必须同步加入此列表。
     // capability/default.json 只引用 allow 权限，不开放任意动态命令。
     const COMMANDS: &[&str] = &[
-        "reconstruct_installation",
         "list_cleanup_policy_profiles",
         "plan_program_hibernation",
         "apply_program_hibernation",

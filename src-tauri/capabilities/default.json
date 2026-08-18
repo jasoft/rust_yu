@@ -8,7 +8,6 @@
     "core:event:default",
     "dialog:allow-open",
     "window-state:default",
-    "allow-reconstruct-installation",
     "allow-list-cleanup-policy-profiles",
     "allow-plan-program-hibernation",
     "allow-apply-program-hibernation",

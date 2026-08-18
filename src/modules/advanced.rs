@@ -1,7 +1,7 @@
-//! 竞品路线图 F-14、F-18、F-19、F-20 的安全实现。
+//! 竞品路线图 F-18、F-19、F-20 的安全实现。
 //!
-//! 本模块只把可解释、可回滚的能力暴露给 UI：存量取证永远标注为事后推断；
-//! 休眠只禁用与安装目录精确关联的启动项；基线导入只做差异比较；策略配置档
+//! 本模块只把可解释、可回滚的系统能力暴露给 UI：休眠只禁用与安装目录精确关联的启动项；
+//! 基线导入只做差异比较；策略配置档
 //! 只能收紧清理权限，不能绕过确认、关键路径检查或备份门禁。
 
 use crate::modules::common::error::UninstallerError;
@@ -19,7 +19,6 @@ use std::process::Command;
 use uuid::Uuid;
 
 const STORAGE_ENV: &str = "RUST_YU_STORAGE_DIR";
-const FORENSICS_DIR: &str = "forensics";
 const BASELINES_DIR: &str = "inventory-baselines";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -38,130 +37,6 @@ impl From<Confidence> for EvidenceConfidence {
             Confidence::Medium => Self::Medium,
             Confidence::Low => Self::Low,
         }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EvidenceRecord {
-    pub id: String,
-    pub category: String,
-    pub target: String,
-    pub source: String,
-    pub observed_at: DateTime<Utc>,
-    pub confidence: EvidenceConfidence,
-    pub exists: Option<bool>,
-    pub result: String,
-    pub destructive_eligible: bool,
-    pub note: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ReconstructedEvidencePacket {
-    pub id: String,
-    pub schema_version: u32,
-    pub generated_at: DateTime<Utc>,
-    pub program: InstalledProgram,
-    pub inference_notice: String,
-    pub vendor: Option<String>,
-    pub signature_status: String,
-    pub signature_subject: Option<String>,
-    pub evidence: Vec<EvidenceRecord>,
-    pub warnings: Vec<String>,
-    pub immutable_sha256: String,
-}
-
-/// F-14：对未被监控的软件建立安装来源证据包。它只读取清单、安装目录和签名；
-/// 残留文件扫描由应用详情中的“深度分析”单独负责，避免两个入口重复扫描。
-pub async fn reconstruct_installation(
-    program: InstalledProgram,
-) -> Result<ReconstructedEvidencePacket, UninstallerError> {
-    let mut warnings = Vec::new();
-    let observed_at = Utc::now();
-    let mut evidence = Vec::new();
-
-    if let Some(key) = program.uninstall_registry_key_path.as_deref() {
-        evidence.push(record(
-            "uninstall_registry",
-            key,
-            "installed_program.uninstall_registry_key_path",
-            EvidenceConfidence::High,
-            Some(true),
-            true,
-            "卸载清单中的精确注册表键；存在性由清单扫描来源证明。",
-        ));
-    } else {
-        warnings.push("程序清单没有卸载注册表键路径。".to_string());
-    }
-    if let Some(path) = program.install_location.as_deref() {
-        let exists = Path::new(path).exists();
-        evidence.push(record(
-            "install_directory",
-            path,
-            "installed_program.install_location",
-            EvidenceConfidence::High,
-            Some(exists),
-            exists,
-            "安装清单中的精确目录；删除仍需单独执行备份门禁。",
-        ));
-    }
-
-    let signature_location = program.install_location.clone();
-    let signature_icon = program.icon_path.clone();
-    let (signature_status, signature_subject, signature_warning) =
-        tokio::task::spawn_blocking(move || {
-            inspect_signature(signature_location.as_deref(), signature_icon.as_deref())
-        })
-        .await
-        .map_err(|error| UninstallerError::Other(format!("签名检查任务失败：{error}")))?;
-    if let Some(warning) = signature_warning {
-        warnings.push(warning);
-    }
-
-    let mut packet = ReconstructedEvidencePacket {
-        id: Uuid::new_v4().to_string(),
-        schema_version: 1,
-        generated_at: observed_at,
-        vendor: program.publisher.clone(),
-        program,
-        inference_notice:
-            "此证据包只记录当前安装来源，不等同于安装时监控；残留文件请使用深度分析单独查看。"
-                .to_string(),
-        signature_status,
-        signature_subject,
-        evidence,
-        warnings,
-        immutable_sha256: String::new(),
-    };
-    packet.immutable_sha256 = packet_hash(&packet)?;
-    persist_json(FORENSICS_DIR, &packet.id, &packet)?;
-    Ok(packet)
-}
-
-fn record(
-    category: &str,
-    target: &str,
-    source: &str,
-    confidence: EvidenceConfidence,
-    exists: Option<bool>,
-    destructive_eligible: bool,
-    note: &str,
-) -> EvidenceRecord {
-    EvidenceRecord {
-        id: Uuid::new_v4().to_string(),
-        category: category.to_string(),
-        target: target.to_string(),
-        source: source.to_string(),
-        observed_at: Utc::now(),
-        confidence,
-        exists,
-        result: if exists == Some(false) {
-            "missing"
-        } else {
-            "observed"
-        }
-        .to_string(),
-        destructive_eligible,
-        note: note.to_string(),
     }
 }
 
@@ -681,12 +556,6 @@ pub fn load_inventory_baseline(path: &Path) -> Result<InventoryBaseline, Uninsta
         ));
     }
     Ok(baseline)
-}
-
-fn packet_hash(packet: &ReconstructedEvidencePacket) -> Result<String, UninstallerError> {
-    let mut clone = packet.clone();
-    clone.immutable_sha256.clear();
-    hash_json(&clone)
 }
 
 fn baseline_hash(baseline: &InventoryBaseline) -> Result<String, UninstallerError> {

@@ -180,7 +180,6 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            reconstruct_installation,
             list_cleanup_policy_profiles,
             plan_program_hibernation,
             apply_program_hibernation,
