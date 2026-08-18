@@ -3,7 +3,7 @@ import { formatWindowsDate } from "./date";
 
 describe("formatWindowsDate", () => {
   it("formats registry date-only values with the local short-date pattern", () => {
-    const expected = new Intl.DateTimeFormat(undefined, { dateStyle: "short" }).format(
+    const expected = new Intl.DateTimeFormat(undefined, { year: "numeric", month: "2-digit", day: "2-digit" }).format(
       new Date(2024, 0, 15),
     );
 
@@ -13,7 +13,7 @@ describe("formatWindowsDate", () => {
 
   it("converts timestamps to the local calendar date", () => {
     const timestamp = "2024-01-15T12:30:00.000Z";
-    const expected = new Intl.DateTimeFormat(undefined, { dateStyle: "short" }).format(
+    const expected = new Intl.DateTimeFormat(undefined, { year: "numeric", month: "2-digit", day: "2-digit" }).format(
       new Date(timestamp),
     );
 

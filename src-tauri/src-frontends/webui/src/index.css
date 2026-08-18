@@ -89,6 +89,8 @@ button { color: inherit; }
 .program-grid-name-cell { min-width: 0; display: flex; align-items: center; gap: 9px; }
 .program-grid-name-cell strong { min-width: 0; overflow: hidden; color: #26313b; font-size: 14px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .program-grid-text-cell { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.program-grid-size-cell,
+.program-grid-size-header { text-align: right; }
 .program-grid input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--blue); cursor: pointer; }
 .program-grid input[type="checkbox"]:disabled { cursor: default; opacity: .55; }
 .table-message { height: 100%; min-height: 150px; display: grid; place-items: center; padding: 24px; color: #7b8894; font-size: 14px; text-align: center; }

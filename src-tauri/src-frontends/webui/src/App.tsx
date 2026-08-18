@@ -967,6 +967,8 @@ function AppsStage(props: {
         name: t("app.message_055"),
         width: gridState.widths.size,
         minWidth: 80,
+        cellClass: "program-grid-size-cell",
+        headerCellClass: "program-grid-size-header",
         renderCell: ({ row }) => <span className="program-grid-text-cell">{row.size}</span>,
       },
       installed: {

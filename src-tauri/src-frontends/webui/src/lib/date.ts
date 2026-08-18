@@ -1,5 +1,10 @@
 const DATE_ONLY_PATTERN = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/;
 const COMPACT_DATE_PATTERN = /^(\d{4})(\d{2})(\d{2})$/;
+const WINDOWS_SHORT_DATE_OPTIONS: Intl.DateTimeFormatOptions = {
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+};
 
 function createLocalDate(year: number, month: number, day: number): Date | null {
   const date = new Date(year, month - 1, day);
@@ -43,8 +48,6 @@ export function formatWindowsDate(value: string | null | undefined): string | nu
   }
 
   return date
-    ? new Intl.DateTimeFormat(undefined, {
-        dateStyle: "short",
-      }).format(date)
+    ? new Intl.DateTimeFormat(undefined, WINDOWS_SHORT_DATE_OPTIONS).format(date)
     : null;
 }
