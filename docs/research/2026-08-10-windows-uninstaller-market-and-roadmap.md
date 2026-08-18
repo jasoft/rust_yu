@@ -93,7 +93,7 @@ Rust Yu 不复制“清理一切”的激进叙事，而采用 **原厂卸载优
 | F-11 | P1 | 便携/可部署分发 | Geek/Wise/BCU | 便携构建、配置/缓存位置、无安装运行、ARM64/Win32 兼容说明 | 便携版不写入工作区以外的隐式状态；安装版和便携版行为一致 | 本轮已完成；ARM64 GNU 资源编译补丁、Release EXE 与 NSIS 安装包均已验证 |
 | F-12 | P2 | 软件健康与更新提示 | IObit/Wise/BCU 评分 | 过期/重复/最近使用/启动影响展示；只提示，不静默升级 | 所有评分有来源和时间；不把营销/遥测混入核心卸载 | 本轮已完成；更新判断保持手动入口 |
 | F-13 | P2 | 工具箱收敛 | IObit/HiBit/旧 Your Uninstaller | 复用已有系统清理、浏览器插件、自启动页，补搜索、权限提示、空状态 | 工具页不绕过各自安全模型；导航和主界面 Fluent 风格一致 | 本轮已完成 |
-| F-14 | P0 | 存量安装取证 | Ashampoo Forensic Analysis/IObit Force Removal | 对未监控程序重建卸载证据包，覆盖卸载键、路径、AppData、服务/任务/驱动和签名 | 明确“事后推断”；低置信度默认保留；只读报告先于删除 | 已实现：`advanced::reconstruct_installation` + 应用详情“相关记录” |
+| F-14 | P0 | 存量安装取证 | Ashampoo Forensic Analysis/IObit Force Removal | 对未监控程序重建卸载来源证据包，读取卸载键、安装路径和签名；残留文件、AppData、服务/任务/驱动由独立深度分析负责 | 明确“安装来源”与“残留扫描”的边界；只读报告先于删除 | 已实现：`advanced::reconstruct_installation` + 应用详情“安装记录”；残留由“深度分析”复核 |
 | F-15 | P0 | 安装证据图与事件时间线 | IObit Install Monitor/Ashampoo Installation Guard | 将 F-08 前后快照扩展为进程树、文件、注册表、服务、任务、驱动和安装/更新阶段 | 每项变更有来源、时间、目标和置信度；会话范围可控、可停止、可过期 | 已实现：周期进程观察、系统集成前后快照、事件图和会话生命周期 |
 | F-16 | P0 | 删除前可恢复性门禁 | Ashampoo 日志限制/IObit 还原点 | 所有 destructive workflow 统一检查目标指纹、备份可读性、保护路径和恢复入口 | 备份失败不得继续；恢复拒绝覆盖新内容；执行后验证结果 | 已实现：SHA-256 指纹、备份清单门禁、删除后验证和非覆盖恢复 |
 | F-17 | P1 | 专业证据导出包 | Ashampoo HTML/CSV/TXT/REG 导出、IObit 卸载历史 | 在现有报告外增加 CSV、文件清单、Registry `.reg`、进程树和摘要 | 来源于不可变任务快照；敏感数据不上传；失败项可审计 | 已实现：本地 ZIP、manifest、CSV/REG/事件/系统集成清单和 SHA256SUMS |

@@ -365,7 +365,6 @@ export default function App() {
     setSelectedTraceIds(new Set(scannedTraces.filter((trace) => !trace.is_critical && trace.confidence === "high").map((trace) => trace.id)));
     setManualScanPending(false);
     setScanStatus("complete");
-    setStage("review");
   }, [manualScanPending, scannedTraces, tracesLoading]);
 
   useEffect(() => {
@@ -523,7 +522,6 @@ export default function App() {
       setSelectedTraceIds(new Set(mockTraces.filter((trace) => !trace.is_critical && trace.confidence === "high").map((trace) => trace.id)));
       window.setTimeout(() => {
         setScanStatus("complete");
-        setStage("review");
       }, 900);
     }
   };
@@ -571,9 +569,12 @@ export default function App() {
   };
 
   const continueWorkflow = () => {
-    if (stage === "scan") {
-      setStage(isTauriRuntime() ? nextStageAfterScan(uninstallJob?.phase) : "review");
+    if (stage !== "scan") return;
+    if (scanMode === "deep-analysis") {
+      setStage("review");
+      return;
     }
+    setStage(isTauriRuntime() ? nextStageAfterScan(uninstallJob?.phase) : "review");
   };
 
   const cleanSelected = async () => {

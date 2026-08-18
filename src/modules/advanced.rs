@@ -7,8 +7,8 @@
 use crate::modules::common::error::UninstallerError;
 use crate::modules::health;
 use crate::modules::lister::models::{InstallSourceSelector, InstalledProgram, ListProgramsQuery};
-use crate::modules::scanner::models::{Confidence, Trace, TraceType};
-use crate::modules::{lister, scanner, startup};
+use crate::modules::scanner::models::{Confidence, Trace};
+use crate::modules::{lister, startup};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -70,14 +70,12 @@ pub struct ReconstructedEvidencePacket {
     pub immutable_sha256: String,
 }
 
-/// F-14：对未被监控的软件建立事后证据包。扫描结果绝不因数量或名称相似而
-/// 自动提升置信度，低置信度和未知项默认不可用于破坏性操作。
+/// F-14：对未被监控的软件建立安装来源证据包。它只读取清单、安装目录和签名；
+/// 残留文件扫描由应用详情中的“深度分析”单独负责，避免两个入口重复扫描。
 pub async fn reconstruct_installation(
     program: InstalledProgram,
 ) -> Result<ReconstructedEvidencePacket, UninstallerError> {
     let mut warnings = Vec::new();
-    let mut traces = scanner::scan_all_traces_for_program(&program, None).await?;
-    traces.sort_by(|left, right| left.path.cmp(&right.path));
     let observed_at = Utc::now();
     let mut evidence = Vec::new();
 
@@ -107,19 +105,6 @@ pub async fn reconstruct_installation(
         ));
     }
 
-    for trace in traces {
-        let confidence = EvidenceConfidence::from(trace.confidence);
-        evidence.push(record(
-            trace_category(trace.trace_type),
-            &trace.path,
-            "post_hoc_scanner",
-            confidence,
-            Some(trace.exists),
-            confidence == EvidenceConfidence::High && !trace.is_critical,
-            &format!("事后推断：{}", trace.description),
-        ));
-    }
-
     let signature_location = program.install_location.clone();
     let signature_icon = program.icon_path.clone();
     let (signature_status, signature_subject, signature_warning) =
@@ -139,7 +124,7 @@ pub async fn reconstruct_installation(
         vendor: program.publisher.clone(),
         program,
         inference_notice:
-            "此证据包来自安装后的只读重建，不等同于安装时监控；低置信度或未知项目保持保留状态。"
+            "此证据包只记录当前安装来源，不等同于安装时监控；残留文件请使用深度分析单独查看。"
                 .to_string(),
         signature_status,
         signature_subject,
@@ -177,17 +162,6 @@ fn record(
         .to_string(),
         destructive_eligible,
         note: note.to_string(),
-    }
-}
-
-fn trace_category(trace_type: TraceType) -> &'static str {
-    match trace_type {
-        TraceType::RegistryKey | TraceType::RegistryValue => "registry",
-        TraceType::File | TraceType::Shortcut => "filesystem",
-        TraceType::AppData => "appdata",
-        TraceType::ScheduledTask => "scheduled_task",
-        TraceType::Service => "service",
-        TraceType::Driver => "driver",
     }
 }
 
@@ -784,6 +758,7 @@ fn persist_json<T: Serialize>(
 mod tests {
     use super::*;
     use crate::modules::lister::models::InstallSource;
+    use crate::modules::scanner::models::TraceType;
 
     fn trace(confidence: Confidence, critical: bool) -> Trace {
         let mut trace = Trace::new("Demo".to_string(), TraceType::File, r"C:\Demo".to_string());
