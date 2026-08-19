@@ -1,7 +1,12 @@
 #requires -Version 7.0
 
 [CmdletBinding()]
-param()
+param(
+    [ValidateSet("local", "lan")]
+    [string]$ApiMode,
+    [ValidateRange(1, 65535)]
+    [int]$ApiPort = 0
+)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
@@ -21,17 +26,25 @@ if (-not (Test-IsAdministrator)) {
         Select-Object -First 1 -ExpandProperty Source
     $scriptPath = [IO.Path]::GetFullPath($PSCommandPath)
     $quotedScriptPath = '"' + $scriptPath.Replace('"', '\"') + '"'
+    $elevationArguments = [System.Collections.Generic.List[string]]::new()
+    $elevationArguments.Add("-NoProfile")
+    $elevationArguments.Add("-ExecutionPolicy")
+    $elevationArguments.Add("Bypass")
+    $elevationArguments.Add("-File")
+    $elevationArguments.Add($quotedScriptPath)
+    if (-not [string]::IsNullOrWhiteSpace($ApiMode)) {
+        $elevationArguments.Add("-ApiMode")
+        $elevationArguments.Add($ApiMode)
+    }
+    if ($ApiPort -gt 0) {
+        $elevationArguments.Add("-ApiPort")
+        $elevationArguments.Add($ApiPort.ToString([Globalization.CultureInfo]::InvariantCulture))
+    }
 
     try {
         $elevatedProcess = Start-Process `
             -FilePath $powershellExecutable `
-            -ArgumentList @(
-                "-NoProfile",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-File",
-                $quotedScriptPath
-            ) `
+            -ArgumentList $elevationArguments `
             -WorkingDirectory $repoRoot `
             -Verb RunAs `
             -Wait `
@@ -55,6 +68,15 @@ if ($frontendReady) {
 }
 if (-not $?) {
     throw "Worktree initialization failed"
+}
+
+if (-not [string]::IsNullOrWhiteSpace($ApiMode)) {
+    $env:RUST_YU_ENABLE_API = "1"
+    $env:RUST_YU_API_MODE = $ApiMode
+    if ($ApiPort -gt 0) {
+        $env:RUST_YU_API_PORT = $ApiPort.ToString([Globalization.CultureInfo]::InvariantCulture)
+    }
+    Write-Host "HTTP API 模式：$ApiMode，端口：$(if ($ApiPort -gt 0) { $ApiPort } else { 8080 })" -ForegroundColor Cyan
 }
 
 Push-Location (Join-Path $repoRoot "src-tauri")
