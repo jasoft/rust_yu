@@ -1,6 +1,6 @@
 use rust_yu_lib::lister::models::InstalledProgram;
 use rust_yu_lib::scanner;
-use rust_yu_lib::scanner::models::Trace;
+use rust_yu_lib::scanner::models::ScanReport;
 use serde::{Deserialize, Serialize};
 
 use super::CommandError;
@@ -16,7 +16,7 @@ pub async fn scan_traces(
     program_name: String,
     trace_types: Option<Vec<String>>,
     program: Option<InstalledProgram>,
-) -> Result<Vec<Trace>, CommandError> {
+) -> Result<ScanReport, CommandError> {
     use rust_yu_lib::scanner::models::TraceType;
 
     let types = trace_types.map(|t| {
@@ -35,12 +35,12 @@ pub async fn scan_traces(
             .collect()
     });
 
-    let traces = if let Some(program) = program.as_ref() {
-        scanner::scan_all_traces_for_program(program, types).await
+    let report = if let Some(program) = program.as_ref() {
+        scanner::scan_all_traces_report_for_program(program, types).await
     } else {
-        scanner::scan_all_traces(&program_name, types).await
+        scanner::scan_all_traces_report(&program_name, types).await
     }
     .map_err(CommandError::from)?;
 
-    Ok(traces)
+    Ok(report)
 }

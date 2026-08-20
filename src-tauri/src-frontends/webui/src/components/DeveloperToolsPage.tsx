@@ -24,16 +24,23 @@ import { useProgramsStore } from "../stores/programs";
 const fixtureNameKeys: Record<string, TranslationKey> = {
   "xplorer-msi": "developer.fixture.xplorer.name",
   "legacy-inno": "developer.fixture.legacy.name",
+  "deep-nsis-machine": "developer.fixture.deep_machine.name",
+  "deep-nsis-user": "developer.fixture.deep_user.name",
+  "deep-nsis-sparse": "developer.fixture.deep_sparse.name",
 };
 
 const fixtureDescriptionKeys: Record<string, TranslationKey> = {
   "xplorer-msi": "developer.fixture.xplorer.description",
   "legacy-inno": "developer.fixture.legacy.description",
+  "deep-nsis-machine": "developer.fixture.deep_machine.description",
+  "deep-nsis-user": "developer.fixture.deep_user.description",
+  "deep-nsis-sparse": "developer.fixture.deep_sparse.description",
 };
 
 const fixtureKindKeys: Record<DeveloperFixture["kind"], TranslationKey> = {
   msi: "developer.fixture.kind.msi",
   inno: "developer.fixture.kind.inno",
+  nsis: "developer.fixture.kind.nsis",
 };
 
 const commandErrorKeys: Record<string, TranslationKey> = {

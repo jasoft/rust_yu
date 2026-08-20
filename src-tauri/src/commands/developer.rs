@@ -22,6 +22,7 @@ pub struct DeveloperFixtureInstaller {
 pub enum DeveloperFixtureKind {
     Msi,
     Inno,
+    Nsis,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -86,6 +87,21 @@ const FIXTURES: &[FixtureDefinition] = &[
         id: "legacy-inno",
         kind: DeveloperFixtureKind::Inno,
         relative_path: "inno-legacy-test/output/RustYuLegacyTestSetup.exe",
+    },
+    FixtureDefinition {
+        id: "deep-nsis-machine",
+        kind: DeveloperFixtureKind::Nsis,
+        relative_path: "nsis-random-fixtures/output/RustYuDeepScanMachineSetup.exe",
+    },
+    FixtureDefinition {
+        id: "deep-nsis-user",
+        kind: DeveloperFixtureKind::Nsis,
+        relative_path: "nsis-random-fixtures/output/RustYuDeepScanUserSetup.exe",
+    },
+    FixtureDefinition {
+        id: "deep-nsis-sparse",
+        kind: DeveloperFixtureKind::Nsis,
+        relative_path: "nsis-random-fixtures/output/RustYuDeepScanSparseSetup.exe",
     },
 ];
 
@@ -276,6 +292,11 @@ async fn run_fixture_installer(definition: FixtureDefinition, path: &Path) -> Fi
             command.args(["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-"]);
             command
         }
+        DeveloperFixtureKind::Nsis => {
+            let mut command = Command::new(&installer_path);
+            command.arg("/S");
+            command
+        }
     };
     command.kill_on_drop(true);
 
@@ -334,9 +355,12 @@ mod tests {
     #[test]
     fn catalog_contains_only_the_fixed_installable_fixtures() {
         let catalog = fixture_catalog();
-        assert_eq!(catalog.len(), 2);
+        assert_eq!(catalog.len(), 5);
         assert_eq!(catalog[0].id, "xplorer-msi");
         assert_eq!(catalog[1].id, "legacy-inno");
+        assert_eq!(catalog[2].id, "deep-nsis-machine");
+        assert_eq!(catalog[3].id, "deep-nsis-user");
+        assert_eq!(catalog[4].id, "deep-nsis-sparse");
         assert!(catalog.iter().all(|fixture| fixture.available));
         assert!(catalog.iter().all(|fixture| fixture.size.is_some()));
     }

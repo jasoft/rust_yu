@@ -1,4 +1,4 @@
-use super::models::{Confidence, Trace, TraceType};
+use super::models::{ConfidenceReason, Trace, TraceType};
 use super::scope::{is_protected_shared_path, ScanIdentity};
 use crate::modules::common::error::UninstallerError;
 use std::path::Path;
@@ -47,6 +47,13 @@ fn get_shortcut_dirs() -> Vec<std::path::PathBuf> {
         }
     }
 
+    // 当前用户桌面可能被 OneDrive/已知文件夹重定向，优先使用 dirs 解析后的路径。
+    if let Some(desktop) = dirs::desktop_dir() {
+        if desktop.exists() {
+            dirs.push(desktop);
+        }
+    }
+
     // 开始菜单 - 所有用户
     if let Ok(program_data) = std::env::var("ProgramData") {
         let start_menu = Path::new(&program_data)
@@ -60,6 +67,15 @@ fn get_shortcut_dirs() -> Vec<std::path::PathBuf> {
         }
     }
 
+    // 公共桌面是机器级安装器常用位置；只读扫描后将命中项标为关键，
+    // 避免通用清理器在没有单独授权时改动所有用户共享入口。
+    if let Ok(public) = std::env::var("PUBLIC") {
+        let desktop = Path::new(&public).join("Desktop");
+        if desktop.exists() {
+            dirs.push(desktop);
+        }
+    }
+
     dirs
 }
 
@@ -68,14 +84,21 @@ fn scan_shortcuts_in_dir(dir: &Path, identity: &ScanIdentity, traces: &mut Vec<T
     let walker = WalkDir::new(dir)
         .max_depth(3)
         .follow_links(false)
-        .into_iter()
-        .filter_entry(|entry| entry.path() == dir || !is_protected_shared_path(entry.path()));
+        .into_iter();
 
     for entry in walker.filter_map(|e| e.ok()) {
         let path = entry.path();
 
-        // 只处理 .lnk 文件
-        if path.extension().map(|e| e == "lnk").unwrap_or(false) {
+        // Windows 桌面入口除 .lnk 外还可能是 Internet Shortcut 或 ClickOnce 引用。
+        if path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| {
+                extension.eq_ignore_ascii_case("lnk")
+                    || extension.eq_ignore_ascii_case("url")
+                    || extension.eq_ignore_ascii_case("appref-ms")
+            })
+        {
             let name = path
                 .file_stem()
                 .map(|n| n.to_string_lossy().into_owned())
@@ -86,13 +109,15 @@ fn scan_shortcuts_in_dir(dir: &Path, identity: &ScanIdentity, traces: &mut Vec<T
             if identity.matches_component(&name) {
                 let description = get_shortcut_description(path);
 
-                let trace = Trace::new(
+                let mut trace = Trace::new(
                     identity.display_name().to_string(),
                     TraceType::Shortcut,
                     path.to_string_lossy().to_string(),
                 )
                 .with_description(description)
-                .with_confidence(Confidence::Medium);
+                .with_confidence_evidence(65, ConfidenceReason::ExactShortcutName);
+
+                trace.is_critical = is_protected_shared_path(path);
 
                 traces.push(trace);
             }

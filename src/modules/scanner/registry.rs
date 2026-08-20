@@ -1,11 +1,22 @@
-use super::models::{Confidence, Trace, TraceType};
+use super::filesystem::safe_install_location;
+use super::models::{ConfidenceReason, Trace, TraceType};
 use super::scope::ScanIdentity;
 use crate::modules::common::error::UninstallerError;
+use crate::modules::common::utils::split_command_for_spawn;
+use crate::modules::lister::models::InstalledProgram;
 use crate::modules::lister::registry::format_registry_value;
+use std::path::Path;
 use winreg::enums::*;
 use winreg::RegKey;
 
 const MAX_DEPTH: u32 = 5;
+const MAX_REFERENCE_KEYS_PER_ROOT: usize = 50_000;
+const MAX_EXACT_CLASS_KEYS: usize = 5_000;
+
+pub struct RegistryScanReport {
+    pub traces: Vec<Trace>,
+    pub truncated: bool,
+}
 
 /// 扫描注册表痕迹。
 ///
@@ -36,6 +47,351 @@ pub fn scan_registry_traces_for_identity(
     Ok(traces)
 }
 
+/// 在身份精确匹配之外，补充“注册表值明确引用安装目录”的证据。
+/// 这些共享分支只做只读分析，不根据键名猜测归属。
+pub fn scan_registry_traces_for_program(
+    program: &InstalledProgram,
+) -> Result<Vec<Trace>, UninstallerError> {
+    Ok(scan_registry_traces_report_for_program(program)?.traces)
+}
+
+pub fn scan_registry_traces_report_for_program(
+    program: &InstalledProgram,
+) -> Result<RegistryScanReport, UninstallerError> {
+    let identity = ScanIdentity::from_program(program);
+    let mut traces = scan_registry_traces_for_identity(&identity)?;
+    let roots = reference_roots(program);
+    if roots.is_empty() {
+        return Ok(RegistryScanReport {
+            traces,
+            truncated: false,
+        });
+    }
+
+    scan_exact_class_roots(&identity, &roots, &mut traces);
+    let mut truncated = false;
+    for (hkey, path, max_depth, protected) in registry_reference_locations() {
+        let mut visited = 0usize;
+        scan_registry_reference_values(
+            hkey,
+            path,
+            &roots,
+            &identity,
+            &mut traces,
+            0,
+            max_depth,
+            protected,
+            &mut visited,
+        );
+        if visited >= MAX_REFERENCE_KEYS_PER_ROOT {
+            truncated = true;
+            tracing::warn!(
+                registry_path = path,
+                "注册表引用扫描达到安全上限，结果可能被截断"
+            );
+        }
+    }
+    Ok(RegistryScanReport { traces, truncated })
+}
+
+fn reference_roots(program: &InstalledProgram) -> Vec<String> {
+    let mut candidates = Vec::new();
+    if let Some(location) = program.install_location.as_deref() {
+        if let Some(path) = safe_install_location(location) {
+            candidates.push(path.to_string_lossy().into_owned());
+        }
+    }
+    if let Some(command) = program.preferred_uninstall_string() {
+        if let Ok((executable, _)) = split_command_for_spawn(command) {
+            if let Some(parent) = Path::new(&executable).parent() {
+                if let Some(path) = safe_install_location(&parent.to_string_lossy()) {
+                    candidates.push(path.to_string_lossy().into_owned());
+                }
+            }
+        }
+    }
+    candidates.sort_by_key(|value| std::cmp::Reverse(value.len()));
+    candidates.dedup_by(|left, right| left.eq_ignore_ascii_case(right));
+    candidates
+}
+
+fn scan_exact_class_roots(identity: &ScanIdentity, roots: &[String], traces: &mut Vec<Trace>) {
+    let locations = [
+        (HKEY_LOCAL_MACHINE, r"SOFTWARE\Classes"),
+        (HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Classes"),
+        (HKEY_CURRENT_USER, r"SOFTWARE\Classes"),
+    ];
+    for (hkey, base_path) in locations {
+        let Ok(base) = RegKey::predef(hkey).open_subkey(base_path) else {
+            continue;
+        };
+        for name in base.enum_keys().filter_map(Result::ok) {
+            if !identity.matches_component(&name) {
+                continue;
+            }
+            let mut visited = 0usize;
+            scan_owned_class_tree(
+                hkey,
+                &format!("{base_path}\\{name}"),
+                roots,
+                identity,
+                traces,
+                &mut visited,
+            );
+        }
+    }
+}
+
+fn scan_owned_class_tree(
+    hkey: winreg::HKEY,
+    path: &str,
+    roots: &[String],
+    identity: &ScanIdentity,
+    traces: &mut Vec<Trace>,
+    visited: &mut usize,
+) {
+    if *visited >= MAX_EXACT_CLASS_KEYS {
+        tracing::warn!(
+            registry_path = path,
+            "精确 Classes 应用树达到安全上限，已截断"
+        );
+        return;
+    }
+    let Ok(key) = RegKey::predef(hkey).open_subkey(path) else {
+        return;
+    };
+    *visited += 1;
+    let full_key_path = format!("{}\\{}", format_hkey(hkey), path);
+    let mut key_trace = Trace::new(
+        identity.display_name().to_string(),
+        TraceType::RegistryKey,
+        full_key_path.clone(),
+    )
+    .with_description("与程序身份完全一致的 Classes 注册表项".to_string())
+    .with_confidence_evidence(60, ConfidenceReason::ExactNameRegistry);
+    key_trace.is_critical = true;
+    traces.push(key_trace);
+
+    for result in key.enum_values() {
+        let Ok((value_name, raw)) = result else {
+            continue;
+        };
+        let value = format_registry_value(&raw);
+        let related_root = roots.iter().find(|root| {
+            crate::modules::system_integration::command_references_related_path(&value, root)
+                || crate::modules::system_integration::command_references_related_path(
+                    &value_name,
+                    root,
+                )
+        });
+        let display_name = if value_name.is_empty() {
+            "(Default)"
+        } else {
+            &value_name
+        };
+        let preview = if value.chars().count() > 240 {
+            format!("{}…", value.chars().take(240).collect::<String>())
+        } else {
+            value
+        };
+        let mut trace = Trace::new(
+            identity.display_name().to_string(),
+            TraceType::RegistryValue,
+            format!("{full_key_path}\\{display_name}"),
+        )
+        .with_description(format!("{display_name} [{:?}] = {preview}", raw.vtype))
+        .with_size(raw.bytes.len() as u64)
+        .with_confidence_evidence(
+            if related_root.is_some() { 90 } else { 60 },
+            if related_root.is_some() {
+                ConfidenceReason::RegistryValueReferencesInstallLocation
+            } else {
+                ConfidenceReason::ExactNameRegistry
+            },
+        );
+        trace.related_path = related_root.cloned();
+        trace.is_critical = true;
+        traces.push(trace);
+    }
+
+    for name in key.enum_keys().filter_map(Result::ok) {
+        if *visited >= MAX_EXACT_CLASS_KEYS {
+            return;
+        }
+        scan_owned_class_tree(
+            hkey,
+            &format!("{path}\\{name}"),
+            roots,
+            identity,
+            traces,
+            visited,
+        );
+    }
+}
+
+fn registry_reference_locations() -> Vec<(winreg::HKEY, &'static str, u32, bool)> {
+    vec![
+        (
+            HKEY_LOCAL_MACHINE,
+            r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths",
+            2,
+            true,
+        ),
+        (
+            HKEY_LOCAL_MACHINE,
+            r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths",
+            2,
+            true,
+        ),
+        (
+            HKEY_CURRENT_USER,
+            r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths",
+            2,
+            false,
+        ),
+        (
+            HKEY_LOCAL_MACHINE,
+            r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
+            0,
+            false,
+        ),
+        (
+            HKEY_LOCAL_MACHINE,
+            r"SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce",
+            0,
+            false,
+        ),
+        (
+            HKEY_CURRENT_USER,
+            r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
+            0,
+            false,
+        ),
+        (
+            HKEY_CURRENT_USER,
+            r"SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce",
+            0,
+            false,
+        ),
+        (HKEY_LOCAL_MACHINE, r"SOFTWARE\Classes", 6, true),
+        (HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Classes", 6, true),
+        (HKEY_CURRENT_USER, r"SOFTWARE\Classes", 6, true),
+        (
+            HKEY_LOCAL_MACHINE,
+            r"SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\FirewallRules",
+            0,
+            true,
+        ),
+        (
+            HKEY_LOCAL_MACHINE,
+            r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment",
+            0,
+            true,
+        ),
+        (HKEY_CURRENT_USER, r"Environment", 0, false),
+        (
+            HKEY_LOCAL_MACHINE,
+            r"SOFTWARE\Microsoft\Windows\CurrentVersion\SharedDLLs",
+            0,
+            true,
+        ),
+        (
+            HKEY_LOCAL_MACHINE,
+            r"SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\Folders",
+            0,
+            true,
+        ),
+    ]
+}
+
+#[allow(clippy::too_many_arguments)]
+fn scan_registry_reference_values(
+    hkey: winreg::HKEY,
+    path: &str,
+    roots: &[String],
+    identity: &ScanIdentity,
+    traces: &mut Vec<Trace>,
+    depth: u32,
+    max_depth: u32,
+    protected: bool,
+    visited: &mut usize,
+) {
+    if depth > max_depth || *visited >= MAX_REFERENCE_KEYS_PER_ROOT {
+        return;
+    }
+    let Ok(key) = RegKey::predef(hkey).open_subkey(path) else {
+        return;
+    };
+    *visited += 1;
+
+    for result in key.enum_values() {
+        let Ok((value_name, raw)) = result else {
+            continue;
+        };
+        let value = format_registry_value(&raw);
+        let Some((related_root, matched_value_name)) = roots.iter().find_map(|root| {
+            if crate::modules::system_integration::command_references_related_path(&value, root) {
+                Some((root, false))
+            } else if crate::modules::system_integration::command_references_related_path(
+                &value_name,
+                root,
+            ) {
+                Some((root, true))
+            } else {
+                None
+            }
+        }) else {
+            continue;
+        };
+        let display_name = if value_name.is_empty() {
+            "(Default)"
+        } else {
+            &value_name
+        };
+        let preview = if value.chars().count() > 240 {
+            format!("{}…", value.chars().take(240).collect::<String>())
+        } else {
+            value
+        };
+        let mut trace = Trace::new(
+            identity.display_name().to_string(),
+            TraceType::RegistryValue,
+            format!("{}\\{}\\{}", format_hkey(hkey), path, display_name),
+        )
+        .with_description(format!(
+            "注册表值明确引用安装目录: {display_name} [{:?}] = {preview}",
+            raw.vtype
+        ))
+        .with_size(raw.bytes.len() as u64)
+        .with_confidence_evidence(90, ConfidenceReason::RegistryValueReferencesInstallLocation)
+        .with_related_path(related_root.clone());
+        // Classes、机器级 App Paths、防火墙规则和默认值都属于共享契约；
+        // 深度分析可以展示，但通用残留清理不得直接修改。
+        trace.is_critical = protected || value_name.is_empty() || matched_value_name;
+        traces.push(trace);
+    }
+
+    if depth == max_depth {
+        return;
+    }
+    for name in key.enum_keys().filter_map(Result::ok) {
+        if *visited >= MAX_REFERENCE_KEYS_PER_ROOT {
+            return;
+        }
+        scan_registry_reference_values(
+            hkey,
+            &format!("{path}\\{name}"),
+            roots,
+            identity,
+            traces,
+            depth + 1,
+            max_depth,
+            protected,
+            visited,
+        );
+    }
+}
+
 /// 递归扫描注册表键。当前键名必须是完整身份组件，禁止任意子串命中。
 fn scan_registry_key(
     hkey: winreg::HKEY,
@@ -61,21 +417,22 @@ fn scan_registry_key(
         } else {
             format!("注册表项: {}", key_name)
         };
-        let confidence = if path.to_ascii_lowercase().contains("uninstall") {
-            Confidence::High
+        let (score, reason) = if path.to_ascii_lowercase().contains("uninstall") {
+            (100, ConfidenceReason::UninstallRegistry)
         } else {
-            Confidence::Medium
+            (60, ConfidenceReason::ExactNameRegistry)
         };
 
         traces.push(
             Trace::new(
                 identity.display_name().to_string(),
                 TraceType::RegistryKey,
-                full_path,
+                full_path.clone(),
             )
             .with_description(description)
-            .with_confidence(confidence),
+            .with_confidence_evidence(score, reason),
         );
+        append_matched_key_values(identity, &key, &full_path, traces, score, reason);
     }
 
     for name in key.enum_keys().filter_map(|key| key.ok()) {
@@ -84,6 +441,42 @@ fn scan_registry_key(
     }
 
     Ok(())
+}
+
+fn append_matched_key_values(
+    identity: &ScanIdentity,
+    key: &RegKey,
+    full_key_path: &str,
+    traces: &mut Vec<Trace>,
+    score: u8,
+    reason: ConfidenceReason,
+) {
+    for result in key.enum_values() {
+        let Ok((value_name, raw)) = result else {
+            continue;
+        };
+        let display_name = if value_name.is_empty() {
+            "(Default)"
+        } else {
+            &value_name
+        };
+        let value = format_registry_value(&raw);
+        let preview = if value.chars().count() > 240 {
+            format!("{}…", value.chars().take(240).collect::<String>())
+        } else {
+            value
+        };
+        let mut trace = Trace::new(
+            identity.display_name().to_string(),
+            TraceType::RegistryValue,
+            format!("{full_key_path}\\{display_name}"),
+        )
+        .with_description(format!("{display_name} [{:?}] = {preview}", raw.vtype))
+        .with_size(raw.bytes.len() as u64)
+        .with_confidence_evidence(score, reason);
+        trace.is_critical = value_name.is_empty() || value_name.contains('\\');
+        traces.push(trace);
+    }
 }
 
 /// 只接受卸载项键名或 DisplayName 的完整身份匹配。
@@ -125,7 +518,7 @@ fn scan_uninstall_keys(identity: &ScanIdentity, traces: &mut Vec<Trace>) {
                             display_name.unwrap_or_default(),
                             install_location.unwrap_or_default()
                         ))
-                        .with_confidence(Confidence::High),
+                        .with_confidence_evidence(100, ConfidenceReason::UninstallRegistry),
                     );
                     append_uninstall_values(identity, &subkey, &full_path, traces);
                 }
@@ -163,7 +556,7 @@ fn append_uninstall_values(
             )
             .with_description(format!("{value_name} [{:?}] = {preview}", raw.vtype))
             .with_size(raw.bytes.len() as u64)
-            .with_confidence(Confidence::High),
+            .with_confidence_evidence(100, ConfidenceReason::UninstallRegistry),
         );
     }
 }
@@ -216,8 +609,11 @@ fn format_hkey(hkey: winreg::HKEY) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{append_uninstall_values, is_protected_registry_path, uninstall_entry_matches};
-    use crate::modules::scanner::models::TraceType;
+    use super::{
+        append_matched_key_values, append_uninstall_values, is_protected_registry_path,
+        scan_registry_reference_values, uninstall_entry_matches,
+    };
+    use crate::modules::scanner::models::{ConfidenceReason, TraceType};
     use crate::modules::scanner::scope::ScanIdentity;
     use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
     use winreg::RegKey;
@@ -280,6 +676,77 @@ mod tests {
         assert!(traces
             .iter()
             .any(|trace| trace.path.ends_with(r"\Publisher")));
+        drop(key);
+        let _ = root.delete_subkey_all(path);
+    }
+
+    #[test]
+    fn registry_values_that_reference_install_root_receive_explainable_score() {
+        let root = RegKey::predef(HKEY_CURRENT_USER);
+        let path = format!(r"Software\RustYuTest\{}", uuid::Uuid::new_v4());
+        let (key, _) = root
+            .create_subkey(&path)
+            .unwrap_or_else(|error| panic!("create reference test key: {error}"));
+        key.set_value(
+            "DemoRun",
+            &r#""C:\Program Files\RustYu Deep Scan\fixture.exe" --background"#,
+        )
+        .unwrap_or_else(|error| panic!("write reference value: {error}"));
+        key.set_value("Unrelated", &r"C:\Program Files\Other App\other.exe")
+            .unwrap_or_else(|error| panic!("write unrelated value: {error}"));
+        drop(key);
+
+        let mut traces = Vec::new();
+        let mut visited = 0;
+        scan_registry_reference_values(
+            HKEY_CURRENT_USER,
+            &path,
+            &[r"C:\Program Files\RustYu Deep Scan".to_string()],
+            &ScanIdentity::from_name("RustYu Deep Scan"),
+            &mut traces,
+            0,
+            0,
+            false,
+            &mut visited,
+        );
+
+        assert_eq!(traces.len(), 1);
+        assert!(traces[0].path.ends_with(r"\DemoRun"));
+        assert_eq!(traces[0].confidence_score, 90);
+        assert_eq!(
+            traces[0].confidence_reason,
+            ConfidenceReason::RegistryValueReferencesInstallLocation
+        );
+        assert_eq!(
+            traces[0].related_path.as_deref(),
+            Some(r"C:\Program Files\RustYu Deep Scan")
+        );
+        let _ = root.delete_subkey_all(path);
+    }
+
+    #[test]
+    fn exact_application_key_surfaces_its_named_values() {
+        let root = RegKey::predef(HKEY_CURRENT_USER);
+        let path = format!(r"Software\RustYuTest\{}", uuid::Uuid::new_v4());
+        let (key, _) = root
+            .create_subkey(&path)
+            .unwrap_or_else(|error| panic!("create application key: {error}"));
+        key.set_value("InstallRoot", &r"C:\Program Files\RustYu Deep Scan")
+            .unwrap_or_else(|error| panic!("write application value: {error}"));
+
+        let mut traces = Vec::new();
+        append_matched_key_values(
+            &ScanIdentity::from_name("RustYu Deep Scan"),
+            &key,
+            r"HKCU\Software\RustYuTest\RustYuDeepScan",
+            &mut traces,
+            60,
+            ConfidenceReason::ExactNameRegistry,
+        );
+
+        assert_eq!(traces.len(), 1);
+        assert!(traces[0].path.ends_with(r"\InstallRoot"));
+        assert_eq!(traces[0].confidence_score, 60);
         drop(key);
         let _ = root.delete_subkey_all(path);
     }

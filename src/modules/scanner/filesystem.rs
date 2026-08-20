@@ -1,4 +1,4 @@
-use super::models::{Confidence, Trace, TraceType};
+use super::models::{ConfidenceReason, Trace, TraceType};
 use super::scope::{
     is_protected_install_location, is_protected_shared_path, normalized_path,
     strip_extended_prefix, ScanIdentity,
@@ -69,7 +69,7 @@ pub fn scan_filesystem_traces_for_program(
     Ok(traces)
 }
 
-fn safe_install_location(raw_install_location: &str) -> Option<PathBuf> {
+pub(super) fn safe_install_location(raw_install_location: &str) -> Option<PathBuf> {
     let trimmed = raw_install_location.trim().trim_matches('"');
     if trimmed.is_empty() {
         return None;
@@ -173,17 +173,25 @@ fn append_install_location_contents(program_name: &str, root: &Path, traces: &mu
         let description = size
             .map(|value| format!("安装目录残留文件，大小: {}", utils::format_size(value)))
             .unwrap_or_else(|| "安装目录残留文件".to_string());
+        let protected_package_content = is_protected_shared_path(path);
         let mut trace = Trace::new(
             program_name.to_string(),
             TraceType::File,
             path.to_string_lossy().into_owned(),
         )
         .with_description(description)
-        .with_confidence(Confidence::High);
+        .with_confidence_evidence(
+            if protected_package_content { 90 } else { 95 },
+            if protected_package_content {
+                ConfidenceReason::StorePackageInstallLocation
+            } else {
+                ConfidenceReason::ExplicitInstallLocation
+            },
+        );
         trace.size = size;
         // WindowsApps 包目录可以只读分析，但包内容由 AppX/MSIX 管理，不能让
         // 通用残留清理器直接删除；真实卸载必须继续交给包管理 API。
-        trace.is_critical = is_protected_shared_path(path);
+        trace.is_critical = protected_package_content;
         traces.push(trace);
         item_count += 1;
     }
@@ -212,6 +220,11 @@ fn get_scan_dirs() -> Vec<std::path::PathBuf> {
         dirs.push(Path::new(&program_data).to_path_buf());
     }
 
+    // 当前用户安装器（Squirrel、NSIS、部分 Electron 应用）常使用此标准目录。
+    if let Ok(local_appdata) = std::env::var("LOCALAPPDATA") {
+        dirs.push(Path::new(&local_appdata).join("Programs"));
+    }
+
     dirs
 }
 
@@ -232,6 +245,10 @@ fn scan_directory(dir: &Path, identity: &ScanIdentity, traces: &mut Vec<Trace>) 
 
         // 只允许完整路径组件命中，禁止 explorer/xplorer 这类子串误判。
         if identity.matches_component(&name) {
+            if path.is_dir() && append_named_candidate_files(path, identity, traces) {
+                // 已逐文件展示精确名称目录，避免父目录与子文件成为重叠清理目标。
+                continue;
+            }
             let trace_type = if path.is_dir() {
                 TraceType::File
             } else if path.extension().map(|e| e == "lnk").unwrap_or(false) {
@@ -264,7 +281,7 @@ fn scan_directory(dir: &Path, identity: &ScanIdentity, traces: &mut Vec<Trace>) 
             .with_description(description)
             // 名称扫描只有中置信度；高置信度保留给卸载前快照中的
             // 明确安装目录内容。
-            .with_confidence(Confidence::Medium);
+            .with_confidence_evidence(60, ConfidenceReason::ExactNameStandardLocation);
 
             // 如果是文件，设置大小
             if let Some(s) = size {
@@ -274,6 +291,43 @@ fn scan_directory(dir: &Path, identity: &ScanIdentity, traces: &mut Vec<Trace>) 
             }
         }
     }
+}
+
+fn append_named_candidate_files(
+    path: &Path,
+    identity: &ScanIdentity,
+    traces: &mut Vec<Trace>,
+) -> bool {
+    const MAX_NAMED_DIRECTORY_DEPTH: usize = 24;
+    const MAX_NAMED_DIRECTORY_ITEMS: usize = 10_000;
+
+    let mut matched = false;
+    for entry in WalkDir::new(path)
+        .min_depth(1)
+        .max_depth(MAX_NAMED_DIRECTORY_DEPTH)
+        .follow_links(false)
+        .into_iter()
+        .filter_entry(|entry| entry.path() == path || !is_protected_shared_path(entry.path()))
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_file() && !entry.file_type().is_symlink())
+        .take(MAX_NAMED_DIRECTORY_ITEMS)
+    {
+        let size = entry.metadata().ok().map(|metadata| metadata.len());
+        let description = size
+            .map(|value| format!("标准程序目录候选文件，大小: {}", utils::format_size(value)))
+            .unwrap_or_else(|| "标准程序目录候选文件".to_string());
+        let mut trace = Trace::new(
+            identity.display_name().to_string(),
+            TraceType::File,
+            entry.path().to_string_lossy().into_owned(),
+        )
+        .with_description(description)
+        .with_confidence_evidence(60, ConfidenceReason::ExactNameStandardLocation);
+        trace.size = size;
+        traces.push(trace);
+        matched = true;
+    }
+    matched
 }
 
 #[cfg(test)]
@@ -381,6 +435,31 @@ mod tests {
         scan_directory(&root, &ScanIdentity::from_name("Xplorer"), &mut traces);
         assert!(traces.is_empty());
 
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn exact_named_standard_directory_surfaces_nested_files() {
+        let root = std::env::temp_dir().join(format!(
+            "rust-yu-standard-location-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let app = root.join("Demo App");
+        let file = app.join("resources").join("payload.dat");
+        fs::create_dir_all(file.parent().unwrap_or(&app))
+            .unwrap_or_else(|error| panic!("create standard location fixture: {error}"));
+        fs::write(&file, b"fixture")
+            .unwrap_or_else(|error| panic!("write standard location fixture: {error}"));
+
+        let mut traces = Vec::new();
+        scan_directory(&root, &ScanIdentity::from_name("Demo App"), &mut traces);
+
+        assert!(traces
+            .iter()
+            .any(|trace| trace.path.ends_with("payload.dat")));
+        assert!(!traces.iter().any(|trace| trace
+            .path
+            .eq_ignore_ascii_case(app.to_string_lossy().as_ref())));
         let _ = fs::remove_dir_all(root);
     }
 }

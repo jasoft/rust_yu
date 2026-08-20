@@ -2,7 +2,7 @@ use super::uninstall::error::{UninstallError, UninstallErrorCode};
 use crate::modules::cleaner;
 use crate::modules::cleaner::models::CleanResult;
 use crate::modules::common::utils;
-use crate::modules::scanner::models::{Confidence, Trace, TraceType};
+use crate::modules::scanner::models::{Confidence, ConfidenceReason, Trace, TraceType};
 use crate::modules::scanner::registry;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -96,6 +96,8 @@ pub fn plan_force_uninstall(
             candidate.id = stable_trace_id(candidate.trace_type, &candidate.path);
             candidate.program_name = target_name.clone();
             candidate.confidence = Confidence::Medium;
+            candidate.confidence_score = 60;
+            candidate.confidence_reason = ConfidenceReason::ExactNameRegistry;
             candidate.description = format!(
                 "可能属于 {} 的注册表候选；强制模式不会默认删除",
                 target_name
@@ -484,7 +486,7 @@ fn build_root_trace(name: &str, root: &Path) -> Trace {
     let path = root.to_string_lossy().to_string();
     let mut trace = Trace::new(name.to_string(), TraceType::File, path.clone())
         .with_description("用户明确提供的程序目录（强制模式）".to_string())
-        .with_confidence(Confidence::High);
+        .with_confidence_evidence(95, ConfidenceReason::ExplicitInstallLocation);
     trace.id = stable_trace_id(TraceType::File, &path);
     trace.size = utils::calculate_dir_size(root).ok();
     trace

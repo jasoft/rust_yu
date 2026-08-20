@@ -1,0 +1,46 @@
+# APP 深度分析契约
+
+Rust Yu 的“扫描残留”和“深度分析”使用同一个只读扫描引擎。区别不在扫描算法，而在入口和时机：卸载流程在卸载器结束后调用它，软件残留页允许对仍安装的软件主动调用它。扫描本身不会删除文件、注册表、服务或计划任务。
+
+## 扫描范围
+
+每次带完整 `InstalledProgram` 上下文的分析并行检查七个区域，并把每一区域的状态返回给前端：
+
+1. **注册表**：HKLM/HKCU Software 中的精确程序身份键及其值；三个标准 Uninstall 根及全部具名值；App Paths、Run/RunOnce、Classes 协议/文件关联、环境变量、防火墙规则、SharedDLLs 和 Installer Folders 中明确引用安装目录的值。
+2. **安装文件**：清单记录的安全安装目录中的全部文件；Program Files、Program Files (x86)、ProgramData、`%LOCALAPPDATA%\Programs` 中精确名称目录的嵌套文件；Store/MSIX 的精确 WindowsApps 包目录只读展示。
+3. **用户数据**：Roaming、Local、LocalLow 中精确身份目录的嵌套文件；Store/MSIX 包族名对应的 `%LOCALAPPDATA%\Packages\<family>` 内容只读展示。`Local\Programs` 明确归类为安装目录，不重复归类为用户数据。
+4. **快捷方式**：当前用户和所有用户开始菜单、当前用户和公共桌面的 `.lnk`、`.url`、`.appref-ms`，名称必须与程序身份完全一致。
+5. **计划任务**：动作命令明确引用安全安装根的任务。
+6. **系统服务**：ImagePath 明确引用安全安装根的服务。
+7. **驱动程序**：路径明确引用安全安装根的驱动，只做受保护证据展示。
+
+`complete`、`partial`、`failed`、`skipped` 是扫描覆盖状态，不是“是否找到残留”。UI 必须把空结果与扫描失败/缺少上下文区分开。文件或用户数据达到单区 10,000 条展示上限时标为 `partial`。
+
+## 置信度分数
+
+每条结果同时返回 0–100 分、分档和稳定的 `confidence_reason`：
+
+| 分数 | 分档 | 证据 |
+| ---: | --- | --- |
+| 100 | 高 | 程序自己的 Uninstall 键或具名值 |
+| 95 | 高 | 安装清单明确目录；服务/任务/驱动命令明确引用安装根 |
+| 90 | 高 | Store/MSIX 安装目录或包族用户数据；注册表值明确引用安装根 |
+| 65 | 中 | 标准 Shell 位置中快捷方式名称完全一致 |
+| 60 | 中 | 标准安装/用户数据/注册表位置中路径组件或键名与程序身份完全一致 |
+| 25 | 低 | 旧快照或没有可解释归属证据 |
+
+分档阈值固定为：高 `>= 80`，中 `50–79`，低 `< 50`。去重必须保留同一类型、同一路径中的最高分证据，不能由遍历或并发顺序决定。
+
+## 安全边界
+
+- 名称匹配只接受路径组件、文件名 stem 或注册表键名的规范化完全相等；不使用任意子串。
+- WindowsApps、Packages、公共桌面/开始菜单、Classes、机器级 App Paths、环境变量、SharedDLLs、Installer Folders、驱动等共享区域即使命中也标为 `is_critical`，通用清理器不可选。
+- 分析入口默认不选择任何项目。分数表达证据强度，不自动授予删除权限。
+- 所有真实安装包验证都只运行扫描和真值对照；夹具卸载必须由测试人员单独明确授权。
+
+## 验证
+
+- 单元测试覆盖路径边界、Store 包、注册表值、数值阈值和高分去重。
+- `.resources/nsis-random-fixtures` 提供机器级、当前用户级和稀疏元数据三套 X64 NSIS 真值安装包。
+- `tests/deep_analysis_fixtures.rs` 对照固定真值，逐条验证路径、类型、最低分、原因、保护状态和七区覆盖状态；任何 `failed`/`skipped` 都会失败，达到已声明遍历上限的 `partial` 必须可见且不能漏掉固定真值。
+- `tests/deep_analysis_representative_apps.rs` 对当前 Windows 上的代表性 Store/传统应用执行只读一致性审计，并核对安装目录文件与 Uninstall 具名值没有漏项。

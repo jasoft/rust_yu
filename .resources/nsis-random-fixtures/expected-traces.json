@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "fixtures": [
+    {
+      "id": "deep-nsis-machine",
+      "display_name": "RustYu Deep Scan Machine",
+      "installer": "output/RustYuDeepScanMachineSetup.exe",
+      "scope": "machine",
+      "expected": [
+        { "id": "machine-app", "trace_type": "file", "path": "%PROGRAMFILES%\\RustYu Deep Scan Machine\\RustYuDeepScanMachine.exe", "min_score": 95, "reason": "explicit_install_location", "protected": false },
+        { "id": "machine-config", "trace_type": "file", "path": "%PROGRAMFILES%\\RustYu Deep Scan Machine\\config\\default.json", "min_score": 95, "reason": "explicit_install_location", "protected": false },
+        { "id": "machine-nested", "trace_type": "file", "path": "%PROGRAMFILES%\\RustYu Deep Scan Machine\\resources\\nested\\machine-resource.json", "min_score": 95, "reason": "explicit_install_location", "protected": false },
+        { "id": "machine-programdata", "trace_type": "file", "path": "%PROGRAMDATA%\\RustYuDeepScanMachine\\Logs\\machine-state.json", "min_score": 60, "reason": "exact_name_standard_location", "protected": false },
+        { "id": "machine-start-menu", "trace_type": "shortcut", "path": "%COMMONPROGRAMS%\\RustYu Deep Scan Machine\\RustYu Deep Scan Machine.lnk", "min_score": 65, "reason": "exact_shortcut_name", "protected": true },
+        { "id": "machine-public-desktop", "trace_type": "shortcut", "path": "%COMMONDESKTOP%\\RustYu Deep Scan Machine.lnk", "min_score": 65, "reason": "exact_shortcut_name", "protected": true },
+        { "id": "machine-uninstall-key", "trace_type": "registry_key", "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\RustYuDeepScanMachine", "min_score": 100, "reason": "uninstall_registry", "protected": false },
+        { "id": "machine-uninstall-publisher", "trace_type": "registry_value", "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\RustYuDeepScanMachine\\Publisher", "min_score": 100, "reason": "uninstall_registry", "protected": false },
+        { "id": "machine-uninstall-location", "trace_type": "registry_value", "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\RustYuDeepScanMachine\\InstallLocation", "min_score": 100, "reason": "uninstall_registry", "protected": false },
+        { "id": "machine-vendor-key", "trace_type": "registry_key", "path": "HKLM\\SOFTWARE\\RustYuFixtures\\RustYuDeepScanMachine", "min_score": 60, "reason": "exact_name_registry", "protected": false },
+        { "id": "machine-vendor-root", "trace_type": "registry_value", "path": "HKLM\\SOFTWARE\\RustYuFixtures\\RustYuDeepScanMachine\\InstallRoot", "min_score": 60, "reason": "exact_name_registry", "protected": false },
+        { "id": "machine-app-path", "trace_type": "registry_value", "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\RustYuDeepScanMachine.exe\\(Default)", "min_score": 90, "reason": "registry_value_references_install_location", "protected": true },
+        { "id": "machine-run", "trace_type": "registry_value", "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run\\RustYuDeepScanMachine", "min_score": 90, "reason": "registry_value_references_install_location", "protected": false },
+        { "id": "machine-protocol", "trace_type": "registry_value", "path": "HKLM\\SOFTWARE\\Classes\\rustyudeepscanmachine\\shell\\open\\command\\(Default)", "min_score": 90, "reason": "registry_value_references_install_location", "protected": true },
+        { "id": "machine-environment", "trace_type": "registry_value", "path": "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment\\RUST_YU_DEEP_SCAN_MACHINE_HOME", "min_score": 90, "reason": "registry_value_references_install_location", "protected": true },
+        { "id": "machine-shared-dll", "trace_type": "registry_value", "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\SharedDLLs\\%PROGRAMFILES%\\RustYu Deep Scan Machine\\fixture-shared.dll", "min_score": 90, "reason": "registry_value_references_install_location", "protected": true },
+        { "id": "machine-service", "trace_type": "service", "path": "service://RustYuDeepScanMachine", "min_score": 95, "reason": "system_command_references_install_location", "protected": false },
+        { "id": "machine-task", "trace_type": "scheduled_task", "path": "task://\\RustYu Deep Scan Machine Fixture", "min_score": 95, "reason": "system_command_references_install_location", "protected": false }
+      ]
+    },
+    {
+      "id": "deep-nsis-user",
+      "display_name": "RustYu Deep Scan User",
+      "installer": "output/RustYuDeepScanUserSetup.exe",
+      "scope": "current_user",
+      "expected": [
+        { "id": "user-app", "trace_type": "file", "path": "%LOCALAPPDATA%\\Programs\\RustYu Deep Scan User\\RustYuDeepScanUser.exe", "min_score": 95, "reason": "explicit_install_location", "protected": false },
+        { "id": "user-nested", "trace_type": "file", "path": "%LOCALAPPDATA%\\Programs\\RustYu Deep Scan User\\resources\\nested\\user-resource.json", "min_score": 95, "reason": "explicit_install_location", "protected": false },
+        { "id": "user-roaming", "trace_type": "appdata", "path": "%APPDATA%\\RustYuDeepScanUser\\Profiles\\roaming-state.json", "min_score": 60, "reason": "exact_name_user_data", "protected": false },
+        { "id": "user-local", "trace_type": "appdata", "path": "%LOCALAPPDATA%\\RustYuDeepScanUser\\Cache\\local-state.json", "min_score": 60, "reason": "exact_name_user_data", "protected": false },
+        { "id": "user-locallow", "trace_type": "appdata", "path": "%USERPROFILE%\\AppData\\LocalLow\\RustYuDeepScanUser\\Telemetry\\locallow-state.json", "min_score": 60, "reason": "exact_name_user_data", "protected": false },
+        { "id": "user-start-menu", "trace_type": "shortcut", "path": "%PROGRAMS%\\RustYu Deep Scan User\\RustYu Deep Scan User.lnk", "min_score": 65, "reason": "exact_shortcut_name", "protected": true },
+        { "id": "user-desktop-link", "trace_type": "shortcut", "path": "%DESKTOP%\\RustYu Deep Scan User.lnk", "min_score": 65, "reason": "exact_shortcut_name", "protected": false },
+        { "id": "user-desktop-url", "trace_type": "shortcut", "path": "%DESKTOP%\\RustYu Deep Scan User.url", "min_score": 65, "reason": "exact_shortcut_name", "protected": false },
+        { "id": "user-uninstall-key", "trace_type": "registry_key", "path": "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\RustYuDeepScanUser", "min_score": 100, "reason": "uninstall_registry", "protected": false },
+        { "id": "user-uninstall-publisher", "trace_type": "registry_value", "path": "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\RustYuDeepScanUser\\Publisher", "min_score": 100, "reason": "uninstall_registry", "protected": false },
+        { "id": "user-vendor-root", "trace_type": "registry_value", "path": "HKCU\\SOFTWARE\\RustYuFixtures\\RustYuDeepScanUser\\InstallRoot", "min_score": 60, "reason": "exact_name_registry", "protected": false },
+        { "id": "user-app-path", "trace_type": "registry_value", "path": "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\RustYuDeepScanUser.exe\\(Default)", "min_score": 90, "reason": "registry_value_references_install_location", "protected": true },
+        { "id": "user-run", "trace_type": "registry_value", "path": "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run\\RustYuDeepScanUser", "min_score": 90, "reason": "registry_value_references_install_location", "protected": false },
+        { "id": "user-protocol", "trace_type": "registry_value", "path": "HKCU\\SOFTWARE\\Classes\\rustyudeepscanuser\\shell\\open\\command\\(Default)", "min_score": 90, "reason": "registry_value_references_install_location", "protected": true },
+        { "id": "user-environment", "trace_type": "registry_value", "path": "HKCU\\Environment\\RUST_YU_DEEP_SCAN_USER_HOME", "min_score": 90, "reason": "registry_value_references_install_location", "protected": false }
+      ]
+    },
+    {
+      "id": "deep-nsis-sparse",
+      "display_name": "RustYu Deep Scan Sparse",
+      "installer": "output/RustYuDeepScanSparseSetup.exe",
+      "scope": "current_user",
+      "expected": [
+        { "id": "sparse-app", "trace_type": "file", "path": "%LOCALAPPDATA%\\Programs\\RustYu Deep Scan Sparse\\RustYuDeepScanSparse.exe", "min_score": 60, "reason": "exact_name_standard_location", "protected": false },
+        { "id": "sparse-nested", "trace_type": "file", "path": "%LOCALAPPDATA%\\Programs\\RustYu Deep Scan Sparse\\assets\\level-two\\sparse-resource.json", "min_score": 60, "reason": "exact_name_standard_location", "protected": false },
+        { "id": "sparse-uninstaller", "trace_type": "file", "path": "%LOCALAPPDATA%\\RustYuSparseUninstall\\Uninstall.exe", "min_score": 95, "reason": "explicit_install_location", "protected": false },
+        { "id": "sparse-state", "trace_type": "appdata", "path": "%LOCALAPPDATA%\\RustYuDeepScanSparse\\State\\sparse-state.json", "min_score": 60, "reason": "exact_name_user_data", "protected": false },
+        { "id": "sparse-shortcut", "trace_type": "shortcut", "path": "%PROGRAMS%\\RustYu Deep Scan Sparse.lnk", "min_score": 65, "reason": "exact_shortcut_name", "protected": true },
+        { "id": "sparse-uninstall-key", "trace_type": "registry_key", "path": "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\RustYuDeepScanSparse", "min_score": 100, "reason": "uninstall_registry", "protected": false },
+        { "id": "sparse-uninstall-string", "trace_type": "registry_value", "path": "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\RustYuDeepScanSparse\\UninstallString", "min_score": 100, "reason": "uninstall_registry", "protected": false },
+        { "id": "sparse-vendor-root", "trace_type": "registry_value", "path": "HKCU\\SOFTWARE\\RustYuFixtures\\RustYuDeepScanSparse\\ActualAppRoot", "min_score": 60, "reason": "exact_name_registry", "protected": false }
+      ]
+    }
+  ]
+}

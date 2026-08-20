@@ -11,6 +11,8 @@ import type {
   UninstallJob,
   UninstallJobResponse,
   MetadataWarmupProgress,
+  ScanCoverage,
+  ScanReport,
 } from "../types";
 import type { ProgramSourceFilter } from "../lib/programFilters";
 import { hasMissingProgramIcons } from "../lib/programFilters";
@@ -26,6 +28,7 @@ interface ProgramsState {
   selectedProgram: InstalledProgram | null;
   viewMode: ViewMode;
   traces: Trace[];
+  scanCoverage: ScanCoverage[];
   tracesLoading: boolean;
   metadataLoading: boolean;
   selectedTraces: Set<string>;
@@ -77,6 +80,7 @@ export const useProgramsStore = create<ProgramsState>((set, get) => ({
   selectedProgram: null,
   viewMode: "list",
   traces: [],
+  scanCoverage: [],
   tracesLoading: false,
   metadataLoading: false,
   selectedTraces: new Set(),
@@ -202,19 +206,21 @@ export const useProgramsStore = create<ProgramsState>((set, get) => ({
     set({
       tracesLoading: true,
       traces: [],
+      scanCoverage: [],
       selectedTraces: new Set(),
       cleanResults: [],
       error: null,
     });
     try {
-      const traces = await invoke<Trace[]>("scan_traces", {
+      const report = await invoke<ScanReport>("scan_traces", {
         programName,
         traceTypes: null,
         program: program ?? null,
       });
-      const existing = traces.filter((t) => t.exists);
+      const existing = report.traces.filter((t) => t.exists);
       set({
         traces: existing,
+        scanCoverage: report.coverage,
         tracesLoading: false,
         // 残留项默认不勾选，避免用户在未逐项确认前误触发删除。
         selectedTraces: new Set(),
@@ -344,6 +350,6 @@ export const useProgramsStore = create<ProgramsState>((set, get) => ({
 
   resetUninstall: () => set({ uninstallResult: null, cleanResults: [], uninstalling: false, uninstallCancelling: false, uninstallJob: null }),
   resetTraces: () =>
-    set({ traces: [], selectedTraces: new Set(), cleanResults: [], viewMode: "detail" }),
+    set({ traces: [], scanCoverage: [], selectedTraces: new Set(), cleanResults: [], viewMode: "detail" }),
 }));
 

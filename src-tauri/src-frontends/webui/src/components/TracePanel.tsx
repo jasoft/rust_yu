@@ -27,6 +27,7 @@ export function TracePanel() {
   const loadingPrograms = useProgramsStore((state) => state.loading);
   const error = useProgramsStore((state) => state.error);
   const traces = useProgramsStore((state) => state.traces);
+  const scanCoverage = useProgramsStore((state) => state.scanCoverage);
   const tracesLoading = useProgramsStore((state) => state.tracesLoading);
   const selectedTraces = useProgramsStore((state) => state.selectedTraces);
   const cleanResults = useProgramsStore((state) => state.cleanResults);
@@ -151,6 +152,19 @@ export function TracePanel() {
         <TraceStat label={t("traces.summary.protected")} value={traces.filter((trace) => trace.is_critical).length} tone="safe" />
       </div>
 
+      {scanAttempted && scanCoverage.length > 0 && (
+        <section className="trace-coverage card-surface" aria-label={t("traces.coverage.title")}>
+          <strong>{t("traces.coverage.title")}</strong>
+          <div>{scanCoverage.map((entry) => (
+            <span className={`trace-coverage-item ${entry.status}`} key={entry.area}>
+              {entry.status === "complete" ? <CheckCircle2 size={13} /> : <AlertTriangle size={13} />}
+              <b>{scanAreaLabel(entry.area)}</b>
+              <small>{entry.status === "complete" ? t("traces.coverage.items", { value0: entry.item_count }) : scanStatusLabel(entry.status)}</small>
+            </span>
+          ))}</div>
+        </section>
+      )}
+
       <div className="trace-workspace card-surface">
         {tracesLoading ? (
           <TraceEmpty icon={<Loader2 className="spinning" size={24} />} title={t("traces.empty.scanning")} detail={t("traces.empty.scanning_detail")} />
@@ -227,11 +241,11 @@ function TraceGroup({
           />
           <span className="trace-manager-check"><Check size={12} /></span>
           <span className="trace-manager-icon"><TraceTypeIcon trace={trace} /></span>
-          <span className="trace-manager-copy"><strong>{trace.description?.trim() || traceTypeLabel(trace)}</strong><small>{trace.path}</small></span>
+          <span className="trace-manager-copy"><strong>{trace.description?.trim() || traceTypeLabel(trace)}</strong><small>{trace.path}</small><em>{confidenceReasonLabel(trace)}</em></span>
           <span className="trace-manager-size">{formatBytes(trace.size)}</span>
           {trace.is_critical
-            ? <span className="trace-manager-confidence protected">{t("traces.confidence.protected")}</span>
-            : <span className={`trace-manager-confidence ${trace.confidence}`}>{confidenceLabel(trace.confidence)}</span>}
+            ? <span className="trace-manager-confidence protected">{t("traces.confidence.protected_score", { value0: confidenceScore(trace) })}</span>
+            : <span className={`trace-manager-confidence ${trace.confidence}`}>{t("traces.confidence.score", { value0: confidenceLabel(trace.confidence), value1: confidenceScore(trace) })}</span>}
         </label>
       ))}
     </section>
@@ -263,6 +277,24 @@ function confidenceLabel(confidence: Trace["confidence"]): string {
     medium: t("traces.confidence.medium"),
     low: t("traces.confidence.low"),
   }[confidence];
+}
+
+function confidenceScore(trace: Trace): number {
+  if (typeof trace.confidence_score === "number") return trace.confidence_score;
+  return trace.confidence === "high" ? 90 : trace.confidence === "medium" ? 60 : 25;
+}
+
+function confidenceReasonLabel(trace: Trace): string {
+  const reason = trace.confidence_reason ?? "unknown";
+  return t(`traces.reason.${reason}`);
+}
+
+function scanAreaLabel(area: import("../types").ScanArea): string {
+  return t(`traces.coverage.area.${area}`);
+}
+
+function scanStatusLabel(status: import("../types").ScanAreaStatus): string {
+  return t(`traces.coverage.status.${status}`);
 }
 
 function TraceStat({ label, value, tone }: { label: string; value: number | string; tone?: "warning" | "safe" }) {

@@ -1509,7 +1509,7 @@ function ReviewStage(props: {
 }
 
 function TraceGroup({ title, traces, selectedIds, onToggle }: { title: string; traces: Trace[]; selectedIds: Set<string>; onToggle: (id: string) => void }) {
-  return <section className="trace-group"><h3>{title}</h3><div className="trace-head"><span /><span>{t("app.message_246")}</span><span>{t("app.message_055")}</span><span>{t("app.message_248")}</span></div>{traces.map((trace) => <label className={`trace-row${trace.is_critical ? " protected" : ""}`} key={trace.id}><input type="checkbox" checked={selectedIds.has(trace.id)} disabled={trace.is_critical} onChange={() => onToggle(trace.id)} /><span className="fake-check"><Check size={12} /></span><TraceIcon type={trace.trace_type} /><span className="trace-name"><strong>{trace.description ?? t("app.message_249")}</strong><small>{trace.path}</small></span><span>{formatBytes(trace.size)}</span>{trace.is_critical ? <span className="confidence low">{t("app.message_250")}</span> : <ConfidenceBadge value={trace.confidence} />}</label>)}</section>;
+  return <section className="trace-group"><h3>{title}</h3><div className="trace-head"><span /><span>{t("app.message_246")}</span><span>{t("app.message_055")}</span><span>{t("app.message_248")}</span></div>{traces.map((trace) => <label className={`trace-row${trace.is_critical ? " protected" : ""}`} key={trace.id}><input type="checkbox" checked={selectedIds.has(trace.id)} disabled={trace.is_critical} onChange={() => onToggle(trace.id)} /><span className="fake-check"><Check size={12} /></span><TraceIcon type={trace.trace_type} /><span className="trace-name"><strong>{trace.description ?? t("app.message_249")}</strong><small>{trace.path}</small></span><span>{formatBytes(trace.size)}</span>{trace.is_critical ? <span className="confidence low" title={traceConfidenceReason(trace)}>{t("traces.confidence.protected_score", { value0: traceConfidenceScore(trace) })}</span> : <ConfidenceBadge trace={trace} />}</label>)}</section>;
 }
 
 function TraceIcon({ type }: { type: Trace["trace_type"] }) {
@@ -1517,9 +1517,18 @@ function TraceIcon({ type }: { type: Trace["trace_type"] }) {
   return <span className="trace-icon"><Icon size={15} /></span>;
 }
 
-function ConfidenceBadge({ value }: { value: Trace["confidence"] }) {
-  const label = value === "high" ? t("app.message_251") : value === "medium" ? t("app.message_252") : t("app.message_253");
-  return <span className={`confidence ${value}`}>{label}</span>;
+function ConfidenceBadge({ trace }: { trace: Trace }) {
+  const label = trace.confidence === "high" ? t("app.message_251") : trace.confidence === "medium" ? t("app.message_252") : t("app.message_253");
+  return <span className={`confidence ${trace.confidence}`} title={traceConfidenceReason(trace)}>{t("traces.confidence.score", { value0: label, value1: traceConfidenceScore(trace) })}</span>;
+}
+
+function traceConfidenceScore(trace: Trace): number {
+  if (typeof trace.confidence_score === "number") return trace.confidence_score;
+  return trace.confidence === "high" ? 90 : trace.confidence === "medium" ? 60 : 25;
+}
+
+function traceConfidenceReason(trace: Trace): string {
+  return t(`traces.reason.${trace.confidence_reason ?? "unknown"}`);
 }
 
 function CompleteStage({ program, results, traces: visibleTraces, job, logs, onDone }: { program: UiProgram; results: CleanResult[]; traces: Trace[]; job: UninstallJob | null; logs: string[]; onDone: () => void }) {

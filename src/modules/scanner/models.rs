@@ -71,6 +71,76 @@ impl Default for Confidence {
     }
 }
 
+/// 置信度的可解释证据来源。前端展示它，而不是要求用户猜测“高/中/低”的由来。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConfidenceReason {
+    #[default]
+    Unknown,
+    ExplicitInstallLocation,
+    StorePackageInstallLocation,
+    StorePackageUserData,
+    UninstallRegistry,
+    RegistryValueReferencesInstallLocation,
+    SystemCommandReferencesInstallLocation,
+    ExactNameRegistry,
+    ExactNameStandardLocation,
+    ExactNameUserData,
+    ExactShortcutName,
+}
+
+pub fn confidence_for_score(score: u8) -> Confidence {
+    match score {
+        80..=u8::MAX => Confidence::High,
+        50..=79 => Confidence::Medium,
+        _ => Confidence::Low,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScanArea {
+    Registry,
+    InstallFiles,
+    UserData,
+    Shortcuts,
+    ScheduledTasks,
+    Services,
+    Drivers,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScanAreaStatus {
+    Complete,
+    Partial,
+    Failed,
+    Skipped,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScanCoverage {
+    pub area: ScanArea,
+    pub status: ScanAreaStatus,
+    pub item_count: usize,
+}
+
+impl ScanCoverage {
+    pub fn new(area: ScanArea, status: ScanAreaStatus) -> Self {
+        Self {
+            area,
+            status,
+            item_count: 0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScanReport {
+    pub traces: Vec<Trace>,
+    pub coverage: Vec<ScanCoverage>,
+}
+
 /// 痕迹项目
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Trace {
@@ -82,6 +152,11 @@ pub struct Trace {
     pub size: Option<u64>,
     pub is_critical: bool,
     pub confidence: Confidence,
+    /// 0-100 的证据强度分数。0 表示旧快照尚未分配可解释证据。
+    #[serde(default)]
+    pub confidence_score: u8,
+    #[serde(default)]
+    pub confidence_reason: ConfidenceReason,
     pub exists: bool,
     /// 系统集成痕迹的关联路径，用于破坏性操作前重新核对当前目标。
     #[serde(default)]
@@ -99,6 +174,8 @@ impl Trace {
             size: None,
             is_critical: false,
             confidence: Confidence::Low,
+            confidence_score: 0,
+            confidence_reason: ConfidenceReason::Unknown,
             exists: true,
             related_path: None,
         }
@@ -116,6 +193,19 @@ impl Trace {
 
     pub fn with_confidence(mut self, confidence: Confidence) -> Self {
         self.confidence = confidence;
+        self.confidence_score = match confidence {
+            Confidence::High => 90,
+            Confidence::Medium => 60,
+            Confidence::Low => 25,
+        };
+        self.confidence_reason = ConfidenceReason::Unknown;
+        self
+    }
+
+    pub fn with_confidence_evidence(mut self, score: u8, reason: ConfidenceReason) -> Self {
+        self.confidence_score = score.min(100);
+        self.confidence = confidence_for_score(self.confidence_score);
+        self.confidence_reason = reason;
         self
     }
 
@@ -127,7 +217,7 @@ impl Trace {
 
 #[cfg(test)]
 mod tests {
-    use super::{Confidence, Trace, TraceType};
+    use super::{confidence_for_score, Confidence, ConfidenceReason, Trace, TraceType};
 
     #[test]
     fn confidence_serialization_matches_webui_contract() {
@@ -180,13 +270,27 @@ mod tests {
         )
         .with_description("leftover directory".to_string())
         .with_size(2048)
-        .with_confidence(Confidence::High);
+        .with_confidence_evidence(95, ConfidenceReason::ExplicitInstallLocation);
 
         assert_eq!(trace.description, "leftover directory");
         assert_eq!(trace.size, Some(2048));
         assert_eq!(trace.confidence, Confidence::High);
+        assert_eq!(trace.confidence_score, 95);
+        assert_eq!(
+            trace.confidence_reason,
+            ConfidenceReason::ExplicitInstallLocation
+        );
         assert!(trace.exists);
         assert!(!trace.is_critical);
         assert_eq!(trace.related_path, None);
+    }
+
+    #[test]
+    fn confidence_score_thresholds_are_stable() {
+        assert_eq!(confidence_for_score(100), Confidence::High);
+        assert_eq!(confidence_for_score(80), Confidence::High);
+        assert_eq!(confidence_for_score(79), Confidence::Medium);
+        assert_eq!(confidence_for_score(50), Confidence::Medium);
+        assert_eq!(confidence_for_score(49), Confidence::Low);
     }
 }

@@ -1,0 +1,5 @@
+{
+  "fixture": "rust-yu-deep-analysis",
+  "purpose": "deterministic scan truth",
+  "version": 1
+}

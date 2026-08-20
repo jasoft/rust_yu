@@ -99,6 +99,8 @@ export interface Trace {
   size: number | null;
   is_critical?: boolean;
   confidence: "high" | "medium" | "low";
+  confidence_score?: number;
+  confidence_reason?: "unknown" | "explicit_install_location" | "store_package_install_location" | "store_package_user_data" | "uninstall_registry" | "registry_value_references_install_location" | "system_command_references_install_location" | "exact_name_registry" | "exact_name_standard_location" | "exact_name_user_data" | "exact_shortcut_name";
   description: string | null;
   related_path?: string | null;
 }
@@ -462,6 +464,20 @@ export interface UninstallJob {
   residue_review: UninstallResidueReview;
   cleanup_results: CleanResult[];
   outcome: UninstallOutcome | null;
+}
+
+export type ScanArea = "registry" | "install_files" | "user_data" | "shortcuts" | "scheduled_tasks" | "services" | "drivers";
+export type ScanAreaStatus = "complete" | "partial" | "failed" | "skipped";
+
+export interface ScanCoverage {
+  area: ScanArea;
+  status: ScanAreaStatus;
+  item_count: number;
+}
+
+export interface ScanReport {
+  traces: Trace[];
+  coverage: ScanCoverage[];
 }
 
 export interface RegistryValueDetail {

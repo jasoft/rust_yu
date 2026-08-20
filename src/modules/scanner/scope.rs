@@ -205,6 +205,11 @@ pub fn is_protected_appdata_path(path: &Path) -> bool {
     is_protected_shared_path(path)
 }
 
+/// `%LOCALAPPDATA%\Programs` 是当前用户安装目录，不是程序运行数据目录。
+pub fn is_user_program_install_path(path: &Path) -> bool {
+    contains_sequence(&path_components(path), &["appdata", "local", "programs"])
+}
+
 pub fn is_protected_install_location(path: &Path) -> bool {
     let components = path_components(path);
     if components.is_empty() {
@@ -258,7 +263,7 @@ pub fn is_specific_windows_apps_package(path: &Path) -> bool {
 mod tests {
     use super::{
         is_protected_appdata_path, is_protected_install_location, is_protected_shared_path,
-        is_specific_windows_apps_package, ScanIdentity,
+        is_specific_windows_apps_package, is_user_program_install_path, ScanIdentity,
     };
 
     #[test]
@@ -314,6 +319,16 @@ mod tests {
         )));
         assert!(!is_specific_windows_apps_package(std::path::Path::new(
             r"C:\Temp\WindowsApps\OpenAI.ChatGPT_1.2.3.0_x64__2p2nqsd0c76g0",
+        )));
+    }
+
+    #[test]
+    fn local_appdata_programs_is_classified_as_an_install_location() {
+        assert!(is_user_program_install_path(std::path::Path::new(
+            r"C:\Users\demo\AppData\Local\Programs\Demo App"
+        )));
+        assert!(!is_user_program_install_path(std::path::Path::new(
+            r"C:\Users\demo\AppData\Local\Demo App"
         )));
     }
 }

@@ -7,7 +7,7 @@ use crate::modules::common::error::UninstallerError;
 use crate::modules::common::text::{build_powershell_script, decode_windows_output};
 use crate::modules::common::utils::{self, split_command_for_spawn};
 use crate::modules::lister::models::InstalledProgram;
-use crate::modules::scanner::models::{Confidence, Trace, TraceType};
+use crate::modules::scanner::models::{ConfidenceReason, Trace, TraceType};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::process::Command;
@@ -51,34 +51,61 @@ struct TaskQueryRecord {
     arguments: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct SystemIntegrationScan {
+    pub traces: Vec<Trace>,
+    pub failed_types: Vec<TraceType>,
+    pub skipped_types: Vec<TraceType>,
+}
+
 /// 扫描明确引用安装目录的服务、计划任务和驱动。
 pub fn scan_traces(program: &InstalledProgram) -> Vec<Trace> {
+    scan_traces_report(program).traces
+}
+
+pub fn scan_traces_report(program: &InstalledProgram) -> SystemIntegrationScan {
     let roots = target_roots(program);
     if roots.is_empty() {
         tracing::debug!(program = %program.name, "没有可用于系统集成关联的安全安装目录");
-        return Vec::new();
+        return SystemIntegrationScan {
+            traces: Vec::new(),
+            failed_types: Vec::new(),
+            skipped_types: vec![
+                TraceType::Service,
+                TraceType::ScheduledTask,
+                TraceType::Driver,
+            ],
+        };
     }
 
     let mut traces = Vec::new();
+    let mut failed_types = Vec::new();
     match list_services() {
         Ok(records) => traces.extend(collect_service_traces(&program.name, &roots, &records)),
         Err(error) => {
-            tracing::warn!(program = %program.name, "服务残留扫描失败，继续其他扫描: {error}")
+            tracing::warn!(program = %program.name, "服务残留扫描失败，继续其他扫描: {error}");
+            failed_types.push(TraceType::Service);
         }
     }
     match list_tasks() {
         Ok(records) => traces.extend(collect_task_traces(&program.name, &roots, &records)),
         Err(error) => {
-            tracing::warn!(program = %program.name, "计划任务残留扫描失败，继续其他扫描: {error}")
+            tracing::warn!(program = %program.name, "计划任务残留扫描失败，继续其他扫描: {error}");
+            failed_types.push(TraceType::ScheduledTask);
         }
     }
     match list_drivers() {
         Ok(records) => traces.extend(collect_driver_traces(&program.name, &roots, &records)),
         Err(error) => {
-            tracing::warn!(program = %program.name, "驱动残留扫描失败，继续其他扫描: {error}")
+            tracing::warn!(program = %program.name, "驱动残留扫描失败，继续其他扫描: {error}");
+            failed_types.push(TraceType::Driver);
         }
     }
-    traces
+    SystemIntegrationScan {
+        traces,
+        failed_types,
+        skipped_types: Vec::new(),
+    }
 }
 
 /// 清理一个已经在扫描计划中明确关联的服务或计划任务。
@@ -179,7 +206,7 @@ fn collect_service_traces(
                     ""
                 }
             ))
-            .with_confidence(Confidence::High)
+            .with_confidence_evidence(95, ConfidenceReason::SystemCommandReferencesInstallLocation)
             .with_related_path(root.to_string());
             trace.is_critical = shared || command_is_system_path(command);
             trace
@@ -199,7 +226,10 @@ fn collect_task_traces(program_name: &str, roots: &[String], records: &[TaskReco
                     "计划任务 {}{} -> {}",
                     record.task_path, record.task_name, command
                 ))
-                .with_confidence(Confidence::High)
+                .with_confidence_evidence(
+                    95,
+                    ConfidenceReason::SystemCommandReferencesInstallLocation,
+                )
                 .with_related_path(root.to_string());
             trace.is_critical =
                 is_protected_task_path(&record.task_path) || command_is_system_path(&command);
@@ -232,7 +262,7 @@ fn collect_driver_traces(
                 "驱动 {} ({}) -> {}（仅提供证据，不自动删除）",
                 display_name, record.name, command
             ))
-            .with_confidence(Confidence::High)
+            .with_confidence_evidence(95, ConfidenceReason::SystemCommandReferencesInstallLocation)
             .with_related_path(root.to_string());
             // 驱动涉及内核态代码和服务注册，当前版本只展示明确关联证据，
             // 即使用户勾选也必须保留，避免误删导致系统无法启动或设备失效。
