@@ -37,6 +37,7 @@ async fn scan_all_traces_internal(
     let types = trace_types.unwrap_or_else(|| {
         vec![
             TraceType::RegistryKey,
+            TraceType::RegistryValue,
             TraceType::File,
             TraceType::AppData,
             TraceType::Shortcut,
@@ -59,7 +60,7 @@ async fn scan_all_traces_internal(
     let mut handles = vec![];
 
     // 并行扫描不同类型
-    if types.contains(&TraceType::RegistryKey) {
+    if types.contains(&TraceType::RegistryKey) || types.contains(&TraceType::RegistryValue) {
         let registry_identity = identity.clone();
         let t = traces.clone();
         handles.push(tokio::spawn(async move {
@@ -148,6 +149,9 @@ async fn scan_all_traces_internal(
 
     // 获取所有结果
     let mut result = traces.lock().await.clone();
+
+    // 注册表扫描器一次读取同一卸载键及其值；对外仍严格遵守调用方请求的类型。
+    result.retain(|trace| types.contains(&trace.trace_type));
 
     // 并行扫描器可能从“名称命中”和“明确安装目录”同时发现同一文件。
     // 合并重复项，避免用户选中两个指向相同删除目标的条目。

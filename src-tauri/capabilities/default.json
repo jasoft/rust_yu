@@ -37,6 +37,7 @@
     "allow-clean-browser-data",
     "allow-get-program-health",
     "allow-list-programs",
+    "allow-get-program-registry-values",
     "allow-warmup-program-metadata",
     "allow-open-program-install-location",
     "allow-search-programs",

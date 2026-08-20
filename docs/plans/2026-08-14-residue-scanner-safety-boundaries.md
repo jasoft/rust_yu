@@ -41,9 +41,17 @@ ConnectedDevicesPlatform、Internet Explorer、Quick Launch、User Pinned、
 TaskBar 等组件及其子树，并保护 AppData/ProgramData 下的 Microsoft Windows
 共享树。
 
+Microsoft Store 程序是一个只读分析例外：如果安装清单明确给出
+`WindowsApps\<PackageFullName>` 这一层的具体包目录，扫描器可以枚举其中的文件，
+帮助用户核对安装内容和占用空间；所有结果仍标记为受保护，通用残留清理器拒绝删除，
+真实移除必须交给 AppX/MSIX 包管理流程。`WindowsApps` 根目录、任意子路径推断和
+名称扫描仍然禁止。
+
 注册表名称扫描不递归 `HKCR`，并跳过 Classes、Windows、Windows NT、Explorer、
 Shell Folders、User Shell Folders、Run、RunOnce 等共享分支。卸载项只检查受限的
-HKLM/HKCU Uninstall 根，并以 DisplayName 或键名的完整身份匹配。
+HKLM/HKCU Uninstall 根，并以 DisplayName 或键名的完整身份匹配。命中的卸载键除
+键本身外，还会把每个具有明确名称的注册表值作为独立只读证据展示；详情页只能实时
+读取标准 Uninstall 分支，不能借此读取任意注册表路径。
 
 ## 归属匹配算法
 
@@ -70,6 +78,10 @@ HKLM/HKCU Uninstall 根，并以 DisplayName 或键名的完整身份匹配。
 “全选”是用户主动操作，不改变保护区域和关键项规则；确认对话框显示中低置信度
 项目数量，避免用户把默认选择误认为系统已经证明归属。
 
+“深度分析”与卸载后的残留扫描共用同一套扫描器，但深度分析没有卸载任务和清理
+上下文，因此结果默认选择必须为 0；卸载后的残留复核才允许按上表自动选择明确关联、
+非关键的高置信度项目。
+
 ## 回归门禁
 
 每次新增扫描器或扩大扫描根，都必须加入以下反例测试：
@@ -77,6 +89,8 @@ HKLM/HKCU Uninstall 根，并以 DisplayName 或键名的完整身份匹配。
 - `Xplorer` 不命中 `Internet Explorer` 及其 Quick Launch/TaskBar 子文件；
 - 不命中 `xplorer-backup`、`another-xplorer-tool` 等前后缀相似名称；
 - Windows/System32、AppData Microsoft、Packages、HKCR/Explorer 分支不会产生候选；
+- 具体 WindowsApps 包目录中的文件可以展示，但全部保持受保护且不可选择；
+- Uninstall Key 的 DisplayName、Publisher、UninstallString 等值逐项展示；
 - 明确安装目录仍能发现 Inno 夹具 `leftover.log` 和 AppData 夹具残留；
 - 默认选择只包含高置信度非关键项，中低置信度必须人工确认。
 

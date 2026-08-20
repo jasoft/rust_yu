@@ -1,6 +1,7 @@
 use super::models::{Confidence, Trace, TraceType};
 use super::scope::ScanIdentity;
 use crate::modules::common::error::UninstallerError;
+use crate::modules::lister::registry::format_registry_value;
 use winreg::enums::*;
 use winreg::RegKey;
 
@@ -117,7 +118,7 @@ fn scan_uninstall_keys(identity: &ScanIdentity, traces: &mut Vec<Trace>) {
                         Trace::new(
                             identity.display_name().to_string(),
                             TraceType::RegistryKey,
-                            full_path,
+                            full_path.clone(),
                         )
                         .with_description(format!(
                             "卸载信息: {} ({})",
@@ -126,9 +127,44 @@ fn scan_uninstall_keys(identity: &ScanIdentity, traces: &mut Vec<Trace>) {
                         ))
                         .with_confidence(Confidence::High),
                     );
+                    append_uninstall_values(identity, &subkey, &full_path, traces);
                 }
             }
         }
+    }
+}
+
+fn append_uninstall_values(
+    identity: &ScanIdentity,
+    subkey: &RegKey,
+    full_key_path: &str,
+    traces: &mut Vec<Trace>,
+) {
+    for result in subkey.enum_values() {
+        let Ok((value_name, raw)) = result else {
+            continue;
+        };
+        // 默认值没有可安全编码到现有“键路径\值名”删除契约中的名称；详情页仍会
+        // 完整展示它，但残留列表只生成具有明确值名的独立项目。
+        if value_name.is_empty() || value_name.contains('\\') {
+            continue;
+        }
+        let value = format_registry_value(&raw);
+        let preview = if value.chars().count() > 240 {
+            format!("{}…", value.chars().take(240).collect::<String>())
+        } else {
+            value
+        };
+        traces.push(
+            Trace::new(
+                identity.display_name().to_string(),
+                TraceType::RegistryValue,
+                format!("{full_key_path}\\{value_name}"),
+            )
+            .with_description(format!("{value_name} [{:?}] = {preview}", raw.vtype))
+            .with_size(raw.bytes.len() as u64)
+            .with_confidence(Confidence::High),
+        );
     }
 }
 
@@ -180,9 +216,11 @@ fn format_hkey(hkey: winreg::HKEY) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_protected_registry_path, uninstall_entry_matches};
+    use super::{append_uninstall_values, is_protected_registry_path, uninstall_entry_matches};
+    use crate::modules::scanner::models::TraceType;
     use crate::modules::scanner::scope::ScanIdentity;
     use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
+    use winreg::RegKey;
 
     #[test]
     fn uninstall_matching_does_not_use_substrings() {
@@ -213,5 +251,36 @@ mod tests {
             HKEY_LOCAL_MACHINE,
             r"SOFTWARE\DemoVendor\Xplorer"
         ));
+    }
+
+    #[test]
+    fn uninstall_values_are_emitted_as_individual_scan_results() {
+        let root = RegKey::predef(HKEY_CURRENT_USER);
+        let path = format!(r"Software\RustYuTest\{}", uuid::Uuid::new_v4());
+        let (key, _) = root
+            .create_subkey(&path)
+            .unwrap_or_else(|error| panic!("create test key: {error}"));
+        key.set_value("DisplayName", &"ChatGPT")
+            .unwrap_or_else(|error| panic!("write DisplayName: {error}"));
+        key.set_value("Publisher", &"OpenAI")
+            .unwrap_or_else(|error| panic!("write Publisher: {error}"));
+
+        let mut traces = Vec::new();
+        append_uninstall_values(
+            &ScanIdentity::from_name("ChatGPT"),
+            &key,
+            r"HKCU\Software\RustYuTest\ChatGPT",
+            &mut traces,
+        );
+
+        assert_eq!(traces.len(), 2);
+        assert!(traces
+            .iter()
+            .all(|trace| trace.trace_type == TraceType::RegistryValue));
+        assert!(traces
+            .iter()
+            .any(|trace| trace.path.ends_with(r"\Publisher")));
+        drop(key);
+        let _ = root.delete_subkey_all(path);
     }
 }

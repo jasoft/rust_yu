@@ -464,6 +464,13 @@ export interface UninstallJob {
   outcome: UninstallOutcome | null;
 }
 
+export interface RegistryValueDetail {
+  name: string;
+  value_type: string;
+  value: string;
+  byte_length: number;
+}
+
 export interface UninstallJobResponse {
   job: UninstallJob;
 }

@@ -181,6 +181,9 @@ fn append_install_location_contents(program_name: &str, root: &Path, traces: &mu
         .with_description(description)
         .with_confidence(Confidence::High);
         trace.size = size;
+        // WindowsApps 包目录可以只读分析，但包内容由 AppX/MSIX 管理，不能让
+        // 通用残留清理器直接删除；真实卸载必须继续交给包管理 API。
+        trace.is_critical = is_protected_shared_path(path);
         traces.push(trace);
         item_count += 1;
     }
@@ -332,6 +335,29 @@ mod tests {
             strip_extended_prefix(std::path::Path::new(r"\\?\UNC\server\share\Demo")),
             std::path::PathBuf::from(r"\\server\share\Demo")
         );
+    }
+
+    #[test]
+    fn windows_apps_package_files_are_visible_but_protected() {
+        let root = std::env::temp_dir().join(format!(
+            "windowsapps-analysis-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let package = root
+            .join("WindowsApps")
+            .join("OpenAI.ChatGPT_1.2.3.0_x64__2p2nqsd0c76g0");
+        let file = package.join("app.exe");
+        fs::create_dir_all(&package)
+            .unwrap_or_else(|error| panic!("create package fixture: {error}"));
+        fs::write(&file, b"fixture")
+            .unwrap_or_else(|error| panic!("write package fixture: {error}"));
+
+        let mut traces = Vec::new();
+        append_install_location_contents("ChatGPT", &package, &mut traces);
+
+        assert_eq!(traces.len(), 1);
+        assert!(traces[0].is_critical);
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

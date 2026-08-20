@@ -118,7 +118,7 @@ export function ProgramDetail() {
           </Button>
           <Button
             variant="secondary"
-            onClick={() => scanTraces(p.name)}
+            onClick={() => scanTraces(p.name, p)}
           >
             <SearchCode className="h-4 w-4" />
 

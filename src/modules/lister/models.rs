@@ -99,6 +99,15 @@ pub struct InstalledProgram {
     pub metadata_confidence: MetadataConfidence,
 }
 
+/// 卸载注册表键中的一个原始值，供详情页和只读诊断展示。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RegistryValueDetail {
+    pub name: String,
+    pub value_type: String,
+    pub value: String,
+    pub byte_length: u64,
+}
+
 impl InstalledProgram {
     pub fn new(name: String, source: InstallSource) -> Self {
         Self {

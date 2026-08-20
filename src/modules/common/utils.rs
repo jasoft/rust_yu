@@ -204,7 +204,10 @@ pub fn create_command_wrapper_script(
 
 /// 检查路径是否为系统关键路径
 pub fn is_system_critical_path(path: &str) -> bool {
-    let path_upper = path.to_uppercase();
+    let path_upper = path
+        .replace('/', "\\")
+        .trim_end_matches('\\')
+        .to_uppercase();
 
     let critical_paths = [
         r"C:\WINDOWS",
@@ -215,9 +218,24 @@ pub fn is_system_critical_path(path: &str) -> bool {
         r"C:\PROGRAM FILES\WINDOWS",
     ];
 
-    critical_paths
-        .iter()
-        .any(|p| path_upper.starts_with(&p.to_uppercase()))
+    critical_paths.iter().any(|candidate| {
+        let candidate = candidate.to_uppercase();
+        path_upper == candidate || path_upper.starts_with(&format!("{candidate}\\"))
+    })
+}
+
+#[cfg(test)]
+mod critical_path_tests {
+    use super::is_system_critical_path;
+
+    #[test]
+    fn critical_path_matching_requires_a_component_boundary() {
+        assert!(is_system_critical_path(r"C:\Windows\System32\kernel32.dll"));
+        assert!(is_system_critical_path(r"C:\Program Files\Windows\app.exe"));
+        assert!(!is_system_critical_path(
+            r"C:\Program Files\WindowsApps\OpenAI.ChatGPT_1.0.0.0_x64__publisher\app.exe"
+        ));
+    }
 }
 
 /// 检查注册表路径是否为关键路径

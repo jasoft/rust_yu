@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-program-registry-values"
+description = "Enables the get_program_registry_values command without any pre-configured scope."
+commands.allow = ["get_program_registry_values"]
+
+[[permission]]
+identifier = "deny-get-program-registry-values"
+description = "Denies the get_program_registry_values command without any pre-configured scope."
+commands.deny = ["get_program_registry_values"]

@@ -85,6 +85,7 @@ import type {
   CleanResult,
   InstalledProgram,
   MetadataWarmupProgress,
+  RegistryValueDetail,
   Trace,
   UninstallJobEvent,
   UninstallJob,
@@ -361,7 +362,9 @@ export default function App() {
   useEffect(() => {
     if (!manualScanPending || tracesLoading) return;
     setTraces(scannedTraces);
-    setSelectedTraceIds(new Set(scannedTraces.filter((trace) => !trace.is_critical && trace.confidence === "high").map((trace) => trace.id)));
+    // 深度分析是只读诊断入口，不绑定卸载任务；扫描结果必须由用户逐项审阅，
+    // 不能沿用卸载后高置信度残留的默认勾选策略。
+    setSelectedTraceIds(new Set());
     setManualScanPending(false);
     setScanStatus("complete");
   }, [manualScanPending, scannedTraces, tracesLoading]);
@@ -1550,7 +1553,11 @@ function UninstallReportModal({ program, traces, selectedIds, summaries, logs, o
 function ProgramInfoModal({ program, onClose }: { program: UiProgram; onClose: () => void }) {
   const [directoryOpening, setDirectoryOpening] = useState(false);
   const [directoryOpenError, setDirectoryOpenError] = useState<string | null>(null);
+  const [registryValues, setRegistryValues] = useState<RegistryValueDetail[]>([]);
+  const [registryValuesLoading, setRegistryValuesLoading] = useState(false);
+  const [registryValuesError, setRegistryValuesError] = useState(false);
   const source = program.source;
+  const registryKeyPath = source?.uninstall_registry_key_path;
   const sourceLabel = source?.install_source === "msi" ? t("common.format.msi") : source?.install_source === "store" ? t("common.source.microsoft_store") : source?.install_source === "registry" ? t("app.message_024") : t("app.message_296");
   const rows: Array<[string, string | null | undefined, boolean?]> = [
     [t("app.message_297"), source?.id ?? program.id, true],
@@ -1565,6 +1572,33 @@ function ProgramInfoModal({ program, onClose }: { program: UiProgram; onClose: (
     [t("app.message_306"), source?.quiet_uninstall_string, true],
     [t("app.message_307"), source?.uninstall_registry_key_path, true],
   ];
+  useEffect(() => {
+    setRegistryValues([]);
+    setRegistryValuesError(false);
+    if (!registryKeyPath || !isTauriRuntime()) {
+      setRegistryValuesLoading(false);
+      return;
+    }
+
+    let active = true;
+    setRegistryValuesLoading(true);
+    void invoke<RegistryValueDetail[]>("get_program_registry_values", {
+      registryKeyPath,
+    })
+      .then((values) => {
+        if (active) setRegistryValues(values);
+      })
+      .catch((error) => {
+        console.error(t("program.registry_values.error"), error);
+        if (active) setRegistryValuesError(true);
+      })
+      .finally(() => {
+        if (active) setRegistryValuesLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [registryKeyPath]);
   const openInstallLocation = async () => {
     if (!source?.install_location || directoryOpening) return;
     setDirectoryOpening(true);
@@ -1585,10 +1619,41 @@ function ProgramInfoModal({ program, onClose }: { program: UiProgram; onClose: (
           <div><AppIcon program={program} large /><span><h2 className={source?.is_broken_installation ? "program-name-broken" : undefined}>{source?.is_broken_installation && <TriangleAlert className="program-name-warning-icon" size={15} aria-label={t("app.installation_status.broken")} />}{program.name}</h2><p>{program.publisher}</p></span></div>
           <button aria-label={t("app.message_308")} onClick={onClose}><X size={17} /></button>
         </header>
-        <div className="program-info-rows">
-          {rows.filter(([, value]) => Boolean(value)).map(([label, value, mono]) => (
-            <div key={label}><dt>{label}</dt><dd className={mono ? "mono" : ""}>{value}</dd></div>
-          ))}
+        <div className="program-info-body">
+          <dl className="program-info-rows">
+            {rows.filter(([, value]) => Boolean(value)).map(([label, value, mono]) => (
+              <div key={label}><dt>{label}</dt><dd className={mono ? "mono" : ""}>{value}</dd></div>
+            ))}
+          </dl>
+          {registryKeyPath && (
+            <section className="program-registry-values" aria-labelledby="program-registry-values-title">
+              <div className="program-registry-values-heading">
+                <span>
+                  <h3 id="program-registry-values-title">{t("program.registry_values.title")}</h3>
+                  <p>{t("program.registry_values.description")}</p>
+                </span>
+                {!registryValuesLoading && !registryValuesError && <b>{registryValues.length}</b>}
+              </div>
+              {registryValuesLoading ? (
+                <p className="program-registry-values-status"><Loader2 size={14} className="spinning" />{t("program.registry_values.loading")}</p>
+              ) : registryValuesError ? (
+                <p className="program-registry-values-status error"><TriangleAlert size={14} />{t("program.registry_values.error")}</p>
+              ) : registryValues.length === 0 ? (
+                <p className="program-registry-values-status">{t("program.registry_values.empty")}</p>
+              ) : (
+                <div className="program-registry-values-table">
+                  <div className="program-registry-values-header"><span>{t("program.registry_values.name")}</span><span>{t("program.registry_values.type")}</span><span>{t("program.registry_values.data")}</span></div>
+                  {registryValues.map((item) => (
+                    <div className="program-registry-value-row" key={`${item.name}-${item.value_type}`}>
+                      <strong>{item.name || t("program.registry_values.default_name")}</strong>
+                      <code>{item.value_type}</code>
+                      <span>{item.value || t("program.registry_values.empty_data")}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
         </div>
         <footer>
           {directoryOpenError && <span className="program-info-directory-error" role="alert"><TriangleAlert size={14} />{directoryOpenError}</span>}

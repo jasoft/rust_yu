@@ -33,6 +33,7 @@ fn main() {
         "clean_browser_data",
         "get_program_health",
         "list_programs",
+        "get_program_registry_values",
         "warmup_program_metadata",
         "open_program_install_location",
         "search_programs",

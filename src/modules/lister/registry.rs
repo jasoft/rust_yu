@@ -1,7 +1,9 @@
-use super::models::{InstallSource, InstalledProgram, MetadataConfidence, MetadataSource};
+use super::models::{
+    InstallSource, InstalledProgram, MetadataConfidence, MetadataSource, RegistryValueDetail,
+};
 use crate::modules::common::error::UninstallerError;
 use winreg::enums::*;
-use winreg::RegKey;
+use winreg::{RegKey, RegValue};
 
 /// 从注册表读取已安装程序
 pub fn list_registry_programs() -> Result<Vec<InstalledProgram>, UninstallerError> {
@@ -83,6 +85,111 @@ pub fn registry_program_exists(name: &str) -> Result<bool, UninstallerError> {
     }
 
     Ok(false)
+}
+
+/// 只读获取某个 ARP/Uninstall 键的全部值。
+///
+/// 前端传入的路径不可信，因此这里只接受 HKLM/HKCU 下三个标准 Uninstall
+/// 分支的直接子键，避免详情功能演变成任意注册表读取接口。
+pub fn read_uninstall_registry_values(
+    registry_key_path: &str,
+) -> Result<Vec<RegistryValueDetail>, UninstallerError> {
+    let (hkey, key_path) = parse_uninstall_registry_path(registry_key_path)?;
+    let key = RegKey::predef(hkey)
+        .open_subkey_with_flags(&key_path, KEY_READ)
+        .map_err(|error| UninstallerError::Registry(error.to_string()))?;
+
+    let mut values = key
+        .enum_values()
+        .map(|result| {
+            let (name, raw) =
+                result.map_err(|error| UninstallerError::Registry(error.to_string()))?;
+            Ok(RegistryValueDetail {
+                name,
+                value_type: format!("{:?}", raw.vtype),
+                value: format_registry_value(&raw),
+                byte_length: raw.bytes.len() as u64,
+            })
+        })
+        .collect::<Result<Vec<_>, UninstallerError>>()?;
+    values.sort_by_key(|value| value.name.to_ascii_lowercase());
+    Ok(values)
+}
+
+fn parse_uninstall_registry_path(
+    registry_key_path: &str,
+) -> Result<(winreg::HKEY, String), UninstallerError> {
+    let trimmed = registry_key_path.trim();
+    let normalized = trimmed
+        .strip_prefix("registry:")
+        .unwrap_or(trimmed)
+        .replace('/', "\\");
+    let (hive, key_path) = normalized
+        .split_once('\\')
+        .ok_or_else(|| UninstallerError::Registry("卸载注册表路径格式无效".to_string()))?;
+    let hkey = if hive.eq_ignore_ascii_case("HKLM")
+        || hive.eq_ignore_ascii_case("HKEY_LOCAL_MACHINE")
+    {
+        HKEY_LOCAL_MACHINE
+    } else if hive.eq_ignore_ascii_case("HKCU") || hive.eq_ignore_ascii_case("HKEY_CURRENT_USER") {
+        HKEY_CURRENT_USER
+    } else {
+        return Err(UninstallerError::Registry(
+            "只允许读取 HKLM 或 HKCU 的卸载信息".to_string(),
+        ));
+    };
+
+    let lower = key_path.to_ascii_lowercase();
+    let allowed = if hkey == HKEY_LOCAL_MACHINE {
+        lower.starts_with(r"software\microsoft\windows\currentversion\uninstall\")
+            || lower
+                .starts_with(r"software\wow6432node\microsoft\windows\currentversion\uninstall\")
+    } else {
+        lower.starts_with(r"software\microsoft\windows\currentversion\uninstall\")
+    };
+    if !allowed || key_path.ends_with('\\') {
+        return Err(UninstallerError::Registry(
+            "路径不属于受支持的卸载注册表项".to_string(),
+        ));
+    }
+    Ok((hkey, key_path.to_string()))
+}
+
+pub(crate) fn format_registry_value(value: &RegValue) -> String {
+    match value.vtype {
+        REG_SZ | REG_EXPAND_SZ => decode_utf16_strings(&value.bytes)
+            .into_iter()
+            .next()
+            .unwrap_or_default(),
+        REG_MULTI_SZ => decode_utf16_strings(&value.bytes).join("\n"),
+        REG_DWORD if value.bytes.len() >= 4 => {
+            u32::from_le_bytes(value.bytes[..4].try_into().unwrap_or([0; 4])).to_string()
+        }
+        REG_DWORD_BIG_ENDIAN if value.bytes.len() >= 4 => {
+            u32::from_be_bytes(value.bytes[..4].try_into().unwrap_or([0; 4])).to_string()
+        }
+        REG_QWORD if value.bytes.len() >= 8 => {
+            u64::from_le_bytes(value.bytes[..8].try_into().unwrap_or([0; 8])).to_string()
+        }
+        _ => value
+            .bytes
+            .iter()
+            .map(|byte| format!("{byte:02X}"))
+            .collect::<Vec<_>>()
+            .join(" "),
+    }
+}
+
+fn decode_utf16_strings(bytes: &[u8]) -> Vec<String> {
+    let units = bytes
+        .chunks_exact(2)
+        .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+        .collect::<Vec<_>>();
+    units
+        .split(|unit| *unit == 0)
+        .filter(|segment| !segment.is_empty())
+        .map(String::from_utf16_lossy)
+        .collect()
 }
 
 /// 解析注册表项
@@ -227,9 +334,12 @@ fn registry_value_is_non_empty(subkey: &RegKey, value_name: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_registry_key_path, format_hkey, is_hidden_arp_entry, HKEY_LOCAL_MACHINE};
-    use winreg::enums::HKEY_CURRENT_USER;
-    use winreg::RegKey;
+    use super::{
+        build_registry_key_path, format_hkey, format_registry_value, is_hidden_arp_entry,
+        parse_uninstall_registry_path, HKEY_LOCAL_MACHINE,
+    };
+    use winreg::enums::{HKEY_CURRENT_USER, REG_DWORD, REG_SZ};
+    use winreg::{RegKey, RegValue};
 
     #[test]
     fn registry_program_id_is_derived_from_full_registry_key_path() {
@@ -262,6 +372,41 @@ mod tests {
 
         assert!(!is_hidden_arp_entry(&temp.0, "runtime"));
         let _ = key.delete_subkey_all("Software\\RustYuTest");
+    }
+
+    #[test]
+    fn uninstall_registry_reader_rejects_arbitrary_registry_paths() {
+        assert!(parse_uninstall_registry_path(
+            r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Demo"
+        )
+        .is_ok());
+        assert!(parse_uninstall_registry_path(r"HKLM\SYSTEM\CurrentControlSet\Services").is_err());
+        assert!(parse_uninstall_registry_path(
+            r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn registry_value_formatter_preserves_strings_and_numbers() {
+        let text_bytes = "ChatGPT\0"
+            .encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            format_registry_value(&RegValue {
+                bytes: text_bytes,
+                vtype: REG_SZ,
+            }),
+            "ChatGPT"
+        );
+        assert_eq!(
+            format_registry_value(&RegValue {
+                bytes: 42_u32.to_le_bytes().to_vec(),
+                vtype: REG_DWORD,
+            }),
+            "42"
+        );
     }
 }
 

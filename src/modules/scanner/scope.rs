@@ -211,17 +211,54 @@ pub fn is_protected_install_location(path: &Path) -> bool {
         return true;
     }
 
+    // Microsoft Store 的 InstallLocation 是 WindowsApps 下某一个明确包目录。
+    // 允许扫描这个精确目录以便向用户展示内容，但 WindowsApps 根目录、其余共享
+    // 区域和实际清理仍保持保护；文件痕迹会在 filesystem 扫描器中标为关键项。
+    if is_specific_windows_apps_package(path) {
+        return false;
+    }
+
     is_protected_shared_path(path)
         || contains_sequence(&components, &["appdata", "roaming", "microsoft"])
         || contains_sequence(&components, &["appdata", "local", "microsoft"])
         || contains_sequence(&components, &["programdata", "microsoft"])
 }
 
+pub fn is_specific_windows_apps_package(path: &Path) -> bool {
+    let components = path_components(path);
+    let Some(index) = components
+        .iter()
+        .position(|component| component == "windowsapps")
+    else {
+        return false;
+    };
+
+    // AppX 包目录固定为 WindowsApps 的直接子目录；要求包身份常见的多段下划线
+    // 结构，避免把根目录或任意更深路径误当成可信安装位置。
+    if index + 2 != components.len() {
+        return false;
+    }
+    let Some(parent) = path.parent() else {
+        return false;
+    };
+    let is_real_windows_apps_root = ["ProgramFiles", "ProgramW6432"]
+        .into_iter()
+        .filter_map(|name| std::env::var(name).ok())
+        .map(PathBuf::from)
+        .map(|root| root.join("WindowsApps"))
+        .any(|root| normalized_path(parent) == normalized_path(&root));
+    if !is_real_windows_apps_root {
+        return false;
+    }
+    let package = &components[index + 1];
+    package.len() >= 8 && package.matches('_').count() >= 4
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         is_protected_appdata_path, is_protected_install_location, is_protected_shared_path,
-        ScanIdentity,
+        is_specific_windows_apps_package, ScanIdentity,
     };
 
     #[test]
@@ -259,6 +296,24 @@ mod tests {
         )));
         assert!(!is_protected_shared_path(std::path::Path::new(
             r"C:\Program Files\Xplorer\resources\app.dll",
+        )));
+    }
+
+    #[test]
+    fn exact_windows_apps_package_can_be_analyzed_without_unprotecting_the_root() {
+        let package = std::path::Path::new(
+            r"C:\Program Files\WindowsApps\OpenAI.ChatGPT_1.2.3.0_x64__2p2nqsd0c76g0",
+        );
+        assert!(is_specific_windows_apps_package(package));
+        assert!(!is_protected_install_location(package));
+        assert!(is_protected_install_location(std::path::Path::new(
+            r"C:\Program Files\WindowsApps",
+        )));
+        assert!(!is_specific_windows_apps_package(std::path::Path::new(
+            r"C:\Program Files\WindowsApps\OpenAI.ChatGPT_1.2.3.0_x64__2p2nqsd0c76g0\assets",
+        )));
+        assert!(!is_specific_windows_apps_package(std::path::Path::new(
+            r"C:\Temp\WindowsApps\OpenAI.ChatGPT_1.2.3.0_x64__2p2nqsd0c76g0",
         )));
     }
 }

@@ -1,7 +1,7 @@
 use rust_yu_lib::lister;
 use rust_yu_lib::lister::models::{
     InstallSourceSelector, ListProgramsQuery, MetadataWarmupQuery, MetadataWarmupSummary,
-    ProgramListResponse,
+    ProgramListResponse, RegistryValueDetail,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
@@ -54,6 +54,18 @@ pub async fn list_programs(
             .map_err(|error| CommandError::new(format!("程序列表任务执行失败: {}", error)))?;
 
     join_result.map_err(CommandError::from)
+}
+
+#[tauri::command]
+pub async fn get_program_registry_values(
+    registry_key_path: String,
+) -> Result<Vec<RegistryValueDetail>, CommandError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        lister::registry::read_uninstall_registry_values(&registry_key_path)
+    })
+    .await
+    .map_err(|error| CommandError::new(format!("读取卸载注册表任务执行失败: {error}")))?
+    .map_err(CommandError::from)
 }
 
 #[tauri::command]
