@@ -26,21 +26,19 @@ if (-not (Test-IsAdministrator)) {
         Select-Object -First 1 -ExpandProperty Source
     $scriptPath = [IO.Path]::GetFullPath($PSCommandPath)
     $quotedScriptPath = '"' + $scriptPath.Replace('"', '\"') + '"'
-    $elevationArguments = @(
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        $quotedScriptPath
-    )
+    $elevationArguments = [System.Collections.Generic.List[string]]::new()
+    $elevationArguments.Add("-NoProfile")
+    $elevationArguments.Add("-ExecutionPolicy")
+    $elevationArguments.Add("Bypass")
+    $elevationArguments.Add("-File")
+    $elevationArguments.Add($quotedScriptPath)
     if (-not [string]::IsNullOrWhiteSpace($ApiMode)) {
-        $elevationArguments += @("-ApiMode", $ApiMode)
+        $elevationArguments.Add("-ApiMode")
+        $elevationArguments.Add($ApiMode)
     }
     if ($ApiPort -gt 0) {
-        $elevationArguments += @(
-            "-ApiPort",
-            $ApiPort.ToString([Globalization.CultureInfo]::InvariantCulture)
-        )
+        $elevationArguments.Add("-ApiPort")
+        $elevationArguments.Add($ApiPort.ToString([Globalization.CultureInfo]::InvariantCulture))
     }
 
     try {
