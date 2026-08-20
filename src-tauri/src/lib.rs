@@ -7,10 +7,7 @@ mod window_state;
 
 use commands::*;
 
-use std::{
-    net::{IpAddr, SocketAddr},
-    path::PathBuf,
-};
+use std::path::PathBuf;
 
 use tauri::Manager;
 use warp::Filter;
@@ -27,57 +24,9 @@ struct ProgramListApiQuery {
     refresh: Option<bool>,
 }
 
-const DEFAULT_API_HOST: &str = "127.0.0.1";
-const DEFAULT_API_PORT: u16 = 8080;
-
-fn api_bind_addr(
-    mode: Option<&str>,
-    configured_host: Option<&str>,
-    configured_port: Option<&str>,
-) -> Result<SocketAddr, String> {
-    let mode = mode.unwrap_or("local");
-    let host = match configured_host {
-        Some(host) => host,
-        None => match mode.to_ascii_lowercase().as_str() {
-            "local" => DEFAULT_API_HOST,
-            "lan" => "0.0.0.0",
-            other => {
-                return Err(format!(
-                    "不支持的 RUST_YU_API_MODE：{other}，可用值为 local 或 lan"
-                ));
-            }
-        },
-    };
-    let ip = host
-        .parse::<IpAddr>()
-        .map_err(|error| format!("RUST_YU_API_HOST 不是有效 IP 地址：{host}（{error}）"))?;
-    let port = match configured_port {
-        Some(value) => value
-            .parse::<u16>()
-            .map_err(|error| format!("RUST_YU_API_PORT 不是有效端口：{value}（{error}）"))?,
-        None => DEFAULT_API_PORT,
-    };
-
-    Ok(SocketAddr::new(ip, port))
-}
-
-fn api_bind_addr_from_env() -> Result<SocketAddr, String> {
-    let mode = std::env::var("RUST_YU_API_MODE").ok();
-    let configured_host = std::env::var("RUST_YU_API_HOST").ok();
-    let configured_port = std::env::var("RUST_YU_API_PORT").ok();
-    api_bind_addr(
-        mode.as_deref(),
-        configured_host.as_deref(),
-        configured_port.as_deref(),
-    )
-}
-
-// 启动 HTTP API 服务器（用于开发模式）。默认只监听本机，避免意外暴露系统信息；
-// 只有显式设置 RUST_YU_API_MODE=lan 时才监听局域网地址。
-fn start_api_server() -> Result<SocketAddr, String> {
+// 启动 HTTP API 服务器（用于开发模式）
+fn start_api_server() {
     use rust_yu_lib::modules::lister;
-
-    let bind_addr = api_bind_addr_from_env()?;
 
     // 获取程序列表的 API 路由
     let programs_route = warp::path!("api" / "programs")
@@ -198,23 +147,13 @@ fn start_api_server() -> Result<SocketAddr, String> {
 
     // 在后台线程启动服务器
     std::thread::spawn(move || {
-        let runtime = match tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-        {
-            Ok(runtime) => runtime,
-            Err(error) => {
-                tracing::error!("HTTP API 服务器运行时创建失败：{error}");
-                return;
-            }
-        };
+        let runtime = tokio::runtime::Runtime::new().unwrap();
         runtime.block_on(async {
-            warp::serve(routes).run(bind_addr).await;
+            warp::serve(routes).run(([127, 0, 0, 1], 8080)).await;
         });
     });
 
-    tracing::info!("HTTP API 服务器已启动: http://{bind_addr}");
-    Ok(bind_addr)
+    tracing::info!("HTTP API 服务器已启动: http://localhost:8080");
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -224,12 +163,10 @@ pub fn run() {
         .with_max_level(tracing::Level::INFO)
         .init();
 
-    // 启动 HTTP API 服务器（用于开发模式）。可通过 RUST_YU_API_MODE=lan 开启局域网访问，
-    // 也可以通过 RUST_YU_API_HOST / RUST_YU_API_PORT 指定绑定地址和端口。
+    // 启动 HTTP API 服务器（用于开发模式）
+    // 也可以通过环境变量 RUST_YU_API_PORT 来指定端口
     if std::env::var("RUST_YU_ENABLE_API").is_ok() {
-        if let Err(error) = start_api_server() {
-            tracing::error!("HTTP API 服务器配置无效：{error}");
-        }
+        start_api_server();
     }
 
     tauri::Builder::default()
@@ -309,48 +246,4 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("启动 Tauri 应用时出错");
-}
-
-#[cfg(test)]
-mod api_tests {
-    use super::api_bind_addr;
-    use std::net::SocketAddr;
-
-    #[test]
-    fn defaults_to_localhost() {
-        assert_eq!(
-            api_bind_addr(None, None, None).expect("默认 API 地址应有效"),
-            "127.0.0.1:8080"
-                .parse::<SocketAddr>()
-                .expect("测试地址应有效")
-        );
-    }
-
-    #[test]
-    fn lan_mode_binds_all_ipv4_interfaces() {
-        assert_eq!(
-            api_bind_addr(Some("lan"), None, Some("18080")).expect("局域网 API 地址应有效"),
-            "0.0.0.0:18080"
-                .parse::<SocketAddr>()
-                .expect("测试地址应有效")
-        );
-    }
-
-    #[test]
-    fn explicit_host_overrides_mode() {
-        assert_eq!(
-            api_bind_addr(Some("invalid"), Some("192.168.1.20"), Some("18080"))
-                .expect("显式 host 应覆盖模式"),
-            "192.168.1.20:18080"
-                .parse::<SocketAddr>()
-                .expect("测试地址应有效")
-        );
-    }
-
-    #[test]
-    fn invalid_port_is_rejected() {
-        let error =
-            api_bind_addr(Some("lan"), None, Some("not-a-port")).expect_err("无效端口必须被拒绝");
-        assert!(error.contains("RUST_YU_API_PORT"));
-    }
 }
