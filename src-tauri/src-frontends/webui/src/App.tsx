@@ -6,6 +6,7 @@ import {
   Archive,
   Box,
   Check,
+  CheckCircle2,
   ChevronDown,
   CircleHelp,
   Database,
@@ -80,12 +81,14 @@ import {
   formatUninstallEventLog,
   summarizeTraces,
 } from "./components/uninstall/uninstallReport";
+import { activeCoverageCount, scanAreaLabel, scanStatusLabel } from "./lib/scanCoverage";
 import type {
   BatchUninstallItem,
   CleanResult,
   InstalledProgram,
   MetadataWarmupProgress,
   RegistryValueDetail,
+  ScanCoverage,
   Trace,
   UninstallJobEvent,
   UninstallJob,
@@ -270,6 +273,7 @@ export default function App() {
   const error = useProgramsStore((state) => state.error);
   const sourceFilter = useProgramsStore((state) => state.sourceFilter);
   const scannedTraces = useProgramsStore((state) => state.traces);
+  const scannedCoverage = useProgramsStore((state) => state.scanCoverage);
   const tracesLoading = useProgramsStore((state) => state.tracesLoading);
   const reloadPrograms = useProgramsStore((state) => state.reloadPrograms);
   const applyMetadataProgress = useProgramsStore((state) => state.applyMetadataProgress);
@@ -717,7 +721,7 @@ export default function App() {
               onCancel={exitUninstallFlow}
               onStart={startUninstall}
             /> : stage === "scan" ? (
-            <ScanStage program={workflowProgram} traces={traces} logs={logs} status={scanStatus} skipUninstaller={scanMode === "deep-analysis"} error={uninstallFailure} cancelling={uninstallCancelling} onCancel={() => void cancelResidueScan()} onExit={exitUninstallFlow} onContinue={continueWorkflow} />
+            <ScanStage program={workflowProgram} traces={traces} coverage={scanMode === "deep-analysis" ? scannedCoverage : []} logs={logs} status={scanStatus} skipUninstaller={scanMode === "deep-analysis"} error={uninstallFailure} cancelling={uninstallCancelling} onCancel={() => void cancelResidueScan()} onExit={exitUninstallFlow} onContinue={continueWorkflow} />
           ) : stage === "review" ? (
             <ReviewStage
               traces={traces}
@@ -1205,6 +1209,7 @@ function ConfirmStage(props: {
 function ScanStage({
   program,
   traces,
+  coverage,
   logs,
   status,
   skipUninstaller,
@@ -1216,6 +1221,7 @@ function ScanStage({
 }: {
   program: UiProgram;
   traces: Trace[];
+  coverage: ScanCoverage[];
   logs: string[];
   status: ScanStatus;
   skipUninstaller: boolean;
@@ -1259,6 +1265,18 @@ function ScanStage({
     <div className={`page scan-page ${isComplete ? "scan-complete" : "scan-running"}`} data-testid="workflow-scan" data-scan-status={status}>
       <SectionHeader title={title} subtitle={subtitle} />
       <div className={`scan-progress-bar phase-${status}${isComplete ? " complete" : ""}`} role="progressbar" aria-label={t("uninstall.scan.progress_label")} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progressValue}><span /></div>
+      {coverage.length > 0 && (
+        <section className="trace-coverage card-surface" data-testid="deep-analysis-coverage" aria-label={t("traces.coverage.title")}>
+          <strong>{t("traces.coverage.title")}</strong>
+          <div>{coverage.map((entry) => (
+            <span className={`trace-coverage-item ${entry.status}`} key={entry.area}>
+              {entry.status === "complete" ? <CheckCircle2 size={13} /> : <TriangleAlert size={13} />}
+              <b>{scanAreaLabel(entry.area)}</b>
+              <small>{entry.status === "complete" ? t("traces.coverage.items", { value0: entry.item_count }) : scanStatusLabel(entry.status)}</small>
+            </span>
+          ))}</div>
+        </section>
+      )}
       {error && <div className="uninstall-error" role="alert"><TriangleAlert size={16} /><div><strong>{t("app.message_101")}</strong><span>{error}</span></div></div>}
       <div className="scan-scroll-content">
       <div className="scan-main">
@@ -1276,7 +1294,7 @@ function ScanStage({
           return <div className={`scan-location ${locationState}`} key={category}><Icon size={20} /><div><strong>{locationTitle}</strong><span>{path}</span><small>{hint}</small></div><em>{isComplete ? t("app.message_133") : scanActive ? t("app.message_134") : t("uninstall.scan.waiting")}</em><b>{isComplete ? t("app.message_135", { value0: summary?.count ?? 0 }) : scanActive ? t("app.message_136") : "—"}</b></div>;
         })}</div>
       </div>
-      <div className="scan-stats card-surface"><h3>{t("app.message_137")} <span>{isComplete ? t("app.message_138") : t("app.message_139")}</span></h3><div><span>{t("app.message_140")}<strong>{isComplete ? "4 / 4" : scanActive ? t("app.message_136") : "0 / 4"}</strong></span><span>{t("app.message_128")}<strong className="blue">{isComplete ? traces.length : scanActive ? t("app.message_129") : "—"}</strong></span><span>{t("app.message_143")}<strong className="blue">{isComplete ? formatBytes(traces.reduce((sum, trace) => sum + (trace.size ?? 0), 0)) : scanActive ? t("app.message_144") : "—"}</strong></span><span>{t("app.message_145")}<strong>{isComplete ? t("app.message_146") : scanActive ? t("app.message_147") : t("uninstall.scan.waiting")}</strong></span></div></div>
+      <div className="scan-stats card-surface"><h3>{t("app.message_137")} <span>{isComplete ? t("app.message_138") : t("app.message_139")}</span></h3><div><span>{t("app.message_140")}<strong>{isComplete ? (coverage.length > 0 ? `${activeCoverageCount(coverage)} / ${coverage.length}` : "4 / 4") : scanActive ? t("app.message_136") : coverage.length > 0 ? `0 / ${coverage.length}` : "0 / 4"}</strong></span><span>{t("app.message_128")}<strong className="blue">{isComplete ? traces.length : scanActive ? t("app.message_129") : "—"}</strong></span><span>{t("app.message_143")}<strong className="blue">{isComplete ? formatBytes(traces.reduce((sum, trace) => sum + (trace.size ?? 0), 0)) : scanActive ? t("app.message_144") : "—"}</strong></span><span>{t("app.message_145")}<strong>{isComplete ? t("app.message_146") : scanActive ? t("app.message_147") : t("uninstall.scan.waiting")}</strong></span></div></div>
       <div className="scan-live-log card-surface"><div className="panel-title"><span>{isComplete ? <Check size={13} /> : <Loader2 size={13} className="spinning" />}{t("app.message_148")}</span><strong>{isComplete ? t("app.message_149") : t("app.message_150")}</strong></div><div>{latestLogs.length > 0 ? latestLogs.map((log, index) => <p key={`${log}-${index}`}>{log}</p>) : <p>{t("app.message_151")}</p>}</div></div>
       </div>
       <div className="page-footnote"><Info size={15} /><span>{isComplete ? t("uninstall.scan.results_hold") : processHint}</span>{error ? <button onClick={onExit}>{t("uninstall.action.back_to_apps")}</button> : !isComplete ? <button className="scan-cancel-button" disabled={cancelling} onClick={onCancel}>{cancelling ? <Loader2 size={13} className="spinning" /> : <X size={13} />}{cancelling ? t("uninstall.action.cancelling") : t("uninstall.action.cancel_workflow")}</button> : <button data-testid="workflow-scan-next" className="workflow-next-button" onClick={onContinue}>{traces.length > 0 ? t("uninstall.action.review_residues") : t("uninstall.action.view_result")} <ChevronDown size={13} /></button>}</div>

@@ -17,6 +17,7 @@ import {
 import { t } from "../i18n/index.ts";
 import { formatBytes } from "../lib/utils";
 import { groupTraces, selectedTraceBytes, summarizeCleanResults } from "../lib/traceManager";
+import { scanAreaLabel, scanStatusLabel } from "../lib/scanCoverage";
 import { useProgramsStore } from "../stores/programs";
 import type { Trace } from "../types";
 
@@ -287,14 +288,6 @@ function confidenceScore(trace: Trace): number {
 function confidenceReasonLabel(trace: Trace): string {
   const reason = trace.confidence_reason ?? "unknown";
   return t(`traces.reason.${reason}`);
-}
-
-function scanAreaLabel(area: import("../types").ScanArea): string {
-  return t(`traces.coverage.area.${area}`);
-}
-
-function scanStatusLabel(status: import("../types").ScanAreaStatus): string {
-  return t(`traces.coverage.status.${status}`);
 }
 
 function TraceStat({ label, value, tone }: { label: string; value: number | string; tone?: "warning" | "safe" }) {
