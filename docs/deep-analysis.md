@@ -7,8 +7,8 @@ Rust Yu 的“扫描残留”和“深度分析”使用同一个只读扫描引
 每次带完整 `InstalledProgram` 上下文的分析并行检查七个区域，并把每一区域的状态返回给前端：
 
 1. **注册表**：HKLM/HKCU Software 中的精确程序身份键及其值；三个标准 Uninstall 根及全部具名值；App Paths、Run/RunOnce、Classes 协议/文件关联、环境变量、防火墙规则、SharedDLLs 和 Installer Folders 中明确引用安装目录的值。
-2. **安装文件**：清单记录的安全安装目录中的全部文件；Program Files、Program Files (x86)、ProgramData、`%LOCALAPPDATA%\Programs` 中精确名称目录的嵌套文件；Store/MSIX 的精确 WindowsApps 包目录只读展示。
-3. **用户数据**：Roaming、Local、LocalLow 中精确身份目录的嵌套文件；Store/MSIX 包族名对应的 `%LOCALAPPDATA%\Packages\<family>` 内容只读展示。`Local\Programs` 明确归类为安装目录，不重复归类为用户数据。
+2. **安装文件**：清单记录的安全安装目录中的全部文件；Program Files、Program Files (x86)、ProgramData、`%LOCALAPPDATA%\Programs` 中精确名称目录的嵌套文件；Store/MSIX 的精确包目录属于该应用私有内容，可进入用户确认后的清理范围，但 `WindowsApps` 根目录和跨包共享区域仍受保护。
+3. **用户数据**：Roaming、Local、LocalLow 中精确身份目录的嵌套文件；Store/MSIX 包族名对应的 `%LOCALAPPDATA%\Packages\<family>` 私有内容同样按应用数据处理。`Local\Programs` 明确归类为安装目录，不重复归类为用户数据。
 4. **快捷方式**：当前用户和所有用户开始菜单、当前用户和公共桌面的 `.lnk`、`.url`、`.appref-ms`，名称必须与程序身份完全一致。
 5. **计划任务**：动作命令明确引用安全安装根的任务。
 6. **系统服务**：ImagePath 明确引用安全安装根的服务。
@@ -34,7 +34,7 @@ Rust Yu 的“扫描残留”和“深度分析”使用同一个只读扫描引
 ## 安全边界
 
 - 名称匹配只接受路径组件、文件名 stem 或注册表键名的规范化完全相等；不使用任意子串。
-- WindowsApps、Packages、公共桌面/开始菜单、Classes、机器级 App Paths、环境变量、SharedDLLs、Installer Folders、驱动等共享区域即使命中也标为 `is_critical`，通用清理器不可选。
+- `WindowsApps` 根目录、跨包共享区域、公共桌面/开始菜单、Classes、机器级 App Paths、环境变量、SharedDLLs、Installer Folders、驱动等共享区域即使命中也标为 `is_critical`，通用清理器不可选。精确 AppX/MSIX 包目录和精确包族数据目录是应用私有内容，不再因共享父目录名被泛化保护。
 - 分析入口默认不选择任何项目。分数表达证据强度，不自动授予删除权限。
 - 所有真实安装包验证都只运行扫描和真值对照；夹具卸载必须由测试人员单独明确授权。
 

@@ -964,7 +964,7 @@ const enUS = {
   "traces.confidence.low": "Low confidence",
   "traces.reason.unknown": "Evidence source was not recorded",
   "traces.reason.explicit_install_location": "Declared install location from the installation record",
-  "traces.reason.store_package_install_location": "Read-only Store/MSIX install location from the package manifest",
+  "traces.reason.store_package_install_location": "App-owned Store/MSIX install directory from the package manifest",
   "traces.reason.store_package_user_data": "Package family exactly matches the Store/MSIX user-data directory",
   "traces.reason.uninstall_registry": "The app's own Uninstall registry key or value",
   "traces.reason.registry_value_references_install_location": "Registry value explicitly references the install location",

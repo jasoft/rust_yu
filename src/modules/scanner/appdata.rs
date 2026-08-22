@@ -112,8 +112,9 @@ fn append_store_package_files(program_name: &str, root: &Path, traces: &mut Vec<
         .with_description(description)
         .with_confidence_evidence(90, ConfidenceReason::StorePackageUserData);
         trace.size = size;
-        // Packages 目录由 AppX/MSIX 运行时管理，只允许分析展示，禁止通用清理器直接删除。
-        trace.is_critical = true;
+        // 这里只处理包族名精确匹配出的私有数据目录；目录内容归该 APP 所有。
+        // 扫描仍不删除，清理必须由用户确认，并走统一备份/回滚流程。
+        trace.is_critical = false;
         traces.push(trace);
         item_count += 1;
     }
@@ -306,7 +307,7 @@ mod tests {
     }
 
     #[test]
-    fn store_package_family_user_data_is_visible_but_protected() {
+    fn store_package_family_user_data_is_visible_and_selectable() {
         let root =
             std::env::temp_dir().join(format!("rust-yu-store-data-test-{}", uuid::Uuid::new_v4()));
         let file = root.join("LocalState").join("session.json");
@@ -319,7 +320,7 @@ mod tests {
         append_store_package_files("Demo Store App", &root, &mut traces);
 
         assert_eq!(traces.len(), 1);
-        assert!(traces[0].is_critical);
+        assert!(!traces[0].is_critical);
         assert_eq!(traces[0].confidence_score, 90);
         assert_eq!(
             traces[0].confidence_reason,

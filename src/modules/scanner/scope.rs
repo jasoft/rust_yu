@@ -230,40 +230,73 @@ pub fn is_protected_install_location(path: &Path) -> bool {
 }
 
 pub fn is_specific_windows_apps_package(path: &Path) -> bool {
+    let roots = windows_apps_roots();
+    windows_apps_package_root(path, &roots)
+        .is_some_and(|root| normalized_path(&root) == normalized_path(path))
+}
+
+/// 判断路径是否位于某个精确 AppX/MSIX 包目录内部。
+///
+/// `WindowsApps` 本身仍是共享系统区域；但它的一个合法包目录是单个应用的
+/// 私有安装内容。扫描展示和卸载后残留清理可以按用户确认处理这些文件，
+/// 不应再因为父目录名包含 `WindowsApps` 就把它们泛化成受保护系统项。
+pub fn is_within_specific_windows_apps_package(path: &Path) -> bool {
+    let roots = windows_apps_roots();
+    is_within_specific_windows_apps_package_with_roots(path, &roots)
+}
+
+pub(crate) fn is_within_specific_windows_apps_package_with_roots(
+    path: &Path,
+    windows_apps_roots: &[PathBuf],
+) -> bool {
+    windows_apps_package_root(path, windows_apps_roots)
+        .is_some_and(|root| normalized_path(&root) != normalized_path(path))
+}
+
+pub(super) fn windows_apps_roots() -> Vec<PathBuf> {
+    ["ProgramFiles", "ProgramW6432"]
+        .into_iter()
+        .filter_map(|name| std::env::var(name).ok())
+        .map(|root| PathBuf::from(root).join("WindowsApps"))
+        .collect()
+}
+
+fn windows_apps_package_root(path: &Path, windows_apps_roots: &[PathBuf]) -> Option<PathBuf> {
     let components = path_components(path);
-    let Some(index) = components
+    let index = components
         .iter()
-        .position(|component| component == "windowsapps")
-    else {
-        return false;
-    };
+        .position(|component| component == "windowsapps")?;
 
     // AppX 包目录固定为 WindowsApps 的直接子目录；要求包身份常见的多段下划线
     // 结构，避免把根目录或任意更深路径误当成可信安装位置。
-    if index + 2 != components.len() {
-        return false;
+    if index + 2 > components.len() {
+        return None;
     }
-    let Some(parent) = path.parent() else {
-        return false;
+    let excess_depth = components.len().saturating_sub(index + 2);
+    let Some(package_root) = path.ancestors().nth(excess_depth) else {
+        return None;
     };
-    let is_real_windows_apps_root = ["ProgramFiles", "ProgramW6432"]
-        .into_iter()
-        .filter_map(|name| std::env::var(name).ok())
-        .map(PathBuf::from)
-        .map(|root| root.join("WindowsApps"))
-        .any(|root| normalized_path(parent) == normalized_path(&root));
+    let is_real_windows_apps_root = windows_apps_roots.iter().any(|root| {
+        package_root
+            .parent()
+            .is_some_and(|parent| normalized_path(parent) == normalized_path(root))
+    });
     if !is_real_windows_apps_root {
-        return false;
+        return None;
     }
     let package = &components[index + 1];
-    package.len() >= 8 && package.matches('_').count() >= 4
+    if package.len() < 8 || package.matches('_').count() < 4 {
+        return None;
+    }
+    Some(package_root.to_path_buf())
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
         is_protected_appdata_path, is_protected_install_location, is_protected_shared_path,
-        is_specific_windows_apps_package, is_user_program_install_path, ScanIdentity,
+        is_specific_windows_apps_package, is_user_program_install_path,
+        is_within_specific_windows_apps_package, ScanIdentity,
     };
 
     #[test]
@@ -311,12 +344,24 @@ mod tests {
         );
         assert!(is_specific_windows_apps_package(package));
         assert!(!is_protected_install_location(package));
+        assert!(!is_within_specific_windows_apps_package(package));
+        assert!(is_within_specific_windows_apps_package(
+            &package.join("app")
+        ));
+        assert!(is_within_specific_windows_apps_package(
+            &package.join("resources\\app.dll")
+        ));
         assert!(is_protected_install_location(std::path::Path::new(
             r"C:\Program Files\WindowsApps",
         )));
         assert!(!is_specific_windows_apps_package(std::path::Path::new(
             r"C:\Program Files\WindowsApps\OpenAI.ChatGPT_1.2.3.0_x64__2p2nqsd0c76g0\assets",
         )));
+        assert!(is_within_specific_windows_apps_package(
+            std::path::Path::new(
+                r"C:\Program Files\WindowsApps\OpenAI.ChatGPT_1.2.3.0_x64__2p2nqsd0c76g0\assets",
+            )
+        ));
         assert!(!is_specific_windows_apps_package(std::path::Path::new(
             r"C:\Temp\WindowsApps\OpenAI.ChatGPT_1.2.3.0_x64__2p2nqsd0c76g0",
         )));

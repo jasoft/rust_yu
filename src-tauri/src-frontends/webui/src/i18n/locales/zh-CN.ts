@@ -964,7 +964,7 @@ const zhCN = {
   "traces.confidence.low": "低置信度",
   "traces.reason.unknown": "证据来源未记录",
   "traces.reason.explicit_install_location": "来自安装清单明确记录的安装目录",
-  "traces.reason.store_package_install_location": "来自 Store/MSIX 清单的只读安装目录",
+  "traces.reason.store_package_install_location": "来自 Store/MSIX 清单记录的应用包目录",
   "traces.reason.store_package_user_data": "包族名与 Store/MSIX 用户数据目录完全一致",
   "traces.reason.uninstall_registry": "程序自己的 Uninstall 注册表键或键值",
   "traces.reason.registry_value_references_install_location": "注册表值明确引用安装目录",

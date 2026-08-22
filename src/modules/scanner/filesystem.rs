@@ -1,7 +1,8 @@
 use super::models::{ConfidenceReason, Trace, TraceType};
 use super::scope::{
-    is_protected_install_location, is_protected_shared_path, normalized_path,
-    strip_extended_prefix, ScanIdentity,
+    is_protected_install_location, is_protected_shared_path,
+    is_within_specific_windows_apps_package_with_roots, normalized_path, strip_extended_prefix,
+    windows_apps_roots, ScanIdentity,
 };
 use crate::modules::common::error::UninstallerError;
 use crate::modules::common::utils;
@@ -65,7 +66,13 @@ pub fn scan_filesystem_traces_for_program(
 
     // 避免同时展示安装根目录和其中的文件；两者被一起勾选会形成重叠删除目标。
     traces.retain(|trace| !same_path(Path::new(&trace.path), &install_location));
-    append_install_location_contents(&program.name, &install_location, &mut traces);
+    let windows_apps_roots = windows_apps_roots();
+    append_install_location_contents(
+        &program.name,
+        &install_location,
+        &mut traces,
+        &windows_apps_roots,
+    );
     Ok(traces)
 }
 
@@ -147,7 +154,12 @@ fn normalize_path(path: &Path) -> String {
     normalized_path(path)
 }
 
-fn append_install_location_contents(program_name: &str, root: &Path, traces: &mut Vec<Trace>) {
+fn append_install_location_contents(
+    program_name: &str,
+    root: &Path,
+    traces: &mut Vec<Trace>,
+    windows_apps_roots: &[PathBuf],
+) {
     let mut item_count = 0usize;
     for entry in WalkDir::new(root)
         .min_depth(1)
@@ -173,7 +185,13 @@ fn append_install_location_contents(program_name: &str, root: &Path, traces: &mu
         let description = size
             .map(|value| format!("安装目录残留文件，大小: {}", utils::format_size(value)))
             .unwrap_or_else(|| "安装目录残留文件".to_string());
-        let protected_package_content = is_protected_shared_path(path);
+        // WindowsApps 只是共享父区域；能通过 safe_install_location 进入这里的
+        // 只能是某个精确包目录。包内文件归当前 APP 所有，用户确认后可以清理；
+        // 只有意外落到共享区域的路径才继续作为关键系统项保护。
+        let app_owned_package_content =
+            is_within_specific_windows_apps_package_with_roots(path, &windows_apps_roots);
+        let protected_package_content =
+            !app_owned_package_content && is_protected_shared_path(path);
         let mut trace = Trace::new(
             program_name.to_string(),
             TraceType::File,
@@ -181,16 +199,20 @@ fn append_install_location_contents(program_name: &str, root: &Path, traces: &mu
         )
         .with_description(description)
         .with_confidence_evidence(
-            if protected_package_content { 90 } else { 95 },
-            if protected_package_content {
+            if app_owned_package_content || protected_package_content {
+                90
+            } else {
+                95
+            },
+            if app_owned_package_content || protected_package_content {
                 ConfidenceReason::StorePackageInstallLocation
             } else {
                 ConfidenceReason::ExplicitInstallLocation
             },
         );
         trace.size = size;
-        // WindowsApps 包目录可以只读分析，但包内容由 AppX/MSIX 管理，不能让
-        // 通用残留清理器直接删除；真实卸载必须继续交给包管理 API。
+        // 真实卸载仍优先交给包管理 API；这里只是不再把已确认的 APP 私有文件
+        // 伪装成系统关键项，卸载后残留和用户显式选择仍会经过备份与确认。
         trace.is_critical = protected_package_content;
         traces.push(trace);
         item_count += 1;
@@ -336,6 +358,7 @@ mod tests {
         append_install_location_contents, safe_install_location, scan_directory,
         strip_extended_prefix,
     };
+    use crate::modules::scanner::models::ConfidenceReason;
     use crate::modules::scanner::scope::ScanIdentity;
     use std::fs;
 
@@ -353,7 +376,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("write residue fixture: {error}"));
 
         let mut traces = Vec::new();
-        append_install_location_contents("Demo App", &install_location, &mut traces);
+        append_install_location_contents("Demo App", &install_location, &mut traces, &[]);
 
         assert!(traces
             .iter()
@@ -392,7 +415,7 @@ mod tests {
     }
 
     #[test]
-    fn windows_apps_package_files_are_visible_but_protected() {
+    fn windows_apps_package_files_are_app_owned_and_selectable() {
         let root = std::env::temp_dir().join(format!(
             "windowsapps-analysis-test-{}",
             uuid::Uuid::new_v4()
@@ -407,10 +430,20 @@ mod tests {
             .unwrap_or_else(|error| panic!("write package fixture: {error}"));
 
         let mut traces = Vec::new();
-        append_install_location_contents("ChatGPT", &package, &mut traces);
+        append_install_location_contents(
+            "ChatGPT",
+            &package,
+            &mut traces,
+            &[root.join("WindowsApps")],
+        );
 
         assert_eq!(traces.len(), 1);
-        assert!(traces[0].is_critical);
+        assert!(!traces[0].is_critical);
+        assert_eq!(traces[0].confidence_score, 90);
+        assert_eq!(
+            traces[0].confidence_reason,
+            ConfidenceReason::StorePackageInstallLocation
+        );
         let _ = fs::remove_dir_all(root);
     }
 
