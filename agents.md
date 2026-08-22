@@ -106,6 +106,13 @@
 - 这个 legacy 测试夹具卸载后应保留 `C:\Program Files\RustYu Legacy Test App\logs\leftover.log` 和 `%LocalAppData%\RustYuLegacyTest\Data\leftover-user-profile.json`，便于验证安装目录与 AppData 残留扫描
 - tools\test\Verify-InnoLegacyFixture.ps1 默认验证夹具结构和安装包；传入 `-RunLifecycle` 时需要管理员 PowerShell，会安装夹具、检查卸载命令是否走 spawn wrapper，并调用 application workflow 集成测试验证 `waitforjobs`
 
+### GUI 测试方式（强制）
+
+- 禁止使用 Computer Use / CUA 操控桌面窗口来做 GUI 测试。
+- GUI 功能测试必须使用浏览器自动化（例如 Playwright）驱动 WebUI 的 Vite dev server 或构建预览；Tauri command 与 event 通过明确的 mock、fixture 或 test double 注入。
+- 自动化测试必须断言可查询的 DOM/UI 状态和完整用户路径，不得把进程存在、端口监听、屏幕截图或人工观察当作功能通过的充分证据。
+- 涉及 UAC、文件删除、注册表修改或真实卸载的系统行为，应优先使用后端集成测试、dry-run fixture 和隔离夹具验证；浏览器自动化只负责验证前端交互编排，并在报告中单独标明未覆盖的原生边界。
+
 ## 8. 交付验收门禁（强制，不可用 `cargo check` 替代）
 
 ### A. 证据等级
