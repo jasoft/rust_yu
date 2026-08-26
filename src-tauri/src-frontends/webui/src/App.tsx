@@ -77,6 +77,11 @@ import {
   type UninstallWorkflowStage,
 } from "./components/uninstall/uninstallWorkflow";
 import {
+  analysisWorkflowSteps,
+  isAnalysisWorkflowStage,
+  type AnalysisWorkflowStage,
+} from "./components/analysis/analysisWorkflow";
+import {
   formatTraceType,
   formatUninstallEventLog,
   summarizeTraces,
@@ -99,7 +104,7 @@ import {
   type ColumnWidths,
 } from "react-data-grid";
 
-type Stage = UninstallWorkflowStage;
+type Stage = UninstallWorkflowStage | AnalysisWorkflowStage;
 type ScanStatus = "uninstalling" | "verifying" | "scanning" | "complete";
 type ScanMode = "uninstall" | "deep-analysis";
 type NavKey = "apps" | "health" | "startup" | "cleaner" | "shredder" | "backups" | "traces" | "monitor" | "inventory" | "reports" | "plugins" | "tools" | "developer" | "settings" | "about";
@@ -280,6 +285,7 @@ export default function App() {
   const setSearchQuery = useProgramsStore((state) => state.setSearchQuery);
   const setSourceFilter = useProgramsStore((state) => state.setSourceFilter);
   const scanTraces = useProgramsStore((state) => state.scanTraces);
+  const cleanTraces = useProgramsStore((state) => state.cleanTraces);
   const planUninstall = useProgramsStore((state) => state.planUninstall);
   const executeUninstall = useProgramsStore((state) => state.executeUninstall);
   const cleanUninstallResidues = useProgramsStore((state) => state.cleanUninstallResidues);
@@ -365,12 +371,14 @@ export default function App() {
 
   useEffect(() => {
     if (!manualScanPending || tracesLoading) return;
+    const scanError = useProgramsStore.getState().error;
     setTraces(scannedTraces);
     // 深度分析是只读诊断入口，不绑定卸载任务；扫描结果必须由用户逐项审阅，
     // 不能沿用卸载后高置信度残留的默认勾选策略。
     setSelectedTraceIds(new Set());
     setManualScanPending(false);
-    setScanStatus("complete");
+    // 扫描失败不能伪装成“完成”；保留错误提示和返回入口。
+    setScanStatus(scanError ? "scanning" : "complete");
   }, [manualScanPending, scannedTraces, tracesLoading]);
 
   useEffect(() => {
@@ -406,7 +414,9 @@ export default function App() {
   useTauriEvent<UninstallJobEvent>("uninstall-job-progress", (payload) => {
     if (uninstallJob && payload.job_id !== uninstallJob.snapshot.job_id) return;
     setLogs((current) => [...current, formatUninstallEventLog(payload)]);
-    setStage((current) => stageForBackendPhase(current, payload.phase));
+    setStage((current) => isAnalysisWorkflowStage(current)
+      ? current
+      : stageForBackendPhase(current, payload.phase));
     if (payload.phase === "running_uninstaller") {
       setScanStatus("uninstalling");
     } else if (payload.phase === "verifying_removal") {
@@ -450,6 +460,8 @@ export default function App() {
     : selectedProgram;
   const workflowProgram = completedProgram ?? selectedProgram;
   const uninstallFlowActive = activeNav === "apps" && stage !== "apps";
+  const activeAnalysisStage = isAnalysisWorkflowStage(stage) ? stage : null;
+  const activeUninstallStage = !isAnalysisWorkflowStage(stage) && stage !== "apps" ? stage : null;
   const sourceCounts = isTauriRuntime()
     ? countProgramsBySource(programs)
     : { all: mockPrograms.length, registry: mockPrograms.length, msi: 0, store: 0 };
@@ -514,7 +526,7 @@ export default function App() {
   const handleManualScan = () => {
     if (!selectedProgram || !hasExplicitInstallLocation(selectedProgram)) return;
     setScanMode("deep-analysis");
-    setStage("scan");
+    setStage("analysis-scan");
     setTraces([]);
     setSelectedTraceIds(new Set());
     setLogs(createMockAnalysisLogs());
@@ -525,7 +537,8 @@ export default function App() {
     } else {
       const mockTraces = createMockTraces(selectedProgram);
       setTraces(mockTraces);
-      setSelectedTraceIds(new Set(mockTraces.filter((trace) => !trace.is_critical && trace.confidence === "high").map((trace) => trace.id)));
+      // 浏览器预览也遵守深度分析的默认不选安全边界。
+      setSelectedTraceIds(new Set());
       window.setTimeout(() => {
         setScanStatus("complete");
       }, 900);
@@ -576,17 +589,25 @@ export default function App() {
 
   const continueWorkflow = () => {
     if (stage !== "scan") return;
-    if (scanMode === "deep-analysis") {
-      setStage("review");
-      return;
-    }
     setStage(isTauriRuntime() ? nextStageAfterScan(uninstallJob?.phase) : "review");
+  };
+
+  const continueAnalysis = () => {
+    if (stage !== "analysis-scan") return;
+    setStage("analysis-review");
   };
 
   const cleanSelected = async () => {
     const chosen = traces.filter((trace) => selectedTraceIds.has(trace.id));
     setCleanConfirm(false);
     setCleanupPending(true);
+    if (scanMode === "deep-analysis") {
+      const results = await cleanTraces(true, selectedTraceIds);
+      setCleanupPending(false);
+      if (results.length === 0) return;
+      setStage("analysis-complete");
+      return;
+    }
     if (isTauriRuntime()) {
       const jobId = useProgramsStore.getState().uninstallJob?.snapshot.job_id;
       if (!jobId) {
@@ -607,6 +628,13 @@ export default function App() {
       setCleanupPending(false);
     }
     setStage("complete");
+  };
+
+  const skipAnalysisCleanup = () => {
+    if (cleanupPending || stage !== "analysis-review") return;
+    setSkipCleanupFailure(null);
+    setCleanResults([]);
+    setStage("analysis-complete");
   };
 
   const skipCleanup = async () => {
@@ -643,7 +671,10 @@ export default function App() {
     setTraces([]);
     setSelectedTraceIds(new Set());
     resetUninstall();
+    setManualScanPending(false);
   };
+
+  const exitAnalysisFlow = () => exitUninstallFlow();
 
   const cancelResidueScan = async () => {
     const jobId = useProgramsStore.getState().uninstallJob?.snapshot.job_id;
@@ -714,15 +745,61 @@ export default function App() {
               onOpenBatch={openBatchUninstall}
               onRefresh={() => isTauriRuntime() && void reloadPrograms({ refresh: true })}
             />
-          ) : (
-            <UninstallWorkflowFrame stage={stage} program={workflowProgram}>
-            {stage === "confirm" ? <ConfirmStage
+          ) : activeAnalysisStage ? (
+            <AnalysisWorkflowFrame stage={activeAnalysisStage} program={workflowProgram}>
+              {activeAnalysisStage === "analysis-scan" ? (
+                <AnalysisScanStage
+                  program={workflowProgram}
+                  traces={traces}
+                  coverage={scannedCoverage}
+                  logs={logs}
+                  status={scanStatus}
+                  error={error}
+                  onExit={exitAnalysisFlow}
+                  onContinue={continueAnalysis}
+                />
+              ) : activeAnalysisStage === "analysis-review" ? (
+                <AnalysisReviewStage
+                  programName={workflowProgram.name}
+                  traces={traces}
+                  selectedIds={selectedTraceIds}
+                  cleanupPending={cleanupPending}
+                  error={skipCleanupFailure ?? error}
+                  onToggle={(id) => setSelectedTraceIds((current) => {
+                    const next = new Set(current);
+                    if (next.has(id)) next.delete(id); else next.add(id);
+                    return next;
+                  })}
+                  onToggleAll={() => {
+                    setSelectedTraceIds((current) => toggleAllSelectableIds(traces, current));
+                  }}
+                  onRescan={handleManualScan}
+                  onExit={exitAnalysisFlow}
+                  onSkip={() => skipAnalysisCleanup()}
+                  onClean={() => setCleanConfirm(true)}
+                  confirmOpen={cleanConfirm}
+                  onConfirmClose={() => setCleanConfirm(false)}
+                  onConfirm={() => void cleanSelected()}
+                />
+              ) : (
+                <AnalysisCompleteStage
+                  programName={workflowProgram.name}
+                  results={cleanResults}
+                  traces={traces}
+                  logs={logs}
+                  onDone={exitAnalysisFlow}
+                />
+              )}
+            </AnalysisWorkflowFrame>
+          ) : activeUninstallStage ? (
+            <UninstallWorkflowFrame stage={activeUninstallStage} program={workflowProgram}>
+            {activeUninstallStage === "confirm" ? <ConfirmStage
               program={workflowProgram}
               onCancel={exitUninstallFlow}
               onStart={startUninstall}
-            /> : stage === "scan" ? (
-            <ScanStage program={workflowProgram} traces={traces} coverage={scanMode === "deep-analysis" ? scannedCoverage : []} logs={logs} status={scanStatus} skipUninstaller={scanMode === "deep-analysis"} error={uninstallFailure} cancelling={uninstallCancelling} onCancel={() => void cancelResidueScan()} onExit={exitUninstallFlow} onContinue={continueWorkflow} />
-          ) : stage === "review" ? (
+            /> : activeUninstallStage === "scan" ? (
+            <ScanStage program={workflowProgram} traces={traces} coverage={[]} logs={logs} status={scanStatus} skipUninstaller={false} error={uninstallFailure} cancelling={uninstallCancelling} onCancel={() => void cancelResidueScan()} onExit={exitUninstallFlow} onContinue={continueWorkflow} />
+          ) : activeUninstallStage === "review" ? (
             <ReviewStage
               traces={traces}
               selectedIds={selectedTraceIds}
@@ -756,7 +833,7 @@ export default function App() {
             />
           )}
             </UninstallWorkflowFrame>
-          )}
+          ) : null}
         </main>
       </div>
       {detailsOpen && selectedProgram && <ProgramInfoModal program={selectedProgram} onClose={() => setDetailsOpen(false)} />}
@@ -1164,7 +1241,7 @@ const workflowStepLabels = {
   complete: "uninstall.workflow.stage.complete",
 } as const;
 
-function UninstallWorkflowFrame({ stage, program, children }: { stage: Exclude<Stage, "apps">; program: UiProgram; children: React.ReactNode }) {
+function UninstallWorkflowFrame({ stage, program, children }: { stage: Exclude<UninstallWorkflowStage, "apps">; program: UiProgram; children: React.ReactNode }) {
   const currentIndex = uninstallWorkflowSteps.indexOf(stage);
   return (
     <div className="page uninstall-workflow" data-testid="uninstall-workflow" data-workflow-stage={stage}>
@@ -1569,6 +1646,322 @@ function CompleteStage({ program, results, traces: visibleTraces, job, logs, onD
       <div className="report-panel card-surface"><div className="panel-title"><span><FileText size={14} />{t("app.message_266")}</span><button onClick={() => setReportOpen(true)}>{t("app.message_267")}</button></div><div className="report-category-grid">{summaries.filter((summary) => summary.count > 0).map((summary) => <div key={summary.category}><span>{summary.category === "files" ? t("app.message_022") : summary.category === "user_data" ? t("app.message_023") : summary.category === "registry" ? t("app.message_024") : t("app.message_025")}</span><strong>{summary.count}  {t("app.message_167")}</strong><small>{formatBytes(summary.bytes)}</small></div>)}{summaries.every((summary) => summary.count === 0) && <div className="report-empty">{t("app.message_273")}</div>}</div><div className="log-content report-log">{reportLogs.slice(-8).map((log, index) => <div key={`${log}-${index}`}>{log}</div>)}</div></div>
       <div className="complete-actions"><button className="secondary-button" onClick={() => setReportOpen(true)}><FileText size={16} />{t("app.message_274")}</button><button data-testid="workflow-done" className="primary-button" onClick={onDone}><Check size={16} />{t("app.message_106")}</button></div>
       {reportOpen && <UninstallReportModal program={program} traces={traces} selectedIds={selectedIds} summaries={summaries} logs={reportLogs} onClose={() => setReportOpen(false)} />}
+    </div>
+  );
+}
+
+function AnalysisWorkflowFrame({
+  stage,
+  program,
+  children,
+}: {
+  stage: AnalysisWorkflowStage;
+  program: UiProgram;
+  children: React.ReactNode;
+}) {
+  const currentIndex = analysisWorkflowSteps.indexOf(stage);
+  const stepLabels: Record<AnalysisWorkflowStage, string> = {
+    "analysis-scan": t("analysis.workflow.stage.scan"),
+    "analysis-review": t("analysis.workflow.stage.review"),
+    "analysis-complete": t("analysis.workflow.stage.complete"),
+  };
+
+  return (
+    <div className="page uninstall-workflow analysis-workflow" data-testid="analysis-workflow" data-workflow-stage={stage}>
+      <header className="workflow-header">
+        <div className="workflow-heading">
+          <span><Search size={18} /></span>
+          <div>
+            <h1>{t("analysis.workflow.title")}</h1>
+            <p>{t("analysis.workflow.program", { value0: program.name })}</p>
+          </div>
+          <strong>{t("uninstall.workflow.position", { value0: currentIndex + 1, value1: analysisWorkflowSteps.length })}</strong>
+        </div>
+        <ol className="workflow-steps" aria-label={t("analysis.workflow.progress_label")}>
+          {analysisWorkflowSteps.map((step, index) => {
+            const state = index < currentIndex ? "done" : index === currentIndex ? "current" : "pending";
+            return (
+              <li key={step} className={state} aria-current={state === "current" ? "step" : undefined}>
+                <span>{state === "done" ? <Check size={12} /> : index + 1}</span>
+                <strong>{stepLabels[step]}</strong>
+              </li>
+            );
+          })}
+        </ol>
+      </header>
+      <section className="workflow-stage-panel">{children}</section>
+    </div>
+  );
+}
+
+function AnalysisScanStage({
+  program,
+  traces,
+  coverage,
+  logs,
+  status,
+  error,
+  onExit,
+  onContinue,
+}: {
+  program: UiProgram;
+  traces: Trace[];
+  coverage: ScanCoverage[];
+  logs: string[];
+  status: ScanStatus;
+  error: string | null;
+  onExit: () => void;
+  onContinue: () => void;
+}) {
+  const summaries = summarizeTraces(traces);
+  const isComplete = status === "complete";
+  const progressValue = isComplete ? 100 : status === "scanning" ? 65 : undefined;
+  const locationMeta = [
+    { category: "files" as const, icon: Folder, title: t("app.message_115"), path: program.location || t("app.message_116"), hint: t("app.message_117") },
+    { category: "user_data" as const, icon: Box, title: t("app.message_023"), path: "%APPDATA% · %LOCALAPPDATA%", hint: t("app.message_119") },
+    { category: "registry" as const, icon: Database, title: t("app.message_024"), path: "HKCU · HKLM\\Software", hint: t("app.message_121") },
+    { category: "system" as const, icon: ShieldCheck, title: t("app.message_025"), path: t("app.message_123"), hint: t("app.message_124") },
+  ];
+  const latestLogs = logs.slice(-4);
+
+  return (
+    <div className={`page scan-page ${isComplete ? "scan-complete" : "scan-running"}`} data-testid="analysis-scan" data-scan-status={status}>
+      <SectionHeader
+        title={isComplete ? t("analysis.scan.complete_title") : t("analysis.scan.running_title", { value0: program.name })}
+        subtitle={t("analysis.scan.subtitle")}
+      />
+      <div className={`scan-progress-bar phase-${status}${isComplete ? " complete" : ""}`} role="progressbar" aria-label={t("analysis.scan.progress_label")} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progressValue}><span /></div>
+      {coverage.length > 0 && (
+        <section className="trace-coverage card-surface" data-testid="analysis-coverage" aria-label={t("traces.coverage.title")}>
+          <strong>{t("traces.coverage.title")}</strong>
+          <div>{coverage.map((entry) => (
+            <span className={`trace-coverage-item ${entry.status}`} key={entry.area}>
+              {entry.status === "complete" ? <CheckCircle2 size={13} /> : <TriangleAlert size={13} />}
+              <b>{scanAreaLabel(entry.area)}</b>
+              <small>{entry.status === "complete" ? t("traces.coverage.items", { value0: entry.item_count }) : scanStatusLabel(entry.status)}</small>
+            </span>
+          ))}</div>
+        </section>
+      )}
+      {error && <div className="uninstall-error" role="alert"><TriangleAlert size={16} /><div><strong>{t("analysis.scan.failed_title")}</strong><span>{error}</span></div></div>}
+      <div className="scan-scroll-content">
+        <div className="scan-main">
+          <div className={`radar ${isComplete ? "done" : ""} ${isComplete ? "" : "active"}`}>
+            <div className="radar-sweep" />
+            <span className="radar-dot one" />
+            <span className="radar-dot two" />
+            <span className="radar-dot three" />
+            <div className="radar-center">
+              <strong>{isComplete ? traces.length : "…"}</strong>
+              <span>{isComplete ? t("app.message_128") : t("app.message_129")}</span>
+            </div>
+          </div>
+          <div className="scan-locations">
+            <h3>{t("analysis.scan.progress_title")} <span>{isComplete ? t("analysis.scan.finished") : t("analysis.scan.inspecting")}</span></h3>
+            {locationMeta.map(({ category, icon: Icon, title, path, hint }) => {
+              const summary = summaries.find((item) => item.category === category);
+              return (
+                <div className={`scan-location ${isComplete ? "done" : "active"}`} key={category}>
+                  <Icon size={20} />
+                  <div><strong>{title}</strong><span>{path}</span><small>{hint}</small></div>
+                  <em>{isComplete ? t("app.message_133") : t("analysis.scan.inspecting")}</em>
+                  <b>{isComplete ? t("app.message_135", { value0: summary?.count ?? 0 }) : "…"}</b>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        <div className="scan-stats card-surface">
+          <h3>{t("app.message_137")} <span>{isComplete ? t("analysis.scan.snapshot_ready") : t("analysis.scan.building_snapshot")}</span></h3>
+          <div>
+            <span>{t("app.message_140")}<strong>{isComplete ? `${activeCoverageCount(coverage) || 4} / ${Math.max(coverage.length, 4)}` : t("app.message_136")}</strong></span>
+            <span>{t("app.message_128")}<strong className="blue">{isComplete ? traces.length : t("app.message_129")}</strong></span>
+            <span>{t("app.message_143")}<strong className="blue">{isComplete ? formatBytes(traces.reduce((sum, trace) => sum + (trace.size ?? 0), 0)) : t("app.message_144")}</strong></span>
+            <span>{t("analysis.scan.policy_label")}<strong>{t("analysis.scan.policy_value")}</strong></span>
+          </div>
+        </div>
+        <div className="scan-live-log card-surface">
+          <div className="panel-title">
+            <span>{isComplete ? <Check size={13} /> : <Loader2 size={13} className="spinning" />}{t("app.message_148")}</span>
+            <strong>{isComplete ? t("analysis.scan.results_locked") : t("app.message_150")}</strong>
+          </div>
+          <div>{latestLogs.length > 0 ? latestLogs.map((log, index) => <p key={`${log}-${index}`}>{log}</p>) : <p>{t("app.message_151")}</p>}</div>
+        </div>
+      </div>
+      <div className="page-footnote">
+        <Info size={15} />
+        <span>{t("analysis.scan.readonly_notice")}</span>
+        {isComplete ? (
+          <button data-testid="analysis-review-next" className="workflow-next-button" onClick={onContinue}>
+            {t("analysis.action.review_items")} <ChevronDown size={13} />
+          </button>
+        ) : (
+          <button data-testid="analysis-exit" onClick={onExit}>{t("uninstall.action.back_to_apps")}</button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AnalysisReviewStage({
+  programName,
+  traces,
+  selectedIds,
+  cleanupPending,
+  error,
+  onToggle,
+  onToggleAll,
+  onRescan,
+  onExit,
+  onSkip,
+  onClean,
+  confirmOpen,
+  onConfirmClose,
+  onConfirm,
+}: {
+  programName: string;
+  traces: Trace[];
+  selectedIds: Set<string>;
+  cleanupPending: boolean;
+  error: string | null;
+  onToggle: (id: string) => void;
+  onToggleAll: () => void;
+  onRescan: () => void;
+  onExit: () => void;
+  onSkip: () => void;
+  onClean: () => void;
+  confirmOpen: boolean;
+  onConfirmClose: () => void;
+  onConfirm: () => void;
+}) {
+  const systemTraces = traces.filter((trace) => trace.trace_type === "scheduled_task" || trace.trace_type === "service" || trace.trace_type === "driver");
+  const fileTraces = traces.filter((trace) => trace.trace_type !== "registry_key" && trace.trace_type !== "registry_value" && trace.trace_type !== "scheduled_task" && trace.trace_type !== "service" && trace.trace_type !== "driver");
+  const registryTraces = traces.filter((trace) => trace.trace_type === "registry_key" || trace.trace_type === "registry_value");
+  const selectedSize = traces.filter((trace) => selectedIds.has(trace.id)).reduce((sum, trace) => sum + (trace.size ?? 0), 0);
+  const selectableCount = traces.filter((trace) => !trace.is_critical).length;
+  const allSelected = selectableCount > 0 && selectedIds.size === selectableCount;
+  const uncertainSelectedCount = traces.filter((trace) => selectedIds.has(trace.id) && trace.confidence !== "high").length;
+
+  return (
+    <div className={`page review-page${cleanupPending ? " is-cleaning" : ""}`} data-testid="analysis-review" aria-busy={cleanupPending}>
+      <SectionHeader
+        title={t("analysis.review.title")}
+        subtitle={t("analysis.review.subtitle", {
+          value0: programName,
+          value1: traces.length,
+          value2: formatBytes(traces.reduce((sum, trace) => sum + (trace.size ?? 0), 0)),
+          value3: selectedIds.size,
+        })}
+        action={<div className="review-header-actions">
+          <button className="link-button" disabled={cleanupPending} onClick={onExit}>{t("uninstall.action.back_to_apps")}</button>
+          <button className="link-button" disabled={cleanupPending} onClick={onRescan}><RotateCcw size={14} />{t("app.message_229")}</button>
+          <button className="link-button" disabled={cleanupPending} onClick={onToggleAll}><Check size={14} />{allSelected ? t("uninstall.action.clear_all") : t("uninstall.action.select_all")}</button>
+        </div>}
+      />
+      {cleanupPending && <div className="review-cleaning-banner" data-testid="analysis-cleaning"><Loader2 size={17} className="spinning" /><div><strong>{t("analysis.review.cleaning")}</strong><span>{t("analysis.review.cleaning_hint")}</span></div></div>}
+      {error && <div className="uninstall-error" role="alert"><TriangleAlert size={16} /><div><strong>{t("analysis.review.failed_title")}</strong><span>{error}</span></div></div>}
+      <div className="review-tabs"><button className="active">{t("app.message_230")}{traces.length})</button><button>{t("app.message_231")}{fileTraces.length})</button><button>{t("app.message_232")}{registryTraces.length})</button><button>{t("app.message_233")}{systemTraces.length})</button></div>
+      <div className="trace-table card-surface">
+        <TraceGroup title={t("app.message_234", { value0: fileTraces.length })} traces={fileTraces} selectedIds={selectedIds} onToggle={onToggle} />
+        <TraceGroup title={t("app.message_235", { value0: registryTraces.length })} traces={registryTraces} selectedIds={selectedIds} onToggle={onToggle} />
+        <TraceGroup title={t("app.message_236", { value0: systemTraces.length })} traces={systemTraces} selectedIds={selectedIds} onToggle={onToggle} />
+      </div>
+      <div className="review-footer">
+        <span>{t("app.message_237")}<strong>{formatBytes(selectedSize)}</strong></span>
+        <div>
+          <button data-testid="analysis-skip-cleanup" className="secondary-button" disabled={cleanupPending} onClick={onSkip}>{t("analysis.action.skip_cleanup")}</button>
+          <button data-testid="analysis-clean" className="primary-button" disabled={cleanupPending || selectedIds.size === 0} onClick={onClean}>
+            {cleanupPending ? <Loader2 size={16} className="spinning" /> : <Trash2 size={16} />}
+            {cleanupPending ? t("analysis.review.cleaning_short") : t("analysis.action.cleanup_selected")}
+          </button>
+        </div>
+      </div>
+      {confirmOpen && (
+        <div className="modal-backdrop">
+          <div className="safety-modal">
+            <span className="modal-icon"><TriangleAlert size={24} /></span>
+            <h2>{t("analysis.confirm.title")}</h2>
+            <p>{t("analysis.confirm.detail", { value0: selectedIds.size, value1: uncertainSelectedCount })}</p>
+            <div>
+              <button className="secondary-button" onClick={onConfirmClose}>{t("app.message_089")}</button>
+              <button data-testid="analysis-confirm-clean" className="danger-button" onClick={onConfirm}>{t("analysis.confirm.submit")}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AnalysisCompleteStage({
+  programName,
+  results,
+  traces,
+  logs,
+  onDone,
+}: {
+  programName: string;
+  results: CleanResult[];
+  traces: Trace[];
+  logs: string[];
+  onDone: () => void;
+}) {
+  const succeeded = results.filter((result) => result.success);
+  const failed = results.filter((result) => !result.success);
+  const freed = results.reduce((sum, result) => sum + result.bytes_freed, 0);
+  const summaries = summarizeTraces(traces);
+
+  return (
+    <div className="page complete-page" data-testid="analysis-complete">
+      <SectionHeader title={t("analysis.complete.title")} subtitle={t("analysis.complete.subtitle", { value0: programName })} />
+      <div className={`success-heading${failed.length > 0 ? " partial" : ""}`}>
+        <span>{failed.length > 0 ? <TriangleAlert size={36} /> : <Check size={36} />}</span>
+        <div>
+          <h2>{failed.length > 0 ? t("analysis.complete.partial_title") : t("analysis.complete.success_title")}</h2>
+          <p>{failed.length > 0 ? t("analysis.complete.partial_detail") : t("analysis.complete.success_detail")}</p>
+        </div>
+      </div>
+      <div className="summary-grid card-surface">
+        <div><span>{t("app.message_259")}</span><strong className="blue">{traces.length}  {t("app.message_167")}</strong></div>
+        <div><span>{t("analysis.complete.cleaned")}</span><strong className="green">{succeeded.length}  {t("app.message_167")}</strong></div>
+        <div><span>{t("app.message_108")}</span><strong className="orange">{failed.length}  {t("app.message_167")}</strong></div>
+        <div><span>{t("app.message_211")}</span><strong className="green">{formatBytes(freed)}</strong></div>
+      </div>
+      <div className="report-panel card-surface">
+        <div className="panel-title"><span><FileText size={14} />{t("analysis.complete.report_title")}</span><strong>{results.length}  {t("app.message_167")}</strong></div>
+        <div className="report-category-grid">
+          {summaries.filter((summary) => summary.count > 0).map((summary) => (
+            <div key={summary.category}>
+              <span>{summary.category === "files" ? t("app.message_022") : summary.category === "user_data" ? t("app.message_023") : summary.category === "registry" ? t("app.message_024") : t("app.message_025")}</span>
+              <strong>{summary.count}  {t("app.message_167")}</strong>
+              <small>{formatBytes(summary.bytes)}</small>
+            </div>
+          ))}
+          {summaries.every((summary) => summary.count === 0) && <div className="report-empty">{t("app.message_273")}</div>}
+        </div>
+        {results.length > 0 && (
+          <div className="report-trace-list">
+            {results.map((result) => {
+              const trace = traces.find((candidate) => candidate.id === result.trace_id);
+              return (
+                <div className="report-trace-item" key={result.trace_id}>
+                  <span className={`report-trace-state ${result.success ? "cleaned" : "kept"}`}>{result.success ? <Check size={12} /> : <TriangleAlert size={12} />}</span>
+                  <span>
+                    <strong>{trace?.description || formatTraceType(trace?.trace_type ?? "file")}</strong>
+                    <small>{result.path}</small>
+                    {result.error && <em>{result.error}</em>}
+                  </span>
+                  <b className={result.success ? "cleaned-status" : "kept-status"}>{result.success ? t("analysis.result.cleaned") : t("analysis.result.not_cleaned")}</b>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <div className="log-content report-log">{(logs.length > 0 ? logs.slice(-8) : [t("analysis.complete.no_logs")]).map((log, index) => <div key={`${log}-${index}`}>{log}</div>)}</div>
+      </div>
+      <div className="complete-actions">
+        <button data-testid="analysis-done" className="primary-button" onClick={onDone}><Check size={16} />{t("app.message_106")}</button>
+      </div>
     </div>
   );
 }

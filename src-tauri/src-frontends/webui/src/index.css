@@ -173,12 +173,13 @@ img.app-icon.large.store-icon { padding: 9px; }
 .workflow-steps li { min-width: 0; position: relative; display: flex; align-items: center; gap: 7px; color: #909ca6; font-size: 12px; }
 .workflow-steps li:not(:last-child)::after { content: ""; height: 1px; position: absolute; z-index: 0; left: 31px; right: 8px; top: 12px; background: #d9e0e6; }
 .workflow-steps li > span { width: 24px; height: 24px; flex: 0 0 24px; position: relative; z-index: 1; display: grid; place-items: center; border: 1px solid #cfd8df; border-radius: 50%; background: #fff; font-size: 11px; }
-.workflow-steps li strong { overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.workflow-steps li strong { position: relative; z-index: 1; overflow: hidden; padding: 0 3px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; background: rgba(255,255,255,.94); }
 .workflow-steps li.done, .workflow-steps li.current { color: #176da9; }
 .workflow-steps li.done > span { border-color: #46a76a; color: #fff; background: #46a76a; }
 .workflow-steps li.done:not(:last-child)::after { background: #8ac8a0; }
 .workflow-steps li.current > span { border-color: #1688d4; color: #fff; background: #1688d4; box-shadow: 0 0 0 3px rgba(22,136,212,.12); }
 .workflow-stage-panel { min-height: 0; flex: 1; overflow: hidden; }
+.analysis-workflow > .workflow-header .workflow-heading > span:first-child { color: var(--blue); }
 .workflow-stage-panel > .page { height: 100%; overflow: auto; }
 .workflow-stage-panel > .scan-page { display: flex; flex-direction: column; overflow: hidden; }
 .scan-scroll-content { min-height: 0; flex: 1; overflow: auto; padding: 0 2px 8px; }

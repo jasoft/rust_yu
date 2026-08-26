@@ -50,7 +50,7 @@ interface ProgramsState {
   scanTraces: (programName: string, program?: InstalledProgram) => Promise<void>;
   toggleTrace: (traceId: string) => void;
   toggleAllTraces: () => void;
-  cleanTraces: (confirm: boolean) => Promise<void>;
+  cleanTraces: (confirm: boolean, traceIds?: ReadonlySet<string>) => Promise<CleanResult[]>;
   planUninstall: (programId: string) => Promise<UninstallJob | null>;
   executeUninstall: (jobId: string, timeoutSecs?: number) => Promise<UninstallJob | null>;
   cleanUninstallResidues: (jobId: string, selection: CleanupSelection) => Promise<UninstallJob | null>;
@@ -253,17 +253,20 @@ export const useProgramsStore = create<ProgramsState>((set, get) => ({
     }
   },
 
-  cleanTraces: async (confirm) => {
+  cleanTraces: async (confirm, traceIds) => {
     const { traces, selectedTraces } = get();
-    const toClean = traces.filter((t) => selectedTraces.has(t.id));
+    const selected = traceIds ?? selectedTraces;
+    const toClean = traces.filter((t) => selected.has(t.id));
     set({ cleanResults: [], error: null });
     try {
       const results = await invoke<CleanResult[]>("clean_traces", {
-        options: { traces: toClean, confirm, preview: false },
+        options: { traces: toClean, confirm, preview: false, reviewed: true },
       });
       set({ cleanResults: results });
+      return results;
     } catch (e) {
       set({ error: extractErrorMessage(e) });
+      return [];
     }
   },
 
