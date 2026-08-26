@@ -89,6 +89,13 @@ crate-type = ["lib"]
 name = "windows_lifecycle"
 path = "tests/windows_uninstall_lifecycle.rs"
 
+[profile.dev]
+# AI/自动化迭代主要依赖编译器、测试和日志；保留文件名和行号即可定位 panic，
+# 不生成变量级完整 debuginfo，可显著降低 target 目录体积。
+debug = "line-tables-only"
+# 日常开发必须保留增量编译，避免每次小改动都触发大范围重编。
+incremental = true
+
 [profile.release]
 panic = "abort"
 codegen-units = 1
