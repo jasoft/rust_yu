@@ -6,6 +6,7 @@ use super::models::{
 };
 use super::ports::UninstallPort;
 use super::state::UninstallStateMachine;
+use crate::modules::lister::models::UninstallKind;
 use crate::modules::scanner::models::Trace;
 
 pub async fn plan_uninstall<P: UninstallPort>(
@@ -14,6 +15,27 @@ pub async fn plan_uninstall<P: UninstallPort>(
 ) -> Result<UninstallJob, UninstallError> {
     let program = port.resolve_program_by_id(program_id).await?;
     let fingerprint = fingerprint_program(&program);
+    // 失效安装不允许进入标准卸载流程：否则用户确认后流程必然在“运行卸载器”
+    // 阶段失败，表现为卸载走不下去。两类信号都拦截：
+    // 1) Legacy 路由没有任何可用卸载命令（注册表只剩条目）；
+    // 2) 分析器判定安装记录失效——安装目录、卸载程序、显示图标全部不存在，
+    //    此时即使 UninstallString 还在，它指向的卸载器也已无法运行。
+    // MSI/Store 路由总能构造出 msiexec/powershell 命令，因此只需拦截 Legacy。
+    let missing_uninstall_command = program.uninstall_kind == UninstallKind::Legacy
+        && program
+            .preferred_uninstall_string()
+            .map(str::trim)
+            .unwrap_or_default()
+            .is_empty();
+    if missing_uninstall_command || program.is_broken_installation {
+        return Err(UninstallError::new(
+            UninstallErrorCode::UninstallerMissing,
+            format!(
+                "{} 的安装记录已失效，无法执行标准卸载；可改用“强制卸载”按安装目录清理残留",
+                program.name
+            ),
+        ));
+    }
     port.save_snapshot(&program).await?;
 
     let plan = UninstallPlan {
@@ -552,6 +574,51 @@ mod tests {
         plan_uninstall(port, "demo-id")
             .await
             .expect("fake plan should succeed")
+    }
+
+    #[tokio::test]
+    async fn plan_rejects_legacy_program_without_uninstall_command() {
+        let mut port = FakePort::new();
+        port.program.uninstall_string = None;
+        port.program.quiet_uninstall_string = None;
+
+        let error = plan_uninstall(&port, "demo-id")
+            .await
+            .expect_err("missing uninstaller must fail the plan");
+
+        assert_eq!(error.code, UninstallErrorCode::UninstallerMissing);
+        // 计划失败不能留下快照等副作用，避免残留半初始化的卸载任务。
+        assert!(!port
+            .calls
+            .lock()
+            .expect("test mutex should not be poisoned")
+            .contains(&"snapshot"));
+    }
+
+    #[tokio::test]
+    async fn plan_rejects_broken_installation_even_with_uninstall_string() {
+        let mut port = FakePort::new();
+        // 分析器判定失效：卸载命令指向的文件已不存在，标准卸载必然失败。
+        port.program.is_broken_installation = true;
+
+        let error = plan_uninstall(&port, "demo-id")
+            .await
+            .expect_err("broken installation must fail the plan");
+
+        assert_eq!(error.code, UninstallErrorCode::UninstallerMissing);
+        assert!(!port
+            .calls
+            .lock()
+            .expect("test mutex should not be poisoned")
+            .contains(&"snapshot"));
+    }
+
+    #[tokio::test]
+    async fn plan_allows_legacy_program_with_uninstall_command() {
+        let port = FakePort::new();
+        plan_uninstall(&port, "demo-id")
+            .await
+            .expect("legacy program with uninstall command should plan");
     }
 
     #[tokio::test]

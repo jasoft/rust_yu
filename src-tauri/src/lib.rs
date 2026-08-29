@@ -225,6 +225,7 @@ pub fn run() {
             execute_file_shred,
             plan_force_uninstall,
             clean_force_uninstall,
+            search_force_uninstall_candidates,
             plan_uninstall,
             execute_uninstall,
             clean_uninstall_residues,

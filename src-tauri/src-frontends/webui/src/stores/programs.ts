@@ -59,6 +59,7 @@ interface ProgramsState {
   getUninstallJob: (jobId: string) => Promise<UninstallJob | null>;
   resetUninstall: () => void;
   resetTraces: () => void;
+  clearError: () => void;
 }
 
 function extractErrorMessage(error: unknown): string {
@@ -354,5 +355,6 @@ export const useProgramsStore = create<ProgramsState>((set, get) => ({
   resetUninstall: () => set({ uninstallResult: null, cleanResults: [], uninstalling: false, uninstallCancelling: false, uninstallJob: null }),
   resetTraces: () =>
     set({ traces: [], scanCoverage: [], selectedTraces: new Set(), cleanResults: [], viewMode: "detail" }),
+  clearError: () => set({ error: null }),
 }));
 

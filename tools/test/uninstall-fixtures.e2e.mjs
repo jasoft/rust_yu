@@ -62,33 +62,56 @@ async function enableDeveloperMode(page) {
 }
 
 async function installFixtures(page) {
-  const fixtureButtons = page.getByTestId("developer-fixture");
-  await waitFor(async () => (await fixtureButtons.count()) === fixtures.length, 30_000, "fixture catalog");
+  // 夹具目录现在包含多套 NSIS 深扫夹具；本脚本只勾选并安装自己需要的两个，
+  // 不再假设目录数量恰好等于 2，也不使用“全部安装”。
+  const fixtureCatalog = page.getByTestId("developer-fixture");
+  await waitFor(async () => (await fixtureCatalog.count()) >= fixtures.length, 30_000, "fixture catalog");
   for (const fixture of fixtures) {
     const button = page.locator(`[data-testid="developer-fixture"][data-fixture-id="${fixture.id}"]`);
     assert.equal(await button.isEnabled(), true, `${fixture.id} installer must be available`);
+    if ((await button.getAttribute("aria-pressed")) !== "true") await button.click();
+    assert.equal(await button.getAttribute("aria-pressed"), "true", `${fixture.id} must be selected`);
   }
 
-  await page.getByTestId("developer-install-all").click();
+  // “安装所选”是夹具卡片下方的 primary-button；“全部安装”才是 developer-install-all。
+  await page.locator(".developer-fixtures footer .primary-button").click();
   await page.getByTestId("developer-confirm-install").click();
-  await waitFor(async () => {
-    const results = page.getByTestId("developer-fixture-result");
-    if ((await results.count()) !== fixtures.length) return false;
-    const statuses = await results.evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-status")));
-    return statuses.every((status) => status === "installed" || status === "reboot_required");
-  }, 360_000, "fixture installation results");
 
-  return page.getByTestId("developer-fixture-result").evaluateAll((nodes) =>
-    nodes.map((node) => ({ status: node.getAttribute("data-status"), text: node.textContent?.trim() ?? "" })),
-  );
+  for (const fixture of fixtures) {
+    const result = page.locator(
+      `[data-testid="developer-fixture"][data-fixture-id="${fixture.id}"] [data-testid="developer-fixture-result"]`,
+    );
+    await waitFor(async () => {
+      if ((await result.count()) !== 1) return false;
+      return ["installed", "reboot_required"].includes(await result.getAttribute("data-status"));
+    }, 360_000, `${fixture.id} installation result`);
+  }
+
+  return Promise.all(fixtures.map(async (fixture) => {
+    const result = page.locator(
+      `[data-testid="developer-fixture"][data-fixture-id="${fixture.id}"] [data-testid="developer-fixture-result"]`,
+    );
+    return { fixture_id: fixture.id, status: await result.getAttribute("data-status") };
+  }));
 }
 
 async function uninstallFixture(page, fixture, artifactIndex) {
+  // 夹具安装完成后页面会自动刷新列表，但后台刷新可能复用安装前启动的扫描，
+  // 导致新装夹具暂时不可见；显式点击刷新并等它完成再搜索。
+  const refreshButton = page.locator(".apps-page .header-actions .icon-button").first();
+  await refreshButton.click();
+  await page.waitForFunction(
+    () => {
+      const button = document.querySelector(".apps-page .header-actions .icon-button");
+      return button instanceof HTMLButtonElement && !button.disabled;
+    },
+    null,
+    { timeout: 300_000 },
+  );
+
   const search = page.getByTestId("program-search");
   await search.fill(fixture.programName);
-  const row = page.locator(`[data-testid="program-row"][data-program-name="${fixture.programName}"]`);
-  await row.waitFor({ state: "visible", timeout: 90_000 });
-  await row.click();
+  const row = await selectProgramRow(page, fixture.programName);
   await page.getByTestId("program-uninstall").click();
 
   const workflow = page.getByTestId("uninstall-workflow");
@@ -103,9 +126,18 @@ async function uninstallFixture(page, fixture, artifactIndex) {
   assert.equal(await page.getByTestId("workflow-cleanup").count(), 0, "legacy cleanup progress page must not exist");
   const uninstallerRow = page.getByTestId("workflow-uninstaller-row");
   await uninstallerRow.waitFor({ state: "visible" });
-  assert.ok(["active", "done"].includes((await uninstallerRow.getAttribute("data-state")) ?? ""));
+  const uninstallerState = (await uninstallerRow.getAttribute("data-state")) ?? "";
+  if (uninstallerState === "failed") {
+    // 失败时必须把后端返回的错误带出来，否则整轮生命周期测试难以定位。
+    const errorText = await page.locator(".uninstall-error").first().textContent().catch(() => "");
+    await screenshot(page, `debug-uninstall-failed-${slug(fixture.programName)}.png`);
+    throw new Error(`${fixture.programName} 卸载器执行失败：${errorText?.trim() ?? "（未捕获到错误信息）"}`);
+  }
+  assert.ok(["active", "done"].includes(uninstallerState));
   await screenshot(page, `${String(artifactIndex).padStart(2, "0")}-${slug(fixture.programName)}-uninstalling.png`);
-  await waitFor(async () => (await scan.getAttribute("data-scan-status")) === "complete", 420_000, `${fixture.programName} residue scan`);
+  // 该状态覆盖“运行卸载器 + 核验移除 + 按名称扫描残留”三个后端阶段；
+  // 大型 AppData/Program Files 的残留扫描可能超过 10 分钟，预算从卸载页出现起算。
+  await waitFor(async () => (await scan.getAttribute("data-scan-status")) === "complete", 900_000, `${fixture.programName} residue scan`);
   const scanCategories = await scan.locator(".scan-location").evaluateAll((nodes) => nodes.map((node) => node.textContent?.replace(/\s+/g, " ").trim() ?? ""));
   assert.equal(scanCategories.length, 4, "all four scan categories must remain visible");
 
@@ -170,6 +202,28 @@ async function uninstallFixture(page, fixture, artifactIndex) {
   await page.getByTestId("workflow-done").click();
   await page.getByTestId("program-search").waitFor({ state: "visible" });
   return { id: fixture.id, programName: fixture.programName, scanCategories, scanCompletionLogCount, reviewCount, reviewRows, summary };
+}
+
+// 在应用列表中选中指定程序。列表使用 react-data-grid：行 DOM 为 .rdg-row，
+// 旧的 program-row/data-program-name 选择器在当前前端已不存在。
+async function selectProgramRow(page, name) {
+  const row = page.locator(".rdg-row", { hasText: name }).first();
+  try {
+    await row.waitFor({ state: "visible", timeout: 90_000 });
+  } catch (error) {
+    const diagnostics = await page.evaluate(() => ({
+      rowCount: document.querySelectorAll(".rdg-row").length,
+      firstRows: [...document.querySelectorAll(".rdg-row")]
+        .slice(0, 5)
+        .map((node) => node.textContent?.replace(/\s+/g, " ").trim().slice(0, 60) ?? ""),
+      searchValue: document.querySelector('[data-testid="program-search"]')?.value ?? null,
+    }));
+    await screenshot(page, `debug-row-not-found-${slug(name)}.png`);
+    throw new Error(`未找到程序行 ${name}，页面诊断：${JSON.stringify(diagnostics)}`);
+  }
+  // 点击名称单元格触发选中（复选框单元格会阻止行选中）。
+  await row.locator(".program-grid-name-cell").click();
+  return row;
 }
 
 async function connectToWebView(url, timeoutMs) {

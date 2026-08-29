@@ -57,3 +57,24 @@ export function hasMissingProgramIcons(programs: readonly InstalledProgram[]): b
       (!program.icon_cache_path_32 || !program.icon_cache_path_48),
   );
 }
+
+/**
+ * 判断程序能否走标准卸载流程。
+ *
+ * 两类失效安装必须提前拦截，避免用户确认后才在“运行卸载器”阶段失败：
+ * - is_broken_installation：安装目录、卸载程序、显示图标全部不存在，
+ *   即使 UninstallString 还在，指向的卸载器也无法运行；
+ * - Legacy 路由没有任何可用卸载命令（注册表只剩条目）。
+ * MSI/Store 路由由后端按包标识构造 msiexec/powershell 命令，始终可用。
+ */
+export function hasUsableUninstallCommand(
+  program: Pick<
+    InstalledProgram,
+    "uninstall_kind" | "uninstall_string" | "quiet_uninstall_string" | "is_broken_installation"
+  >,
+): boolean {
+  if (program.is_broken_installation) return false;
+  if (program.uninstall_kind !== "legacy") return true;
+  return [program.quiet_uninstall_string, program.uninstall_string]
+    .some((command) => Boolean(command?.trim()));
+}

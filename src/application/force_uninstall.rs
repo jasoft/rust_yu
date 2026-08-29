@@ -60,6 +60,74 @@ pub struct ForceUninstallResult {
     pub outcomes: Vec<CleanResult>,
 }
 
+/// 名称搜索返回的强制卸载候选，来自已安装程序清单（只读，不做任何删除）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ForceUninstallCandidate {
+    pub program_id: String,
+    pub name: String,
+    pub publisher: Option<String>,
+    pub install_location: Option<String>,
+    pub is_broken_installation: bool,
+}
+
+const MAX_FORCE_CANDIDATES: usize = 20;
+
+/// 按名称（支持部分匹配）搜索可强制卸载的候选程序。
+///
+/// 只读操作：直接复用已安装程序清单的缓存结果，按名称包含关系过滤。
+/// 排序时前缀匹配优先于包含匹配，让用户输入越精确候选越靠前。
+pub fn search_force_uninstall_candidates(
+    query: &str,
+) -> Result<Vec<ForceUninstallCandidate>, UninstallError> {
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // 名称搜索是高频轻量操作，必须走缓存清单，不能每次都全量重扫系统。
+    let programs = crate::modules::lister::list_programs_with_cache(
+        crate::modules::lister::models::ListProgramsQuery {
+            source: crate::modules::lister::models::InstallSourceSelector::All,
+            search: None,
+            refresh: false,
+            cache_ttl_seconds: crate::modules::lister::storage::DEFAULT_CACHE_TTL_SECONDS,
+        },
+    )
+    .map_err(|error| {
+            UninstallError::new(
+                UninstallErrorCode::ForceTargetNotFound,
+                format!("读取已安装程序清单失败: {error}"),
+            )
+        })?
+        .programs;
+
+    let lowered = trimmed.to_lowercase();
+    let mut candidates: Vec<ForceUninstallCandidate> = programs
+        .iter()
+        .filter(|program| program.name.to_lowercase().contains(&lowered))
+        .map(|program| ForceUninstallCandidate {
+            program_id: program.id.clone(),
+            name: program.name.clone(),
+            publisher: program.publisher.clone(),
+            install_location: program
+                .install_location
+                .as_deref()
+                .map(str::trim)
+                .filter(|location| !location.is_empty())
+                .map(str::to_string),
+            is_broken_installation: program.is_broken_installation,
+        })
+        .collect();
+
+    candidates.sort_by(|left, right| {
+        let left_prefix = left.name.to_lowercase().starts_with(&lowered);
+        let right_prefix = right.name.to_lowercase().starts_with(&lowered);
+        right_prefix.cmp(&left_prefix).then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
+    });
+    candidates.truncate(MAX_FORCE_CANDIDATES);
+    Ok(candidates)
+}
+
 /// 生成强制卸载计划。
 ///
 /// 这里故意只把用户明确提供的安装目录作为高置信度目标；注册表候选仅作

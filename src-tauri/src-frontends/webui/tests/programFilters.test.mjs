@@ -5,6 +5,7 @@ import {
   countProgramsBySource,
   filterPrograms,
   hasMissingProgramIcons,
+  hasUsableUninstallCommand,
   matchesProgramSource,
 } from "../src/lib/programFilters.ts";
 
@@ -61,4 +62,42 @@ test("仅在存在图标来源且缓存不完整时请求预热", () => {
     ]),
     false,
   );
+});
+
+test("失效安装缺少卸载命令时不能进入标准卸载流程", () => {
+  const legacy = { is_broken_installation: false, uninstall_kind: "legacy", uninstall_string: null, quiet_uninstall_string: null };
+  assert.equal(hasUsableUninstallCommand(legacy), false);
+  // 空白命令等同于缺失，不能放行到“运行卸载器”阶段才失败。
+  assert.equal(
+    hasUsableUninstallCommand({ is_broken_installation: false, uninstall_kind: "legacy", uninstall_string: "  ", quiet_uninstall_string: null }),
+    false,
+  );
+  assert.equal(
+    hasUsableUninstallCommand({ is_broken_installation: false, uninstall_kind: "legacy", uninstall_string: '"C:\\Apps\\unins.exe" /S', quiet_uninstall_string: null }),
+    true,
+  );
+  assert.equal(
+    hasUsableUninstallCommand({ is_broken_installation: false, uninstall_kind: "legacy", uninstall_string: null, quiet_uninstall_string: '"C:\\Apps\\unins.exe" /S' }),
+    true,
+  );
+});
+
+test("分析器判定安装记录失效时，即使卸载命令还在也必须拦截", () => {
+  assert.equal(
+    hasUsableUninstallCommand({ is_broken_installation: true, uninstall_kind: "legacy", uninstall_string: '"C:\\Apps\\missing\\unins.exe"', quiet_uninstall_string: null }),
+    false,
+  );
+  assert.equal(
+    hasUsableUninstallCommand({ is_broken_installation: true, uninstall_kind: "msi", uninstall_string: "MsiExec.exe /X{...}", quiet_uninstall_string: null }),
+    false,
+  );
+});
+
+test("MSI 与 Store 路由由后端构造命令，始终允许标准卸载", () => {
+  for (const uninstall_kind of ["msi", "store"]) {
+    assert.equal(
+      hasUsableUninstallCommand({ is_broken_installation: false, uninstall_kind, uninstall_string: null, quiet_uninstall_string: null }),
+      true,
+    );
+  }
 });

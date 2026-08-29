@@ -1,7 +1,8 @@
 use rust_yu_lib::application::force_uninstall::{
     clean_force_uninstall as run_clean_force_uninstall,
-    plan_force_uninstall as run_plan_force_uninstall, ForceCleanupSelection, ForceUninstallPlan,
-    ForceUninstallResult,
+    plan_force_uninstall as run_plan_force_uninstall,
+    search_force_uninstall_candidates as run_search_force_uninstall_candidates,
+    ForceCleanupSelection, ForceUninstallCandidate, ForceUninstallPlan, ForceUninstallResult,
 };
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
@@ -12,6 +13,11 @@ use super::{require_administrator, CommandError};
 pub struct PlanForceUninstallRequest {
     pub path: String,
     pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SearchForceUninstallCandidatesRequest {
+    pub query: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -76,6 +82,18 @@ pub async fn clean_force_uninstall(
     require_administrator()?;
     run_clean_force_uninstall(&request.plan, request.selection)
         .await
+        .map_err(CommandError::from)
+}
+
+/// 按名称（支持部分匹配）搜索可强制卸载的候选程序；只读，不要求管理员权限。
+#[tauri::command]
+pub async fn search_force_uninstall_candidates(
+    request: SearchForceUninstallCandidatesRequest,
+) -> Result<Vec<ForceUninstallCandidate>, CommandError> {
+    let query = request.query;
+    tokio::task::spawn_blocking(move || run_search_force_uninstall_candidates(&query))
+        .await
+        .map_err(|error| CommandError::new(format!("搜索候选程序失败: {error}")))?
         .map_err(CommandError::from)
 }
 

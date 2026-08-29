@@ -39,20 +39,22 @@ fn core_error(code: UninstallErrorCode, error: impl std::fmt::Display) -> Uninst
     UninstallError::new(code, error.to_string())
 }
 
-fn resolve_program_query(program_id: &str) -> ListProgramsQuery {
-    let mut query = build_target_search_query();
-    // 注册表和 MSI 条目都使用 registry: 稳定 ID。按 ID 来源定向刷新，
-    // 避免每次规划卸载都逐包读取 Microsoft Store 清单并阻塞 GUI。
-    query.source = if program_id
+/// 返回解析 program_id 时依次尝试的来源选择器。
+///
+/// `registry:` 稳定 ID 同时覆盖 Registry 与 Msi 两类 ARP 条目；Registry 选择器的
+/// 视图只包含非 MSI 分类，如果只查 Registry 视图，MSI 程序会在规划阶段被误报
+/// “未找到指定程序”。两个视图都查不到时才允许回退到 Store 选择器（仅限
+/// Store 包 ID），避免规划卸载时逐包读取 Microsoft Store 清单阻塞 GUI。
+fn resolve_program_selectors(program_id: &str) -> &'static [InstallSourceSelector] {
+    if program_id
         .trim_start()
         .to_ascii_lowercase()
         .starts_with("registry:")
     {
-        InstallSourceSelector::Registry
+        &[InstallSourceSelector::Registry, InstallSourceSelector::Msi]
     } else {
-        InstallSourceSelector::Store
-    };
-    query
+        &[InstallSourceSelector::Store]
+    }
 }
 
 #[async_trait]
@@ -61,13 +63,20 @@ impl UninstallPort for ProductionUninstallPort {
         &self,
         program_id: &str,
     ) -> Result<InstalledProgram, UninstallError> {
-        let programs = lister::list_programs_with_cache(resolve_program_query(program_id))
-            .map_err(|error| core_error(UninstallErrorCode::JobNotFound, error))?
-            .programs;
-        programs
-            .into_iter()
-            .find(|program| program.id.eq_ignore_ascii_case(program_id))
-            .ok_or_else(|| UninstallError::new(UninstallErrorCode::JobNotFound, "未找到指定程序"))
+        for selector in resolve_program_selectors(program_id) {
+            let mut query = build_target_search_query();
+            query.source = *selector;
+            let programs = lister::list_programs_with_cache(query)
+                .map_err(|error| core_error(UninstallErrorCode::JobNotFound, error))?
+                .programs;
+            if let Some(program) = programs
+                .into_iter()
+                .find(|program| program.id.eq_ignore_ascii_case(program_id))
+            {
+                return Ok(program);
+            }
+        }
+        Err(UninstallError::new(UninstallErrorCode::JobNotFound, "未找到指定程序"))
     }
 
     async fn save_snapshot(&self, program: &InstalledProgram) -> Result<(), UninstallError> {
@@ -174,21 +183,24 @@ impl UninstallPort for ProductionUninstallPort {
 
 #[cfg(test)]
 mod tests {
-    use super::resolve_program_query;
+    use super::resolve_program_selectors;
     use crate::modules::lister::models::InstallSourceSelector;
 
     #[test]
-    fn registry_and_msi_stable_ids_skip_store_enumeration() {
-        let query = resolve_program_query(
+    fn registry_stable_ids_try_registry_then_msi_views_without_store() {
+        let selectors = resolve_program_selectors(
             r"registry:HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Demo",
         );
-        assert_eq!(query.source, InstallSourceSelector::Registry);
-        assert!(query.refresh);
+        assert_eq!(
+            selectors,
+            &[InstallSourceSelector::Registry, InstallSourceSelector::Msi]
+        );
     }
 
     #[test]
     fn store_package_ids_use_store_enumeration() {
-        let query = resolve_program_query("Publisher.Demo_1.0.0.0_x64__example");
-        assert_eq!(query.source, InstallSourceSelector::Store);
+        let selectors =
+            resolve_program_selectors("Publisher.Demo_1.0.0.0_x64__example");
+        assert_eq!(selectors, &[InstallSourceSelector::Store]);
     }
 }

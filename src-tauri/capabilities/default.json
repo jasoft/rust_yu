@@ -52,6 +52,7 @@
     "allow-execute-file-shred",
     "allow-plan-force-uninstall",
     "allow-clean-force-uninstall",
+    "allow-search-force-uninstall-candidates",
     "allow-plan-uninstall",
     "allow-execute-uninstall",
     "allow-clean-uninstall-residues",

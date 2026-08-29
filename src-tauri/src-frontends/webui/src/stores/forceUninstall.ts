@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { create } from "zustand";
 import type {
   CommandError,
+  ForceUninstallCandidate,
   ForceUninstallPlan,
   ForceUninstallResult,
 } from "../types";
@@ -17,10 +18,13 @@ interface ForceUninstallState {
   result: ForceUninstallResult | null;
   loading: boolean;
   error: string | null;
+  candidates: ForceUninstallCandidate[];
+  candidatesLoading: boolean;
   contextMenuEnabled: boolean;
   contextMenuLoading: boolean;
   hunterLoading: boolean;
   planTarget: (path: string, name?: string) => Promise<ForceUninstallPlan | null>;
+  searchCandidates: (query: string) => Promise<ForceUninstallCandidate[]>;
   cleanSelected: (traceIds: string[]) => Promise<ForceUninstallResult | null>;
   loadContextMenu: () => Promise<void>;
   setContextMenuEnabled: (enabled: boolean) => Promise<void>;
@@ -41,9 +45,31 @@ export const useForceUninstallStore = create<ForceUninstallState>((set, get) => 
   result: null,
   loading: false,
   error: null,
+  candidates: [],
+  candidatesLoading: false,
   contextMenuEnabled: false,
   contextMenuLoading: false,
   hunterLoading: false,
+
+  searchCandidates: async (query) => {
+    const trimmed = query.trim();
+    if (!trimmed) {
+      set({ candidates: [], candidatesLoading: false });
+      return [];
+    }
+    set({ candidatesLoading: true });
+    try {
+      const candidates = await invoke<ForceUninstallCandidate[]>(
+        "search_force_uninstall_candidates",
+        { request: { query: trimmed } },
+      );
+      set({ candidates, candidatesLoading: false });
+      return candidates;
+    } catch (error) {
+      set({ candidates: [], candidatesLoading: false, error: extractErrorMessage(error) });
+      return [];
+    }
+  },
 
   planTarget: async (path, name) => {
     set({ loading: true, error: null, result: null, plan: null });
@@ -116,5 +142,5 @@ export const useForceUninstallStore = create<ForceUninstallState>((set, get) => 
     }
   },
 
-  reset: () => set({ plan: null, result: null, loading: false, error: null }),
+  reset: () => set({ plan: null, result: null, loading: false, error: null, candidates: [], candidatesLoading: false }),
 }));

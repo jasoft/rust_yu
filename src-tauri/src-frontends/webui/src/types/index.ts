@@ -123,6 +123,14 @@ export interface ForceUninstallPlan {
   warnings: string[];
 }
 
+export interface ForceUninstallCandidate {
+  program_id: string;
+  name: string;
+  publisher: string | null;
+  install_location: string | null;
+  is_broken_installation: boolean;
+}
+
 export interface ForceCleanupSelection {
   plan_id: string;
   trace_ids: string[];

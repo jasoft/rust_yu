@@ -46,6 +46,7 @@ import { completedSuccessfully, selectAvailableItem, shouldFinalizeSkippedCleanu
 import {
   countProgramsBySource,
   filterPrograms,
+  hasUsableUninstallCommand,
   matchesProgramSource,
   programSourceOptions,
   type ProgramSourceFilter,
@@ -292,6 +293,7 @@ export default function App() {
   const finishUninstall = useProgramsStore((state) => state.finishUninstall);
   const cancelUninstall = useProgramsStore((state) => state.cancelUninstall);
   const resetUninstall = useProgramsStore((state) => state.resetUninstall);
+  const clearError = useProgramsStore((state) => state.clearError);
   const uninstallResult = useProgramsStore((state) => state.uninstallResult);
   const uninstallJob = useProgramsStore((state) => state.uninstallJob);
   const uninstallCancelling = useProgramsStore((state) => state.uninstallCancelling);
@@ -305,6 +307,9 @@ export default function App() {
   const hunterLoading = useForceUninstallStore((state) => state.hunterLoading);
   const planForceTarget = useForceUninstallStore((state) => state.planTarget);
   const cleanForceSelected = useForceUninstallStore((state) => state.cleanSelected);
+  const forceCandidates = useForceUninstallStore((state) => state.candidates);
+  const forceCandidatesLoading = useForceUninstallStore((state) => state.candidatesLoading);
+  const searchForceCandidates = useForceUninstallStore((state) => state.searchCandidates);
   const loadContextMenu = useForceUninstallStore((state) => state.loadContextMenu);
   const setContextMenuEnabled = useForceUninstallStore((state) => state.setContextMenuEnabled);
   const captureHunterTarget = useForceUninstallStore((state) => state.captureHunterTarget);
@@ -322,6 +327,7 @@ export default function App() {
   const [batchOpen, setBatchOpen] = useState(false);
   const [forceOpen, setForceOpen] = useState(false);
   const [startupForceTarget, setStartupForceTarget] = useState<string | null>(null);
+  const [brokenDialogProgram, setBrokenDialogProgram] = useState<UiProgram | null>(null);
 
   useEffect(() => {
     if (!isTauriRuntime()) return;
@@ -547,6 +553,11 @@ export default function App() {
 
   const startUninstall = () => {
     if (!selectedProgram) return;
+    // 失效安装不能运行标准卸载器：弹窗警告并转按名称分析残留的路径。
+    if (selectedProgram.source && !hasUsableUninstallCommand(selectedProgram.source)) {
+      setBrokenDialogProgram(selectedProgram);
+      return;
+    }
     setScanMode("uninstall");
     setStage("scan");
     setTraces([]);
@@ -590,6 +601,30 @@ export default function App() {
   const continueWorkflow = () => {
     if (stage !== "scan") return;
     setStage(isTauriRuntime() ? nextStageAfterScan(uninstallJob?.phase) : "review");
+  };
+
+  // 失效安装的替代路径：不运行任何卸载器，只按程序名称扫描文件与注册表残留，
+  // 结果进入与“深度分析”相同的逐项复核界面，由用户确认后才清理。
+  const startBrokenAnalysis = (program: UiProgram) => {
+    setBrokenDialogProgram(null);
+    setScanMode("deep-analysis");
+    setStage("analysis-scan");
+    setTraces([]);
+    setSelectedTraceIds(new Set());
+    setCleanResults([]);
+    setLogs(createMockAnalysisLogs());
+    setScanStatus("scanning");
+    if (isTauriRuntime() && program.source) {
+      setManualScanPending(true);
+      void scanTraces(program.source.name, program.source);
+    } else {
+      const mockTraces = createMockTraces(program);
+      setTraces(mockTraces);
+      setSelectedTraceIds(new Set());
+      window.setTimeout(() => {
+        setScanStatus("complete");
+      }, 900);
+    }
   };
 
   const continueAnalysis = () => {
@@ -672,6 +707,9 @@ export default function App() {
     setSelectedTraceIds(new Set());
     resetUninstall();
     setManualScanPending(false);
+    // 卸载流程中的失败信息只属于流程本身；返回列表后必须清空，
+    // 否则列表会因为残留 error 被替换成错误占位、看不到任何程序。
+    clearError();
   };
 
   const exitAnalysisFlow = () => exitUninstallFlow();
@@ -690,7 +728,7 @@ export default function App() {
     <div className={`app-frame ${isTauriRuntime() ? "native-frame" : ""}${uninstallFlowActive ? " workflow-modal-active" : ""}`}>
       {!isTauriRuntime() && <TitleBar />}
       <div className="app-body">
-        <Sidebar active={activeNav} developerModeEnabled={developerModeEnabled} disabled={uninstallFlowActive} onNavigate={(next) => { setActiveNav(next); if (next === "apps") setStage("apps"); }} />
+        <Sidebar active={activeNav} developerModeEnabled={developerModeEnabled} disabled={uninstallFlowActive} onNavigate={(next) => { setActiveNav(next); if (next === "apps") { setStage("apps"); clearError(); } }} />
         <main className="workspace">
           {activeNav === "startup" ? (
             <StartupManager />
@@ -734,7 +772,15 @@ export default function App() {
               onQuery={handleSearch}
               onSourceFilter={setSourceFilter}
               onSelect={setSelectedId}
-              onUninstall={() => { if (selectedProgram) setStage("confirm"); }}
+              onUninstall={() => {
+                if (!selectedProgram) return;
+                // 失效安装不能进入标准卸载流程：弹窗警告后转按名称分析残留。
+                if (selectedProgram.source && !hasUsableUninstallCommand(selectedProgram.source)) {
+                  setBrokenDialogProgram(selectedProgram);
+                  return;
+                }
+                setStage("confirm");
+              }}
               onScan={handleManualScan}
               canDeepAnalyze={hasExplicitInstallLocation(selectedProgram)}
               onDetails={() => setDetailsOpen(true)}
@@ -837,6 +883,7 @@ export default function App() {
         </main>
       </div>
       {detailsOpen && selectedProgram && <ProgramInfoModal program={selectedProgram} onClose={() => setDetailsOpen(false)} />}
+      {brokenDialogProgram && <BrokenUninstallDialog program={brokenDialogProgram} onCancel={() => setBrokenDialogProgram(null)} onAnalyze={() => startBrokenAnalysis(brokenDialogProgram)} />}
       {batchOpen && <BatchUninstallModal
         selectedPrograms={selectedBatchPrograms}
         items={batchItems}
@@ -855,10 +902,13 @@ export default function App() {
         result={forceResult}
         loading={forceLoading}
         error={forceError}
+        candidates={forceCandidates}
+        candidatesLoading={forceCandidatesLoading}
         contextMenuEnabled={contextMenuEnabled}
         contextMenuLoading={contextMenuLoading}
         hunterLoading={hunterLoading}
         onPlan={planForceTarget}
+        onSearchCandidates={searchForceCandidates}
         onClean={cleanForceSelected}
         onReset={resetForce}
         onContextMenu={setContextMenuEnabled}
@@ -1283,6 +1333,33 @@ function ConfirmStage(props: {
   );
 }
 
+// 失效安装的卸载警告对话框：标准卸载不可用，提供按名称分析残留的替代路径。
+function BrokenUninstallDialog({ program, onCancel, onAnalyze }: {
+  program: UiProgram; onCancel: () => void; onAnalyze: () => void;
+}) {
+  return (
+    <div className="modal-backdrop" onMouseDown={onCancel}>
+      <section className="force-uninstall-modal" data-testid="broken-uninstall-dialog" onMouseDown={(event) => event.stopPropagation()}>
+        <header>
+          <div><span className="force-modal-mark"><TriangleAlert size={19} /></span><span><h2>{t("uninstall.broken.title")}</h2><p>{t("uninstall.broken.program", { value0: program.name })}</p></span></div>
+          <button aria-label={t("app.message_191")} onClick={onCancel}><X size={17} /></button>
+        </header>
+        <div className="force-form">
+          <div className="force-warning" role="alert"><TriangleAlert size={17} /><span>{t("uninstall.broken.description")}</span></div>
+          <p className="force-entry-help">{t("uninstall.broken.hint")}</p>
+        </div>
+        <footer>
+          <span>{t("uninstall.broken.footer")}</span>
+          <div className="dialog-actions">
+            <button className="secondary-button" onClick={onCancel}>{t("app.message_089")}</button>
+            <button data-testid="broken-analyze-start" className="primary-button" onClick={onAnalyze}><Search size={15} />{t("uninstall.broken.action")}</button>
+          </div>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
 function ScanStage({
   program,
   traces,
@@ -1446,10 +1523,13 @@ function ForceUninstallModal({
   result,
   loading,
   error,
+  candidates,
+  candidatesLoading,
   contextMenuEnabled,
   contextMenuLoading,
   hunterLoading,
   onPlan,
+  onSearchCandidates,
   onClean,
   onReset,
   onContextMenu,
@@ -1461,10 +1541,13 @@ function ForceUninstallModal({
   result: import("./types").ForceUninstallResult | null;
   loading: boolean;
   error: string | null;
+  candidates: import("./types").ForceUninstallCandidate[];
+  candidatesLoading: boolean;
   contextMenuEnabled: boolean;
   contextMenuLoading: boolean;
   hunterLoading: boolean;
   onPlan: (path: string, name?: string) => Promise<import("./types").ForceUninstallPlan | null>;
+  onSearchCandidates: (query: string) => Promise<import("./types").ForceUninstallCandidate[]>;
   onClean: (traceIds: string[]) => Promise<import("./types").ForceUninstallResult | null>;
   onReset: () => void;
   onContextMenu: (enabled: boolean) => Promise<void>;
@@ -1473,6 +1556,8 @@ function ForceUninstallModal({
 }) {
   const [path, setPath] = useState(initialPath === "—" ? "" : initialPath);
   const [name, setName] = useState("");
+  const [query, setQuery] = useState("");
+  const [candidateHint, setCandidateHint] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [dragActive, setDragActive] = useState(false);
 
@@ -1504,6 +1589,21 @@ function ForceUninstallModal({
     };
   }, [onReset]);
 
+  // 名称搜索是主入口：输入部分名称即可找到候选，选中后自动生成卸载计划。
+  // 输入做 300ms 防抖，避免每个按键都触发后端清单查询。
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    const trimmed = query.trim();
+    if (!trimmed) {
+      onSearchCandidates("");
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void onSearchCandidates(trimmed);
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [query, onSearchCandidates]);
+
   const updatePath = (value: string) => {
     setPath(value);
     setSelectedIds(new Set());
@@ -1514,6 +1614,27 @@ function ForceUninstallModal({
     setName(value);
     setSelectedIds(new Set());
     onReset();
+  };
+
+  const updateQuery = (value: string) => {
+    setQuery(value);
+    setCandidateHint(null);
+  };
+
+  const selectCandidate = async (candidate: import("./types").ForceUninstallCandidate) => {
+    if (!candidate.install_location) {
+      // 失效或没有安装目录的程序无法按目录强制卸载；引导走应用列表的按名称分析路径。
+      setCandidateHint(t("force.modal.candidate_hint_broken", { value0: candidate.name }));
+      return;
+    }
+    setCandidateHint(null);
+    setPath(candidate.install_location);
+    setName(candidate.name);
+    setSelectedIds(new Set());
+    onReset();
+    if (!isTauriRuntime()) return;
+    const next = await onPlan(candidate.install_location, candidate.name);
+    if (next) setSelectedIds(new Set(next.default_selected_ids));
   };
 
   const submitPlan = async () => {
@@ -1550,11 +1671,29 @@ function ForceUninstallModal({
       {!plan && !result ? <>
         <div className="force-form">
           <div className="force-warning"><TriangleAlert size={17} /><span>{t("app.message_192")}</span></div>
-          <div className={`force-drop-zone ${dragActive ? "active" : ""}`}><FolderOpen size={19} /><span><strong>{dragActive ? t("app.message_193") : t("app.message_194")}</strong><small>{t("app.message_195")}</small></span></div>
-          <label>{t("app.message_196")}<input value={path} onChange={(event) => updatePath(event.target.value)} placeholder={t("app.message_197")} /></label>
-          <label>{t("app.message_198")}<input value={name} onChange={(event) => updateName(event.target.value)} placeholder={t("app.message_199")} /></label>
-          <div className="force-entry-actions"><button type="button" className="secondary-button compact-button" disabled={loading || hunterLoading} onClick={() => void submitHunter}>{hunterLoading ? <Loader2 size={13} className="spinning" /> : <Search size={13} />}{hunterLoading ? t("app.message_200") : t("app.message_201")}</button><button type="button" className={`secondary-button compact-button ${contextMenuEnabled ? "enabled" : ""}`} disabled={contextMenuLoading} onClick={() => void onContextMenu(!contextMenuEnabled)}>{contextMenuLoading ? <Loader2 size={13} className="spinning" /> : <ShieldCheck size={13} />}{contextMenuEnabled ? t("app.message_202") : t("app.message_203")}</button></div>
-          <p className="force-entry-help">{t("app.message_204")}</p>
+          <label>{t("force.modal.search_label")}<input data-testid="force-name-search" value={query} onChange={(event) => updateQuery(event.target.value)} placeholder={t("force.modal.search_placeholder")} /></label>
+          {candidatesLoading && <p className="force-entry-help"><Loader2 size={13} className="spinning" />{t("force.modal.searching")}</p>}
+          {!candidatesLoading && query.trim().length > 0 && candidates.length === 0 && <p className="force-entry-help">{t("force.modal.no_candidates")}</p>}
+          {candidates.length > 0 && <ul className="force-candidates" data-testid="force-candidates">
+            {candidates.map((candidate) => (
+              <li key={candidate.program_id}>
+                <button type="button" data-testid="force-candidate" data-program-name={candidate.name} onClick={() => void selectCandidate(candidate)}>
+                  <strong>{candidate.name}</strong>
+                  <small>{candidate.publisher ?? t("app.message_016")}</small>
+                  {candidate.is_broken_installation && <em><TriangleAlert size={12} />{t("force.modal.candidate_broken")}</em>}
+                </button>
+              </li>
+            ))}
+          </ul>}
+          {candidateHint && <p className="force-entry-help" role="alert"><TriangleAlert size={13} /> {candidateHint}</p>}
+          <details className="force-advanced">
+            <summary>{t("force.modal.advanced_summary")}</summary>
+            <div className={`force-drop-zone ${dragActive ? "active" : ""}`}><FolderOpen size={19} /><span><strong>{dragActive ? t("app.message_193") : t("app.message_194")}</strong><small>{t("app.message_195")}</small></span></div>
+            <label>{t("app.message_196")}<input value={path} onChange={(event) => updatePath(event.target.value)} placeholder={t("app.message_197")} /></label>
+            <label>{t("app.message_198")}<input value={name} onChange={(event) => updateName(event.target.value)} placeholder={t("app.message_199")} /></label>
+            <div className="force-entry-actions"><button type="button" className="secondary-button compact-button" disabled={loading || hunterLoading} onClick={() => void submitHunter}>{hunterLoading ? <Loader2 size={13} className="spinning" /> : <Search size={13} />}{hunterLoading ? t("app.message_200") : t("app.message_201")}</button><button type="button" className={`secondary-button compact-button ${contextMenuEnabled ? "enabled" : ""}`} disabled={contextMenuLoading} onClick={() => void onContextMenu(!contextMenuEnabled)}>{contextMenuLoading ? <Loader2 size={13} className="spinning" /> : <ShieldCheck size={13} />}{contextMenuEnabled ? t("app.message_202") : t("app.message_203")}</button></div>
+            <p className="force-entry-help">{t("app.message_204")}</p>
+          </details>
           {error && <div className="force-error" role="alert"><TriangleAlert size={15} />{error}</div>}
         </div>
         <footer><span>{t("app.message_205")}</span><button className="primary-button" disabled={loading || path.trim().length === 0 || !isTauriRuntime()} onClick={() => void submitPlan()}>{loading ? <Loader2 size={14} className="spinning" /> : <Search size={14} />}{t("app.message_206")}</button></footer>
