@@ -56,13 +56,25 @@ impl ScanIdentity {
     /// Matching is deliberately equality-based after Windows-safe case and
     /// punctuation normalization.  `xplorer` therefore does not match the
     /// `explorer` component in `Internet Explorer`.
+    ///
+    /// 先比较完整组件，再回退到去掉扩展名的文件主干。带版本点的 DisplayName
+    /// （例如 `Choice 9.0.0.1`）会被 file_stem 截成 `Choice 9.0.0`，只比较
+    /// 主干会让 DisplayName 与自身完全相等却匹配失败，导致 Uninstall 键
+    /// 永远扫描不到。
     pub fn matches_component(&self, component: &str) -> bool {
+        let normalized_full = compact_identifier(component);
+        if !normalized_full.is_empty() && self.aliases.iter().any(|alias| alias == &normalized_full)
+        {
+            return true;
+        }
         let without_extension = Path::new(component)
             .file_stem()
             .and_then(|value| value.to_str())
             .unwrap_or(component);
-        let normalized = compact_identifier(without_extension);
-        !normalized.is_empty() && self.aliases.iter().any(|alias| alias == &normalized)
+        let normalized_stem = compact_identifier(without_extension);
+        normalized_stem != normalized_full
+            && !normalized_stem.is_empty()
+            && self.aliases.iter().any(|alias| alias == &normalized_stem)
     }
 
     pub fn matches_display_name(&self, value: &str) -> bool {
@@ -306,6 +318,19 @@ mod tests {
         assert!(identity.matches_component("xplorer.exe"));
         assert!(!identity.matches_component("Internet Explorer"));
         assert!(!identity.matches_component("xplorer-backup"));
+    }
+
+    #[test]
+    fn dotted_display_name_matches_itself_but_not_other_versions() {
+        // DisplayName 自带版本点时会被 file_stem 截断（`Choice 9.0.0.1` →
+        // `Choice 9.0.0`）；完整组件必须优先比较，否则 Uninstall 键永远
+        // 无法按 DisplayName 匹配，失效安装的卸载残留无法清理。
+        let identity = ScanIdentity::from_name("Choice 9.0.0.1");
+        assert!(identity.matches_component("Choice 9.0.0.1"));
+        assert!(identity.matches_display_name("Choice 9.0.0.1"));
+        assert!(!identity.matches_display_name("Choice 9.0.0.2"));
+        // 卸载键名与身份组件不同时依旧不匹配，保持保守边界。
+        assert!(!identity.matches_component("ChoicePro"));
     }
 
     #[test]
