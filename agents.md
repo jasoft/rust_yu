@@ -6,6 +6,14 @@
 当前项目是一个 **Windows 专用反安装工具**（类似 Your Uninstaller 的现代化重写版）。
 目标是利用 **Tauri v2** 构建一个高性能、轻量级、且界面现代化的桌面应用。
 
+## 1.5 Repository Layout
+
+- `src-tauri/` — Rust workspace 根（crate 名 `rust-yu`），Tauri 后端命令、扫描/卸载引擎都在 `src-tauri/src/`。
+- `src-tauri/src-frontends/webui/` — 唯一前端（React + TS + Vite + Tailwind 4），i18n 语言文件在 `src/i18n/locales/`，lint 用 `oxlint`，测试用 `vitest`。
+- `tools/dev/` — 环境初始化与 GUI 启动脚本（`Initialize-Worktree.ps1`、`Run-Gui.ps1`、`Run-WebUiChecks.ps1`、`Configure-X64Environment.ps1`）；`tools/test/` — 卸载夹具与 E2E 脚本。
+- `docs/` — 设计文档与测试记录；`openspec/` — 变更提案；`legacy-delphi/` — 旧版参考代码，勿改动；`vendor/` — patched crates（如 `tauri-winres`）。
+- `.resources/` — 测试夹具（MSI、Inno Setup legacy fixture）；`resources/` — 应用资源，二者不是同一个目录。
+
 ## 2. Tech Stack Constraints
 
 - **Core Framework:** Tauri v2.0+ (Must use `tauri-plugin` ecosystem).
