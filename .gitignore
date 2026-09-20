@@ -31,3 +31,6 @@ node_modules
 
 # Downloaded fixture build tools
 .resources/nsis-random-fixtures/.tools/
+
+# Cleanup scripts
+cleanup_artifacts.ps1
