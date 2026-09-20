@@ -304,6 +304,15 @@ fn registry_reference_locations() -> Vec<(winreg::HKEY, &'static str, u32, bool)
     ]
 }
 
+/// 判断注册表路径是否为 Explorer 的 MuiCache 键。
+///
+/// 该键保存每应用的 FriendlyAppName / ApplicationCompany 显示名缓存，
+/// 值名是可执行文件完整路径；引用目标已确认为程序自身安装根时可以安全删除。
+fn is_mui_cache_path(path: &str) -> bool {
+    path.to_ascii_lowercase()
+        .ends_with(r"shell\muicache")
+}
+
 #[allow(clippy::too_many_arguments)]
 fn scan_registry_reference_values(
     hkey: winreg::HKEY,
@@ -368,6 +377,13 @@ fn scan_registry_reference_values(
         // Classes、机器级 App Paths、防火墙规则和默认值都属于共享契约；
         // 深度分析可以展示，但通用残留清理不得直接修改。
         trace.is_critical = protected || value_name.is_empty() || matched_value_name;
+        // MuiCache 的值名就是可执行文件完整路径，FriendlyAppName /
+        // ApplicationCompany 是每应用的显示名缓存；值已明确引用该程序自身的
+        // 安装根，属于应用私有残留而不是共享契约，应当允许用户勾选清理，
+        // 否则失效安装的这类残留永远无法从列表中移除。
+        if is_mui_cache_path(path) && !value_name.is_empty() {
+            trace.is_critical = false;
+        }
         traces.push(trace);
     }
 
@@ -721,6 +737,75 @@ mod tests {
             traces[0].related_path.as_deref(),
             Some(r"C:\Program Files\RustYu Deep Scan")
         );
+        let _ = root.delete_subkey_all(path);
+    }
+
+    #[test]
+    fn muicache_values_referencing_install_root_are_selectable() {
+        let root = RegKey::predef(HKEY_CURRENT_USER);
+        let path = format!(r"Software\RustYuTest\{}\Shell\MuiCache", uuid::Uuid::new_v4());
+        let (key, _) = root
+            .create_subkey(&path)
+            .unwrap_or_else(|error| panic!("create muicache test key: {error}"));
+        key.set_value(
+            r"C:\eastmoney\Choice\ChoiceUpd.exe.FriendlyAppName",
+            &"Choice 应用名",
+        )
+        .unwrap_or_else(|error| panic!("write muicache value: {error}"));
+        drop(key);
+
+        let mut traces = Vec::new();
+        let mut visited = 0;
+        scan_registry_reference_values(
+            HKEY_CURRENT_USER,
+            &path,
+            &[r"C:\eastmoney\Choice".to_string()],
+            &ScanIdentity::from_name("Choice 9.0.0.1"),
+            &mut traces,
+            0,
+            0,
+            true,
+            &mut visited,
+        );
+
+        assert_eq!(traces.len(), 1);
+        // 值名引用安装根本会命中 protected 分支的受保护规则；MuiCache 是
+        // 每应用显示名缓存，必须允许用户勾选清理。
+        assert!(!traces[0].is_critical);
+        assert_eq!(traces[0].confidence_score, 90);
+        let _ = root.delete_subkey_all(path);
+    }
+
+    #[test]
+    fn protected_non_muicache_references_stay_critical() {
+        let root = RegKey::predef(HKEY_CURRENT_USER);
+        let path = format!(r"Software\RustYuTest\{}\App Paths", uuid::Uuid::new_v4());
+        let (key, _) = root
+            .create_subkey(&path)
+            .unwrap_or_else(|error| panic!("create app paths test key: {error}"));
+        key.set_value(
+            r"C:\eastmoney\Choice\Choice.exe",
+            &r#"C:\eastmoney\Choice\Choice.exe"#,
+        )
+        .unwrap_or_else(|error| panic!("write app path value: {error}"));
+        drop(key);
+
+        let mut traces = Vec::new();
+        let mut visited = 0;
+        scan_registry_reference_values(
+            HKEY_CURRENT_USER,
+            &path,
+            &[r"C:\eastmoney\Choice".to_string()],
+            &ScanIdentity::from_name("Choice 9.0.0.1"),
+            &mut traces,
+            0,
+            0,
+            true,
+            &mut visited,
+        );
+
+        assert_eq!(traces.len(), 1);
+        assert!(traces[0].is_critical);
         let _ = root.delete_subkey_all(path);
     }
 
