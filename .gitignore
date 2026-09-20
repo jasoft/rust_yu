@@ -28,3 +28,6 @@ Thumbs.db
 # Logs
 *.log
 node_modules
+
+# Downloaded fixture build tools
+.resources/nsis-random-fixtures/.tools/

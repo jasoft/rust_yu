@@ -1,0 +1,391 @@
+{
+    "schemaVersion":  1,
+    "architecture":  "amd64",
+    "peMachine":  "AMD64",
+    "target":  "amd64-unicode",
+    "seed":  20260810,
+    "count":  6,
+    "compiler":  {
+                     "distribution":  "negrutiu-nsis-amd64",
+                     "version":  "3.13.7497.330"
+                 },
+    "fixtures":  [
+                     {
+                         "index":  0,
+                         "productName":  "Nimble Panda 7805",
+                         "productCode":  "0214c51c-5c3a-c4d3-e82e-706e934db540",
+                         "packageName":  "nimble-panda-7805-setup-x64.exe",
+                         "installer":  "installers\\nimble-panda-7805-setup-x64.exe",
+                         "installerSha256":  "adf03c1f491f15dd1f131ca945c597ad8f538523e049d0fc67054a183263cbc8",
+                         "installDirectoryRelativeToLocalAppData":  "Programs\\RustYuFixtures\\Nimble-Panda-7805",
+                         "uninstallRegistryKey":  "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\RustYuFixture_0214c51c-5c3a-c4d3-e82e-706e934db540",
+                         "files":  [
+                                       {
+                                           "path":  "app\\module-00-15684.bin",
+                                           "size":  1698,
+                                           "sha256":  "00e1b8ff12972fd23a4a9f1407bab099046cfaa35b4bddf20b13255894e49bff"
+                                       },
+                                       {
+                                           "path":  "config\\module-01-79172.dat",
+                                           "size":  1728,
+                                           "sha256":  "d799d8384ff879a966c492615b9e81c9858a59e52dc451d98d8aad34869a64c3"
+                                       },
+                                       {
+                                           "path":  "data\\module-02-11537.dat",
+                                           "size":  1792,
+                                           "sha256":  "c7dad9a1660840b940ecf676cff23b6078256f899a71701869ca1e942f1fc9f7"
+                                       },
+                                       {
+                                           "path":  "plugins\\module-03-72938.cfg",
+                                           "size":  3715,
+                                           "sha256":  "6e391535bf11125ee6610db723fc12c26516a57ab44dcbb2f0b2df8af0fb3206"
+                                       },
+                                       {
+                                           "path":  "assets\\module-04-41479.bin",
+                                           "size":  4032,
+                                           "sha256":  "6e19d46a586b78ac69d943f3c5062353b27821c03b64452dc0bfa6ec89d6e65a"
+                                       },
+                                       {
+                                           "path":  "cache\\module-05-30996.bin",
+                                           "size":  895,
+                                           "sha256":  "bdcb22f6cd09ea6d18c6e933dfa7cb46d2e1c6b31fa0559ad9139d0610bd90de"
+                                       },
+                                       {
+                                           "path":  "profiles\\module-06-24142.xml",
+                                           "size":  3741,
+                                           "sha256":  "468c7ec336ee8512923836eaa4af5856c7c60711c8dfd9e1ce09185b09d497b9"
+                                       },
+                                       {
+                                           "path":  "locale\\module-07-16131.txt",
+                                           "size":  1327,
+                                           "sha256":  "6cd65e9704bac738912c24e5f761c6d01157ad8fd0226be9f9e90e3e3355cad0"
+                                       },
+                                       {
+                                           "path":  "app\\module-08-31330.dat",
+                                           "size":  2570,
+                                           "sha256":  "3fad9f02d23d7dced0b13b6ba88a6b5275754133c7530de8fcbdfbc2e619edd8"
+                                       },
+                                       {
+                                           "path":  "config\\module-09-37525.json",
+                                           "size":  1277,
+                                           "sha256":  "a4413efc4c1fae53b98f12fa2b29080262a990fb7c99f9634891ab865a18bc6d"
+                                       },
+                                       {
+                                           "path":  "data\\module-10-97268.cfg",
+                                           "size":  2265,
+                                           "sha256":  "1d5e55022a79e49bd1422af3e19e301c1a1965d341ecb6db8ed4c69da9ca612f"
+                                       },
+                                       {
+                                           "path":  "fixture-identity.json",
+                                           "size":  174,
+                                           "sha256":  "c0f1a2eaac0f5f580d55251fb1ff5d92d102527f133e5fb524a7b2a2367fd11b"
+                                       }
+                                   ]
+                     },
+                     {
+                         "index":  1,
+                         "productName":  "Misty Comet 5157",
+                         "productCode":  "a0d7fb53-8baa-8465-6842-4b4ce9c8369d",
+                         "packageName":  "misty-comet-5157-setup-x64.exe",
+                         "installer":  "installers\\misty-comet-5157-setup-x64.exe",
+                         "installerSha256":  "ba808247558bf8e33d53bc6690b6bf7b4924c9727031002df427aec92ac07f1b",
+                         "installDirectoryRelativeToLocalAppData":  "Programs\\RustYuFixtures\\Misty-Comet-5157",
+                         "uninstallRegistryKey":  "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\RustYuFixture_a0d7fb53-8baa-8465-6842-4b4ce9c8369d",
+                         "files":  [
+                                       {
+                                           "path":  "config\\module-00-95480.cfg",
+                                           "size":  475,
+                                           "sha256":  "80b37443b1c7a432b2797154648b1b2742cf656e4667d1777e190ec4381d109a"
+                                       },
+                                       {
+                                           "path":  "data\\module-01-60772.ini",
+                                           "size":  1849,
+                                           "sha256":  "c3e194e19cd69cded19400466688c8d5bca1e7e0de3370fc282bb19c5c74259d"
+                                       },
+                                       {
+                                           "path":  "plugins\\module-02-71638.ini",
+                                           "size":  3842,
+                                           "sha256":  "fa2f3e7754e1a8306535aeaed0fdaf43758219ebbc68bb3b1b05ad079f44c2c8"
+                                       },
+                                       {
+                                           "path":  "assets\\module-03-90525.bin",
+                                           "size":  1809,
+                                           "sha256":  "d8ce2b0267043e1321a20200d80253a7365407684c5226c3a3dde5f9f06abcc8"
+                                       },
+                                       {
+                                           "path":  "cache\\module-04-34371.xml",
+                                           "size":  3461,
+                                           "sha256":  "3e982916a5bea33bf8987d817ad873eb41a020aeb685bb1ec6ee86141e6597e4"
+                                       },
+                                       {
+                                           "path":  "profiles\\module-05-63355.json",
+                                           "size":  2244,
+                                           "sha256":  "5843e580ff1c767a394ba6b89892d8da3c546d86047af24d88a8db53603b6573"
+                                       },
+                                       {
+                                           "path":  "locale\\module-06-14478.dat",
+                                           "size":  3181,
+                                           "sha256":  "a5c5f0d135017e7f3e1f048a6e54429caa9922f07ecae0b1f43732cb1445efe0"
+                                       },
+                                       {
+                                           "path":  "fixture-identity.json",
+                                           "size":  173,
+                                           "sha256":  "982b40d3e419a6834a1afab33512d3d77c6019e3784be2a67162ee1ab33b99bb"
+                                       }
+                                   ]
+                     },
+                     {
+                         "index":  2,
+                         "productName":  "Misty Nimbus 6137",
+                         "productCode":  "9cf71cdf-64a4-0808-68d4-64d719db11d8",
+                         "packageName":  "misty-nimbus-6137-setup-x64.exe",
+                         "installer":  "installers\\misty-nimbus-6137-setup-x64.exe",
+                         "installerSha256":  "800df63157eaaff65a4760b3aff10304c01f4877557fe061cd7498506e6210bc",
+                         "installDirectoryRelativeToLocalAppData":  "Programs\\RustYuFixtures\\Misty-Nimbus-6137",
+                         "uninstallRegistryKey":  "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\RustYuFixture_9cf71cdf-64a4-0808-68d4-64d719db11d8",
+                         "files":  [
+                                       {
+                                           "path":  "data\\module-00-36928.dat",
+                                           "size":  1296,
+                                           "sha256":  "7361e76b4cdb67a47883acc8d3ccbc460393beb913727979c10044176a3d78ca"
+                                       },
+                                       {
+                                           "path":  "plugins\\module-01-69864.dat",
+                                           "size":  2673,
+                                           "sha256":  "5a49a17af4b597b71b6a3a728930056df9d91ed02c74580871f1d4af703c4ad8"
+                                       },
+                                       {
+                                           "path":  "assets\\module-02-15198.ini",
+                                           "size":  578,
+                                           "sha256":  "2932808a2a68e512c3308b00b065b93700cae6f677aa8861ae4bc44591004486"
+                                       },
+                                       {
+                                           "path":  "cache\\module-03-31654.ini",
+                                           "size":  2927,
+                                           "sha256":  "8fe518fd3970f7e6fab9b7dece876a4db6d6b000f974f53c762a63cabab1857e"
+                                       },
+                                       {
+                                           "path":  "profiles\\module-04-13620.txt",
+                                           "size":  1211,
+                                           "sha256":  "3fca4df8fe954c87dc5b8c1e7863a3e019fe96307e8d3f1062995479d155ba3b"
+                                       },
+                                       {
+                                           "path":  "locale\\module-05-99887.xml",
+                                           "size":  1229,
+                                           "sha256":  "36ef2ac7857e013a111f0e49012baf0ad54b6ca108946ada390fdfb20548b6c3"
+                                       },
+                                       {
+                                           "path":  "app\\module-06-59369.txt",
+                                           "size":  511,
+                                           "sha256":  "aa24f8570312b61d05403eda977e8915e815a95cbf701f98b8eb32bdacda71d2"
+                                       },
+                                       {
+                                           "path":  "config\\module-07-88356.dat",
+                                           "size":  139,
+                                           "sha256":  "48aee2fcde2bb5040c7a2989b74cfabde814d81de8120a064008e8c7dfd20455"
+                                       },
+                                       {
+                                           "path":  "data\\module-08-46449.dat",
+                                           "size":  1804,
+                                           "sha256":  "2ab5c5648bffe28a77d8f02532a3ad70dd41496f9f39afbaf2f4a15043e9fda4"
+                                       },
+                                       {
+                                           "path":  "plugins\\module-09-13491.ini",
+                                           "size":  1362,
+                                           "sha256":  "1b0cfea937a45e5377cf58f529a6d6984d935c75292a123b6657fbc6671daaf0"
+                                       },
+                                       {
+                                           "path":  "assets\\module-10-80252.json",
+                                           "size":  2990,
+                                           "sha256":  "0a633cd91fdcdbf98646eb36437a909d3aa4c233a89b432e76cbf6bb83bed952"
+                                       },
+                                       {
+                                           "path":  "cache\\module-11-36628.xml",
+                                           "size":  3525,
+                                           "sha256":  "59bee207bae6d561ed47e074684a46043492db6f5aa100eed2e63b7d87565220"
+                                       },
+                                       {
+                                           "path":  "fixture-identity.json",
+                                           "size":  174,
+                                           "sha256":  "e2c94eab98765b74481d91a848392f0da315a1bc08ac8cfa59fd18b57e3add17"
+                                       }
+                                   ]
+                     },
+                     {
+                         "index":  3,
+                         "productName":  "Rapid Engine 4307",
+                         "productCode":  "70e919df-9ee8-bc3a-78e3-805243f9fd91",
+                         "packageName":  "rapid-engine-4307-setup-x64.exe",
+                         "installer":  "installers\\rapid-engine-4307-setup-x64.exe",
+                         "installerSha256":  "593648b96794b20f293c15c565517929ee0318732f76464de4e76f06c83d686a",
+                         "installDirectoryRelativeToLocalAppData":  "Programs\\RustYuFixtures\\Rapid-Engine-4307",
+                         "uninstallRegistryKey":  "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\RustYuFixture_70e919df-9ee8-bc3a-78e3-805243f9fd91",
+                         "files":  [
+                                       {
+                                           "path":  "plugins\\module-00-71673.json",
+                                           "size":  907,
+                                           "sha256":  "53375a18a1101b8bca98f94609b10ffa5a26c9fb9d1604c9199996493a0555e8"
+                                       },
+                                       {
+                                           "path":  "assets\\module-01-64345.ini",
+                                           "size":  223,
+                                           "sha256":  "db6e2e2fa1845f63421705d4616727e558066e84248aec0a265becf405ad552a"
+                                       },
+                                       {
+                                           "path":  "cache\\module-02-41606.bin",
+                                           "size":  1864,
+                                           "sha256":  "8ede235fc7948fb03cd657b1daf78d818efc300e991f8bcb9e009ca03ecdc43f"
+                                       },
+                                       {
+                                           "path":  "profiles\\module-03-15149.ini",
+                                           "size":  2103,
+                                           "sha256":  "4d7a2c0706023e8089b5203bdf5fcae45cbd84311952a3b44ea40291a4c1a346"
+                                       },
+                                       {
+                                           "path":  "locale\\module-04-80684.bin",
+                                           "size":  3948,
+                                           "sha256":  "f524f2ef425ba5bb3c31b765e2b7be0e89d558a7aecc009463ff863f82d29465"
+                                       },
+                                       {
+                                           "path":  "app\\module-05-53704.xml",
+                                           "size":  3881,
+                                           "sha256":  "4e77c5fc23cc118130efcee9911f6bdd889b47daab62fe9a48c0eed27355b704"
+                                       },
+                                       {
+                                           "path":  "fixture-identity.json",
+                                           "size":  174,
+                                           "sha256":  "13148a7adc98a2ad569f3c3c7ba412c95d90ad9a52327d42b3375800c2de200a"
+                                       }
+                                   ]
+                     },
+                     {
+                         "index":  4,
+                         "productName":  "Golden Nimbus 2642",
+                         "productCode":  "b640cbe1-288a-92d2-4231-2bef9d3d180a",
+                         "packageName":  "golden-nimbus-2642-setup-x64.exe",
+                         "installer":  "installers\\golden-nimbus-2642-setup-x64.exe",
+                         "installerSha256":  "300c5884ea404b75251d48e4c94a569c414f1f6e50a6da4ead22b14023a5f3ea",
+                         "installDirectoryRelativeToLocalAppData":  "Programs\\RustYuFixtures\\Golden-Nimbus-2642",
+                         "uninstallRegistryKey":  "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\RustYuFixture_b640cbe1-288a-92d2-4231-2bef9d3d180a",
+                         "files":  [
+                                       {
+                                           "path":  "assets\\module-00-63399.cache",
+                                           "size":  261,
+                                           "sha256":  "0aadb3bf24ea4684d51496daada8de82f412e787c5e9291eb72e0b3a08514533"
+                                       },
+                                       {
+                                           "path":  "cache\\module-01-19941.json",
+                                           "size":  1063,
+                                           "sha256":  "f380f6a5fee9f3f9851fb5a6dfe489dfbeedef59235a22adbc43849ccce4a06e"
+                                       },
+                                       {
+                                           "path":  "profiles\\module-02-70484.txt",
+                                           "size":  1078,
+                                           "sha256":  "1e8d0f626aac9af8fb9b0e3c7b6a885dd578f6608d811b3b93b061d9e7fdd1cf"
+                                       },
+                                       {
+                                           "path":  "locale\\module-03-87635.bin",
+                                           "size":  2304,
+                                           "sha256":  "5d2db3e4564a845b523165d18d2bff93ba6cb9b538f2dd5ab03eceb4c102fc76"
+                                       },
+                                       {
+                                           "path":  "app\\module-04-73520.json",
+                                           "size":  1330,
+                                           "sha256":  "e960c1f91637bc841367b617c83ef86323139f4dc487b19d0256756aede23c13"
+                                       },
+                                       {
+                                           "path":  "config\\module-05-65580.ini",
+                                           "size":  3162,
+                                           "sha256":  "0b4638359333d0fa6553405f0d36c3203e13bef1fc6dafb90e1663fc32f3fa16"
+                                       },
+                                       {
+                                           "path":  "data\\module-06-64995.xml",
+                                           "size":  464,
+                                           "sha256":  "868961caef090b1b239d4d93b150440e3eead48d6a83fdd31a08a943541473c9"
+                                       },
+                                       {
+                                           "path":  "fixture-identity.json",
+                                           "size":  175,
+                                           "sha256":  "a844394a007c720eebf521151101cede1edd1984286080e4a6d4b4ee86b2b43b"
+                                       }
+                                   ]
+                     },
+                     {
+                         "index":  5,
+                         "productName":  "Nimble Garden 8260",
+                         "productCode":  "bbabbfb8-315c-65dc-5802-d7332c9d7c76",
+                         "packageName":  "nimble-garden-8260-setup-x64.exe",
+                         "installer":  "installers\\nimble-garden-8260-setup-x64.exe",
+                         "installerSha256":  "09181062dd171165af32d13ce656848996f5c6c79f9e48ea61db3659de1d6f0e",
+                         "installDirectoryRelativeToLocalAppData":  "Programs\\RustYuFixtures\\Nimble-Garden-8260",
+                         "uninstallRegistryKey":  "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\RustYuFixture_bbabbfb8-315c-65dc-5802-d7332c9d7c76",
+                         "files":  [
+                                       {
+                                           "path":  "cache\\module-00-60936.cache",
+                                           "size":  994,
+                                           "sha256":  "af0b826c7ce2446b81edeb8dce8588d2df9f8f562f31fb369c24d77b37a3fea1"
+                                       },
+                                       {
+                                           "path":  "profiles\\module-01-75096.cache",
+                                           "size":  1827,
+                                           "sha256":  "ef3e23219de46f4a5da090c70b1a3184f9dce490635490648af88dfd9af7f8f9"
+                                       },
+                                       {
+                                           "path":  "locale\\module-02-63451.txt",
+                                           "size":  288,
+                                           "sha256":  "1ae3d44359dd21c916feb1b0c27b00851b408668a31a39c271696e79842720c0"
+                                       },
+                                       {
+                                           "path":  "app\\module-03-39612.json",
+                                           "size":  3928,
+                                           "sha256":  "8a9e5b66e33926ac89560973aeef1e3b3766efa0cb965ef48db14e4e9fa9167e"
+                                       },
+                                       {
+                                           "path":  "config\\module-04-11773.xml",
+                                           "size":  2287,
+                                           "sha256":  "096a7c729ff3b6bf3cb4b96b587d0052786ae0aaff9a949bc7416cf127970952"
+                                       },
+                                       {
+                                           "path":  "data\\module-05-74539.xml",
+                                           "size":  2642,
+                                           "sha256":  "28a455697de7b91771ef5415440fe01e5e4b6b5980d010a9c183a180eee6a152"
+                                       },
+                                       {
+                                           "path":  "plugins\\module-06-18677.bin",
+                                           "size":  3732,
+                                           "sha256":  "0b24595c2440f36a06ef753318b45ff168bf550cb2ab48e9dd9f8dd883b6d47d"
+                                       },
+                                       {
+                                           "path":  "assets\\module-07-80955.txt",
+                                           "size":  2412,
+                                           "sha256":  "c498258a8586ab2110eabfb8c0d3a672093fa3acf571096360ae773450e7aa9f"
+                                       },
+                                       {
+                                           "path":  "cache\\module-08-62916.bin",
+                                           "size":  2602,
+                                           "sha256":  "162a8550c7bb2c53c46e3d9d18c08740a3e63b115b08f75331993daf578484db"
+                                       },
+                                       {
+                                           "path":  "profiles\\module-09-31334.ini",
+                                           "size":  3947,
+                                           "sha256":  "2e34d8e24e740504af6dbc7477d744b2e66dfb6fa20b9e7d37419226e43e8d08"
+                                       },
+                                       {
+                                           "path":  "locale\\module-10-29787.cfg",
+                                           "size":  507,
+                                           "sha256":  "5cf9ad7f4dc62dbf226953c6a134a02005a0838a2c97ef14325cd3bb761b8c08"
+                                       },
+                                       {
+                                           "path":  "app\\module-11-31645.cfg",
+                                           "size":  387,
+                                           "sha256":  "1e0958c5125e56e9a2dae8f29d7a57f87999dc9aaf4d67046fb5bde01be93aa1"
+                                       },
+                                       {
+                                           "path":  "fixture-identity.json",
+                                           "size":  175,
+                                           "sha256":  "49e4f13c82e52a8cffa30272e2812ca799a88d35884e40d41ee29a89dc6e2c38"
+                                       }
+                                   ]
+                     }
+                 ]
+}

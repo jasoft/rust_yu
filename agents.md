@@ -23,20 +23,32 @@
 - **State Management:** Zustand (Frontend) / Tauri State (Backend).
 - **Windows API:** `windows-rs` (用于底层 API), `winreg` (用于注册表操作).
 
-### X64 工具链（强制）
+### A. 强制 x64 编译链（不可回退）
 
-- 开发机虽然是 Windows 11 ARM，但 Rust Yu **只允许**使用 `x86_64-pc-windows-msvc` 构建和发布；Node.js、npm 原生依赖、Rust、MSVC linker 也必须全部为 X64，禁止退回 ARM64 GNU/LLVM 或 ARM64 Node。
-- 在任何 Cargo、Tauri 或 GUI 命令前，必须从仓库根目录运行 `tools\dev\Initialize-Worktree.ps1`（可按任务使用 `-SkipFrontend` / `-RunCheck`），并确认输出中的 Rust host、Node architecture 和 `link.exe` 都是 X64。纯 WebUI 的 `npm test`、`npm run lint` 和前端检查不需要重复初始化工作树；使用 `tools\dev\Run-WebUiChecks.ps1` 做轻量 x64 Node 校验即可。
-- 不得直接依赖提权 PowerShell 继承的 PATH。`%USERPROFILE%\.cargo\bin` 必须优先于系统中旧的 ARM Rust，Node/npm/npx 必须来自同一个 X64 Node.js 目录。
-- 机器首次配置或需要修复全局环境时，必须在管理员 PowerShell 7（`pwsh.exe`）运行 `tools\dev\Configure-X64Environment.ps1`；它会把 Rustup 默认 toolchain、用户/机器 PATH、MSVC/Windows SDK 环境和 `RUST_YU_NODE_X64` 固定到 X64。ARM64 版 PowerShell 7 作为脚本宿主是允许的，编译目标仍必须是 X64。配置后必须关闭并重新打开 Terminal，再用 `rustc -vV` 和 `node -p process.arch` 复核。
+- **唯一允许的 Rust 工具链：** `stable-x86_64-pc-windows-msvc`。Rust host、Cargo target、Clippy、rustfmt、Tauri 原生构建、测试和发布产物必须全部使用 AMD64/x64 MSVC。
+- **禁止 ARM/GNU 回退：** 即使开发机是 Windows 11 ARM，也禁止使用 `aarch64-pc-windows-*`、`arm64`、`*-gnullvm` 或系统 PATH 中的 ARM Rust 来绕过缺失组件、编译错误或测试失败。x64 工具链不可用时必须停止并修复 x64 环境。
+- 仓库根目录的 `rust-toolchain.toml` 和 `.cargo/config.toml` 是强制边界，不得改成 ARM；不得在命令中传入 `--target aarch64-pc-windows-gnullvm`。
+- 这台机器的系统 PATH 可能优先命中 ARM GNU Rust。所有自动化必须通过 rustup 的 x64 代理调用 Rust 工具：
 
-### 构建时间与增量产物（强制）
+  ```powershell
+  $X64Cargo = Join-Path $env:USERPROFILE ".cargo\bin\cargo.exe"
+  $X64Rustc = Join-Path $env:USERPROFILE ".cargo\bin\rustc.exe"
+  $X64Rustfmt = Join-Path $env:USERPROFILE ".cargo\bin\rustfmt.exe"
+  & $X64Rustc -vV
+  & $X64Cargo +stable-x86_64-pc-windows-msvc check --workspace
+  & $X64Cargo +stable-x86_64-pc-windows-msvc test --workspace
+  & $X64Cargo +stable-x86_64-pc-windows-msvc clippy --workspace --all-targets
+  & $X64Rustfmt --edition 2021 --check <files...>
+  ```
 
-- **禁止随意冷构建：** 执行任何 Cargo、Tauri、npm 构建或会触发编译的测试前，必须先确认当前 checkout、目标架构、现有 `target`/前端依赖及已生成产物是否可复用。默认使用当前 checkout 已有的 X64 增量缓存和构建产物，不得为了“更干净”而删除缓存、切换新的 `CARGO_TARGET_DIR`、重复安装依赖或无理由全量重编译。
-- **先判断再编译：** 先根据本次改动范围选择最小且足够的验证命令。纯文档、脚本或不影响二进制的改动不得启动无关的 Rust/Tauri 冷构建；需要最终 GUI 验收时，也应优先让 `Run-Gui.ps1` 复用已有构建结果，只增量编译受影响部分。
-- **两分钟硬止损：** 任何单次编译，或测试/GUI 命令中的编译阶段，一旦持续超过 **2 分钟**，必须主动中断该进程，不得继续等待。超过两分钟视为构建路径、缓存复用、目标目录、工具链或验证范围选择错误的强烈信号；应立即检查原因、说明当前方向有误，并改用能够复用已有产物的更小范围命令后再继续。
-- **不得用换目录规避超时：** 除非已确认现有产物被运行中的 GUI 锁定且没有可复用方案，否则不得随意创建新的 `CARGO_TARGET_DIR`。确需隔离目录时，必须说明原因，并仍受两分钟硬止损限制。
-- **交付报告记录：** 最终报告应说明复用了哪些已有产物、是否触发编译、编译耗时，以及是否发生过两分钟中断；不得把长时间冷构建包装成正常等待。
+- 每次编译或测试前都必须检查 `rustc -vV` 的 `host`，只有 `host: x86_64-pc-windows-msvc` 才能继续；同时检查最终 PE/安装包为 AMD64，而不是仅依赖命令名称判断架构。
+- 安装 Rust 组件时必须显式指定 x64 工具链，例如：
+
+  ```powershell
+  & "$env:USERPROFILE\.cargo\bin\rustup.exe" component add clippy rustfmt --toolchain stable-x86_64-pc-windows-msvc
+  ```
+
+- 调用会间接执行 `rustc`/`cargo` 的 PowerShell、Tauri、NSIS 或测试脚本前，必须把 `%USERPROFILE%\.cargo\bin` 放到该进程 PATH 最前面，并再次验证 x64 host；禁止让脚本继承并误用系统 ARM Rust。
 
 ## 3. Critical Backend Rules (Rust)
 
@@ -114,35 +126,15 @@
 - 这个 legacy 测试夹具卸载后应保留 `C:\Program Files\RustYu Legacy Test App\logs\leftover.log` 和 `%LocalAppData%\RustYuLegacyTest\Data\leftover-user-profile.json`，便于验证安装目录与 AppData 残留扫描
 - tools\test\Verify-InnoLegacyFixture.ps1 默认验证夹具结构和安装包；传入 `-RunLifecycle` 时需要管理员 PowerShell，会安装夹具、检查卸载命令是否走 spawn wrapper，并调用 application workflow 集成测试验证 `waitforjobs`
 
-### GUI 测试方式（强制）
+## 8. 任务结束前的强制交付验收
 
-- 禁止使用 Computer Use / CUA 操控桌面窗口来做 GUI 测试。
-- GUI 功能测试必须使用浏览器自动化（例如 Playwright）驱动 WebUI 的 Vite dev server 或构建预览；Tauri command 与 event 通过明确的 mock、fixture 或 test double 注入。
-- 自动化测试必须断言可查询的 DOM/UI 状态和完整用户路径，不得把进程存在、端口监听、屏幕截图或人工观察当作功能通过的充分证据。
-- 涉及 UAC、文件删除、注册表修改或真实卸载的系统行为，应优先使用后端集成测试、dry-run fixture 和隔离夹具验证；浏览器自动化只负责验证前端交互编排，并在报告中单独标明未覆盖的原生边界。
-
-## 8. 交付验收门禁（强制，不可用 `cargo check` 替代）
-
-### A. 证据等级
-
-- `cargo check` 只证明代码通过类型检查和元数据/部分构建脚本检查；它通常不生成最终可执行文件，也不能证明最终链接、资源嵌入、前端构建、原生 Node binding、UAC、Tauri 启动或窗口渲染成功。
-- `cargo build` / `cargo test` 证明链接或测试产物能够生成，但仍不能证明管理员 GUI 能正常启动和交互。
-- 浏览器预览、Vite 页面、进程存在、端口监听或脚本语法检查都不能替代真实 Tauri 桌面窗口验收。
-
-### B. 每次交付必须完成
-
-1. 确认当前实际运行的 checkout 就是本次修改所在 checkout，并检查 `git status`，不得覆盖用户或其他任务的并发改动。
-2. 涉及 Rust、Tauri 或 GUI 时运行 `tools\dev\Initialize-Worktree.ps1`，确认 Rust、Node 和 MSVC linker 均为 X64；纯 WebUI 改动使用 `tools\dev\Run-WebUiChecks.ps1`，不重复执行工作树初始化。
-3. 运行与改动相关的完整 Rust 测试；涉及 workspace/Tauri 集成时，必须运行 `cargo test --workspace -- --test-threads=1`。GUI 正在运行并锁住默认产物时，使用当前 checkout 下独立的 `CARGO_TARGET_DIR`，不得因此跳过测试。
-4. 涉及 WebUI 时，在 `src-tauri\src-frontends\webui` 运行 `npm test`、`npm run lint`、`npm run build`；界面文案变更必须包含 `test:i18n`。
-5. **必须实际运行 `tools\dev\Run-Gui.ps1`，接受 UAC，并看到当前 checkout 构建出的 Rust Yu Tauri 窗口成功显示。** 至少确认窗口可响应、没有启动错误页、能够读取原生已安装程序数据；涉及的页面/功能必须在真实桌面窗口中打开并完成最小安全交互验证。
-6. 验证启动的 `rust-yu-tauri.exe` 为 X64 PE，且进程路径属于当前 checkout 的构建输出；不得拿旧进程、其他 worktree、安装版旧 EXE 或浏览器页面充当本次验收。
-7. `Run-Gui.ps1` 报错、UAC 未完成、窗口不可见、窗口使用错误 checkout、原生数据不可用或功能未在真实 GUI 中验证时，交付状态必须标为失败/未完成；必须修复根因并重新走完整门禁，禁止仅报告 `cargo check` 成功。
-
-### C. 交付报告
-
-- 最终交付必须分别列出：X64 工具链证据、Rust 测试、WebUI test/lint/build、`Run-Gui.ps1` 退出/启动结果、可见 GUI 验证、真实 UAC/系统操作验证。
-- 未执行的层级必须明确写“未验证”，不得用较低证据等级推断较高等级通过。
+- **每次任务结束前必须由代理亲自完成编译、测试和运行，不得把这些工作留给用户。** 即使本次只修改文档、配置或前端，也必须确认完整项目仍能编译，并启动当前 checkout 生成的桌面程序。
+- 编译前必须按“强制 x64 编译链”检查 `rustc -vV`，确认 `host: x86_64-pc-windows-msvc`；编译后必须检查最终 EXE/安装包的 PE 架构为 AMD64。
+- 必须至少完成以下自动化验证：Rust workspace 编译、Rust workspace 测试、WebUI production build 和 WebUI tests。任务涉及 lint、安装包、发布脚本或特定模块时，还必须运行对应检查，不能用局部语法检查替代完整用户路径。
+- 必须从本次实际修改所在的 checkout 启动刚编译的 `rust-yu-tauri.exe`，确认进程没有立即退出。涉及桌面 UI 的任务还必须使用可用的 Windows GUI/Computer Use 工具进入受影响页面并检查真实界面；浏览器预览不能替代 Tauri 桌面验证。
+- 必须区分并如实记录四种证据：`编译通过`、`自动化测试通过`、`桌面进程成功启动`、`真实 GUI/UAC/安装卸载生命周期已交互验证`。前三级不能冒充第四级。
+- 如果因为 UAC、桌面自动化、缺少测试夹具或外部环境而无法完成必要的运行验证，任务仍视为未完全验收：必须继续排查；确实无法推进时，要明确报告阻塞点和未验证范围，禁止使用“已完成”“没有问题”等表述。
+- 运行验证必须安全：不得为了验收直接清理用户真实数据。卸载、leftover 清理、恢复等破坏性路径优先使用仓库提供的 MSI/Inno/7-Zip 测试夹具，并保留确认、备份和恢复边界。
 
 ---
 

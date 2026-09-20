@@ -537,8 +537,6 @@ fn shred_file(
 
     if metadata.permissions().readonly() {
         let mut permissions = metadata.permissions();
-        // 本项目仅支持 Windows；清除只读属性不会改变 Unix 权限位。
-        #[allow(clippy::permissions_set_readonly_false)]
         permissions.set_readonly(false);
         fs::set_permissions(path, permissions)?;
     }

@@ -2,6 +2,7 @@ import { t } from "../i18n/index.ts";
 import { invoke } from "@tauri-apps/api/core";
 import { create } from "zustand";
 import type {
+  BackupRestoreResult,
   CommandError,
   EvidenceBundleExport,
   ReportExport,
@@ -17,11 +18,13 @@ interface ReportsState {
   actionLoading: boolean;
   error: string | null;
   notice: string | null;
+  restoringId: string | null;
   load: () => Promise<void>;
   open: (reportId: string) => Promise<void>;
   exportReport: (reportId: string, format: ReportExportFormat) => Promise<ReportExport | null>;
   exportEvidenceBundle: (reportId: string) => Promise<EvidenceBundleExport | null>;
   deleteReport: (reportId: string) => Promise<boolean>;
+  restoreBackup: (sessionId: string) => Promise<BackupRestoreResult | null>;
   clearMessages: () => void;
 }
 
@@ -38,6 +41,7 @@ export const useReportsStore = create<ReportsState>((set) => ({
   actionLoading: false,
   error: null,
   notice: null,
+  restoringId: null,
 
   load: async () => {
     set({ loading: true, error: null });
@@ -97,6 +101,26 @@ export const useReportsStore = create<ReportsState>((set) => ({
     } catch (error) {
       set({ actionLoading: false, error: errorMessage(error) });
       return false;
+    }
+  },
+
+  restoreBackup: async (sessionId) => {
+    set({ actionLoading: true, restoringId: sessionId, error: null, notice: null });
+    try {
+      const result = await invoke<BackupRestoreResult>("restore_backup_session", { sessionId });
+      const reports = await invoke<ReportInfo[]>("get_reports");
+      set({
+        reports,
+        actionLoading: false,
+        restoringId: null,
+        notice: result.success
+          ? `已恢复 ${result.restored_count} 个清理项目。`
+          : `已恢复 ${result.restored_count} 个项目，另有 ${result.failed_count} 个项目未覆盖，可调整目标后重试。`,
+      });
+      return result;
+    } catch (error) {
+      set({ actionLoading: false, restoringId: null, error: errorMessage(error) });
+      return null;
     }
   },
 

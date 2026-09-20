@@ -1,48 +1,50 @@
-# 深度分析真值夹具
+# Randomized x64 NSIS fixtures
 
-这组夹具专门验证 Rust Yu 的只读 APP 深度分析，不依赖真实软件内部结构，也不把“看起来合理”当成正确。每个安装器写入一组已知文件、注册表值和 Windows 集成项，`expected-traces.json` 则逐条声明扫描器必须返回的路径、类型、最低分数、证据原因和保护状态。
+这套夹具生成多个彼此独立的原生 AMD64 NSIS 安装器，供 Rust Yu 重复测试安装、卸载项扫描和卸载生命周期。
 
-## 三种安装画像
+每个 fixture 都有随机且唯一的产品名、产品 GUID、EXE 文件名、安装目录以及 6–13 个不同路径和内容的 payload 文件。构建结果同时保存 SHA-256 清单，验证脚本不会只相信文件名或 NSIS 配置，而会读取 PE 头确认安装器和卸载器的 Machine 均为 `AMD64 (0x8664)`。
 
-- `deep-nsis-machine`：X64、机器级 NSIS。覆盖 Program Files、ProgramData、公共开始菜单、公共桌面、HKLM Uninstall、App Paths、Run、URL 协议、环境变量、SharedDLLs、服务和禁用的计划任务。
-- `deep-nsis-user`：X64、当前用户 NSIS。覆盖 LocalAppData Programs、Roaming、Local、LocalLow、当前用户开始菜单和桌面的 `.lnk`/`.url`、HKCU Uninstall、App Paths、Run、URL 协议和环境变量。
-- `deep-nsis-sparse`：X64、当前用户 NSIS。故意省略 `InstallLocation`、`DisplayIcon`、静默卸载命令和大小，且把卸载器放在独立目录，用来验证扫描器仍能从标准用户安装目录的精确名称发现全部嵌套文件。
-
-三者都使用仓库内已有的 AMD64 NSIS 编译器；载荷由 `x86_64-pc-windows-msvc` Rust 编译器生成。构建脚本会验证所有四个 EXE 的 PE Machine 都是 `0x8664`。
-
-## 构建与结构校验
+## 构建
 
 ```powershell
-.\.resources\nsis-random-fixtures\Build-Fixtures.ps1
-.\.resources\nsis-random-fixtures\Verify-Fixtures.ps1
+powershell -ExecutionPolicy Bypass -File '.\.resources\nsis-random-fixtures\Build-NsisRandomFixtures.ps1' -Count 6
 ```
 
-构建输出位于 `output/`，并作为可复现的测试资源提交。默认验证只读取文件，不安装、不卸载、不修改注册表。
+第一次运行会下载固定版本的 negrutiu NSIS AMD64 发行版到本目录下的 `.tools`，下载文件经过固定 SHA-256 校验。官方 NSIS 通常只生成 x86 stub；这里必须使用支持 `Target amd64-unicode` 的发行版。
 
-## 安装并执行只读真值分析
-
-当前用户夹具不需要提权：
+默认使用随机 seed。需要完全复现某一组时显式传入 seed：
 
 ```powershell
-.\.resources\nsis-random-fixtures\Verify-Fixtures.ps1 -InstallUserFixtures -RunAnalysis
+powershell -ExecutionPolicy Bypass -File '.\.resources\nsis-random-fixtures\Build-NsisRandomFixtures.ps1' -Count 6 -Seed 20260810
 ```
 
-机器级夹具需要管理员 PowerShell：
+输出位于 `output\set-<seed>`，其中 `fixture-set.json` 记录每个包的名称、安装路径、卸载注册表键、文件清单和哈希。相同 seed 已存在时构建会拒绝覆盖；确认重建可加 `-Force`。
+
+## 静态校验
 
 ```powershell
-.\.resources\nsis-random-fixtures\Verify-Fixtures.ps1 -InstallMachineFixture -RunAnalysis
+powershell -ExecutionPolicy Bypass -File '.\tools\test\Verify-NsisRandomFixtures.ps1' \
+  -FixtureSetPath '.\.resources\nsis-random-fixtures\output\set-20260810\fixture-set.json'
 ```
 
-`-RunAnalysis` 只调用扫描器并对照真值，不调用清理器或卸载器。脚本故意不会自动卸载夹具，以确保“分析测试”与“删除授权”完全分离。需要移除时，必须由测试人员在 Windows 设置或 Rust Yu 中明确选择对应夹具并执行正常卸载。
+## 完整安装/卸载验证
 
-## 真值失败的含义
+fixture 使用当前用户权限安装到 `%LocalAppData%\Programs\RustYuFixtures`，不触发 UAC；卸载项写入 HKCU 的 64 位视图。下面的命令会逐个静默安装、核对所有已安装文件及哈希、确认卸载器为 AMD64、静默卸载，并确认安装目录和卸载项均已删除：
 
-测试失败不是通过放宽匹配规则解决。应先判断是哪一层出现偏差：
+```powershell
+powershell -ExecutionPolicy Bypass -File '.\tools\test\Verify-NsisRandomFixtures.ps1' \
+  -FixtureSetPath '.\.resources\nsis-random-fixtures\output\set-20260810\fixture-set.json' \
+  -RunLifecycle
+```
 
-1. 安装器没有创建声明的目标；
-2. 已安装程序清单没有保留必要上下文；
-3. 扫描位置遗漏或扫描被截断；
-4. 路径存在但类型、分数、证据原因或保护状态错误；
-5. 某个扫描区失败/跳过，而 UI 仍错误地声称扫描完整。
+只跑指定 fixture：
 
-`tests/deep_analysis_fixtures.rs` 会逐项核对以上契约，并拒绝任何扫描区报告 `failed` 或 `skipped`。系统 Classes 分支达到明确上限时允许 `partial`，但 UI 必须如实展示，且固定真值仍须全部命中。
+```powershell
+powershell -ExecutionPolicy Bypass -File '.\tools\test\Verify-NsisRandomFixtures.ps1' \
+  -FixtureSetPath '.\.resources\nsis-random-fixtures\output\set-20260810\fixture-set.json' \
+  -FixtureIndex 0,2 -RunLifecycle
+```
+
+生命周期失败时脚本只会兜底清理已验证处于 `%LocalAppData%\Programs\RustYuFixtures` 下的当前 fixture 目录和对应 HKCU 卸载项。
+
+原生 AMD64 NSIS 卸载器在部分 Windows ARM64/x64 仿真环境中可能短暂占用自身。因此卸载器最后会异步释放一个非提权收尾脚本；它只删除产品目录中固定名为 `uninstall.exe` 的文件，并只对已经为空的产品目录执行非递归 `rd`，不会递归删除任意目标。
