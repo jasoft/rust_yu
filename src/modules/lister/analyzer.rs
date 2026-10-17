@@ -294,8 +294,9 @@ mod tests {
     #[test]
     fn broken_registry_entry_has_no_existing_file_reference() {
         let mut program = InstalledProgram::new("Choice".to_string(), InstallSource::Registry);
-        program.uninstall_string = Some(r#"C:\Eastmoney\Choice\uninst.exe"#.to_string());
-        program.icon_path = Some(r#"C:\Eastmoney\Choice\Choice.exe"#.to_string());
+        program.uninstall_string =
+            Some(r#"C:\Eastmoney\ChoiceNonExistent\uninst.exe"#.to_string());
+        program.icon_path = Some(r#"C:\Eastmoney\ChoiceNonExistent\Choice.exe"#.to_string());
 
         assert!(is_broken_installation(&program));
     }

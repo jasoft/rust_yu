@@ -7,7 +7,6 @@
     "core:default",
     "core:event:default",
     "dialog:allow-open",
-    "allow-reconstruct-installation",
     "allow-list-cleanup-policy-profiles",
     "allow-plan-program-hibernation",
     "allow-apply-program-hibernation",

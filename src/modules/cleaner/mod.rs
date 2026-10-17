@@ -251,7 +251,7 @@ fn backup_reason(traces: &[Trace]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{backup_reason, clean_traces};
+    use super::{backup_reason, clean_reviewed_traces, clean_traces};
     use crate::modules::backup::restore_session;
     use crate::modules::lister::storage::TEST_STORAGE_ENV_LOCK;
 
