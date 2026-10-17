@@ -53,7 +53,16 @@ pub fn list_registry_programs() -> Result<Vec<InstalledProgram>, UninstallerErro
 
 /// 检查程序是否仍存在于卸载注册表中。
 pub fn registry_program_exists(name: &str) -> Result<bool, UninstallerError> {
+    Ok(!find_uninstall_registry_key_paths(name).is_empty())
+}
+
+/// 按 DisplayName 精确匹配定位 Uninstall 注册表项的完整路径（HKLM/HKCU 均覆盖）。
+///
+/// 强制卸载时使用：即使反安装程序丢失、卸载信息损坏，或子键名是 GUID
+/// （不包含程序名），也能定位到安装程序列表中的条目以便清除。
+pub fn find_uninstall_registry_key_paths(name: &str) -> Vec<String> {
     let target = name.to_lowercase();
+    let mut paths_found = Vec::new();
 
     let paths = [
         (
@@ -76,7 +85,12 @@ pub fn registry_program_exists(name: &str) -> Result<bool, UninstallerError> {
                 if let Ok(subkey) = key.open_subkey(&subkey_name) {
                     if let Ok(display_name) = subkey.get_value::<String, _>("DisplayName") {
                         if display_name.to_lowercase() == target {
-                            return Ok(true);
+                            paths_found.push(format!(
+                                "{}\\{}\\{}",
+                                format_hkey(*hkey),
+                                path,
+                                subkey_name
+                            ));
                         }
                     }
                 }
@@ -84,7 +98,7 @@ pub fn registry_program_exists(name: &str) -> Result<bool, UninstallerError> {
         }
     }
 
-    Ok(false)
+    paths_found
 }
 
 /// 只读获取某个 ARP/Uninstall 键的全部值。

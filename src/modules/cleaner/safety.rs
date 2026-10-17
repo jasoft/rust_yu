@@ -35,6 +35,14 @@ pub fn pre_delete_check(trace: &Trace) -> Result<(), UninstallerError> {
         )));
     }
 
+    // 共用目录保护：仍被其他已安装程序使用的路径禁止删除，避免误伤其他程序
+    if trace.is_shared {
+        return Err(UninstallerError::CriticalSystemItem(format!(
+            "该项仍被其他已安装程序共享使用，已跳过: {}",
+            trace.path
+        )));
+    }
+
     // 根据类型进行特定检查
     match trace.trace_type {
         TraceType::RegistryKey | TraceType::RegistryValue => {

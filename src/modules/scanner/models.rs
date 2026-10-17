@@ -151,6 +151,9 @@ pub struct Trace {
     pub description: String,
     pub size: Option<u64>,
     pub is_critical: bool,
+    /// 仍被其他已安装程序共享使用（如共用安装目录），删除会误伤其他程序
+    #[serde(default)]
+    pub is_shared: bool,
     pub confidence: Confidence,
     /// 0-100 的证据强度分数。0 表示旧快照尚未分配可解释证据。
     #[serde(default)]
@@ -173,6 +176,7 @@ impl Trace {
             description: String::new(),
             size: None,
             is_critical: false,
+            is_shared: false,
             confidence: Confidence::Low,
             confidence_score: 0,
             confidence_reason: ConfidenceReason::Unknown,
