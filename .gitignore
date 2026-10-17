@@ -26,4 +26,6 @@ Thumbs.db
 
 # Logs
 *.log
+# Inno legacy 夹具的残留日志是必需 payload，不能被上面的 *.log 规则忽略
+!.resources/inno-legacy-test/payload/app/logs/leftover.log
 node_modules
