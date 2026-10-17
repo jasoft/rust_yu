@@ -272,6 +272,11 @@ fn build_scoped_program_cache_key(
 ) -> String {
     let mut hasher = DefaultHasher::new();
     source.as_str().hash(&mut hasher);
+    // 缓存键必须覆盖与 dedupe_and_sort 相同的身份维度：注册表/Store 程序按
+    // program.id（稳定注册表路径）去重，两个注册表路径不同但字段完全相同的
+    // 条目（典型：64 位视图 + WOW6432Node 双重注册）是合法共存的两条记录，
+    // 只哈希字段值会让它们在批量写入时触发主键冲突。
+    program.id.to_lowercase().hash(&mut hasher);
     build_program_cache_key(program).hash(&mut hasher);
     format!("{:016x}", hasher.finish())
 }
@@ -707,6 +712,40 @@ mod tests {
             .unwrap_or_default();
         assert!(!result.cache_hit);
         assert_eq!(result.reason, Some("cache_missing".to_string()));
+        cleanup_storage_root(&root);
+    }
+
+    #[test]
+    fn save_scan_cache_accepts_registry_entries_with_same_fields_but_distinct_ids() {
+        let _guard = super::TEST_STORAGE_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let root = with_storage_root("dup-registry-ids");
+
+        // 同一应用在 64 位视图与 WOW6432Node 下双重注册：注册表路径（id）不同，
+        // 但名称/发布者/卸载命令/安装目录完全一致，两条记录必须都能写入缓存。
+        let mut machine_view =
+            InstalledProgram::new("Same App".to_string(), InstallSource::Registry);
+        machine_view.id = "registry:HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\SameApp"
+            .to_string();
+        machine_view.publisher = Some("Same Publisher".to_string());
+        machine_view.uninstall_string = Some("MsiExec.exe /X{GUID}".to_string());
+        machine_view.install_location = Some("C:\\Program Files\\Same App".to_string());
+
+        let mut wow64_view = machine_view.clone();
+        wow64_view.id =
+            "registry:HKLM\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\SameApp"
+                .to_string();
+
+        assert!(save_scan_cache(InstallSourceSelector::Standard, &[machine_view, wow64_view])
+            .is_ok());
+
+        let entries = read_scan_cache(InstallSourceSelector::Standard, DEFAULT_CACHE_TTL_SECONDS)
+            .unwrap_or_default()
+            .entries
+            .unwrap_or_default();
+        assert_eq!(entries.len(), 2);
+
         cleanup_storage_root(&root);
     }
 
