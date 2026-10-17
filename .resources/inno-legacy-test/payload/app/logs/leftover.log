@@ -1,0 +1,11 @@
+RustYu Legacy Test App - application log
+========================================
+
+[2026-01-01 09:00:00] app started
+[2026-01-01 09:00:01] config loaded from config\default.json
+[2026-01-01 09:00:02] user profile: %LocalAppData%\RustYuLegacyTest\Data\leftover-user-profile.json
+[2026-01-01 09:00:03] session closed
+
+This file is installed with the uninsneveruninstall flag on purpose.
+It must survive uninstallation so that rust_yu can detect an
+install-directory leftover under logs\.
