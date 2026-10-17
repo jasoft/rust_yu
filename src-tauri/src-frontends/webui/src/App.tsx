@@ -10,6 +10,7 @@ import {
   ChevronDown,
   CircleHelp,
   Database,
+  FileCode2,
   FileText,
   FileWarning,
   Folder,
@@ -104,8 +105,10 @@ import {
   type ColumnWidths,
 } from "react-data-grid";
 
-type Stage = "apps" | "confirm" | "progress" | "scan" | "review" | "complete";
-type NavKey = "apps" | "health" | "startup" | "cleaner" | "shredder" | "backups" | "traces" | "monitor" | "evidence" | "reports" | "plugins" | "tools" | "settings" | "about";
+type Stage = UninstallWorkflowStage | AnalysisWorkflowStage;
+type ScanStatus = "uninstalling" | "verifying" | "scanning" | "complete";
+type ScanMode = "uninstall" | "deep-analysis";
+type NavKey = "apps" | "health" | "startup" | "cleaner" | "shredder" | "backups" | "traces" | "monitor" | "inventory" | "evidence" | "reports" | "plugins" | "tools" | "developer" | "settings" | "about";
 
 export interface UiProgram {
   id: string;
@@ -2221,7 +2224,57 @@ function ProgramInfoModal({ program, onClose }: { program: UiProgram; onClose: (
   );
 }
 
-function PlaceholderPage({ active }: { active: NavKey }) {
-  const names: Record<NavKey, string> = { apps: "已安装应用", health: "软件健康", startup: "自启动管理", cleaner: "系统清理", shredder: "文件粉碎", backups: "备份与恢复", traces: "软件残留", monitor: "安装监控", evidence: "证据与策略", reports: "卸载记录", plugins: "浏览器插件", tools: "工具箱", settings: "设置", about: "关于" };
-  return <div className="placeholder-page"><span><Sparkles size={30} /></span><h1>{names[active]}</h1><p>该模块将在后续版本中提供。</p></div>;
+function SettingsPage({ developerModeEnabled, onDeveloperModeChange }: { developerModeEnabled: boolean; onDeveloperModeChange: (enabled: boolean) => void }) {
+  const currentLanguage = getLanguage();
+  const languageNames: Record<Language, string> = {
+    "zh-CN": t("settings.language.zh_cn"),
+    "en-US": t("settings.language.en_us"),
+  };
+
+  return (
+    <div className="page settings-page">
+      <SectionHeader title={t("settings.title")} subtitle={t("settings.subtitle")} />
+      <section className="settings-card card-surface">
+        <div>
+          <h2>{t("settings.language.title")}</h2>
+          <p>{t("settings.language.description")}</p>
+        </div>
+        <div className="language-options" role="radiogroup" aria-label={t("settings.language.title")}>
+          {supportedLanguages.map((language) => (
+            <button
+              type="button"
+              role="radio"
+              aria-checked={currentLanguage === language}
+              className={currentLanguage === language ? "selected" : ""}
+              key={language}
+              onClick={() => setLanguage(language)}
+            >
+              <span>{languageNames[language]}</span>
+              <small>{language}</small>
+              {currentLanguage === language && <Check size={16} />}
+            </button>
+          ))}
+        </div>
+        <p className="settings-note"><Info size={14} />{t("settings.language.reload_note")}</p>
+      </section>
+      <section className="settings-card developer-mode-setting card-surface">
+        <div className="developer-mode-setting-copy">
+          <span><FileCode2 size={18} /></span>
+          <div><h2>{t("settings.developer.title")}</h2><p>{t("settings.developer.description")}</p></div>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={developerModeEnabled}
+          className={`settings-switch ${developerModeEnabled ? "on" : ""}`}
+          onClick={() => onDeveloperModeChange(!developerModeEnabled)}
+        >
+          <span />
+          <strong>{developerModeEnabled ? t("settings.developer.enabled") : t("settings.developer.disabled")}</strong>
+        </button>
+        <p className="settings-note"><Info size={14} />{t("settings.developer.note")}</p>
+      </section>
+      <CleanupSafetyRules />
+    </div>
+  );
 }
