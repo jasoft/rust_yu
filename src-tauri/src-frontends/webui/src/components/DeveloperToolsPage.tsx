@@ -27,6 +27,9 @@ const fixtureNameKeys: Record<string, TranslationKey> = {
   "deep-nsis-machine": "developer.fixture.deep_machine.name",
   "deep-nsis-user": "developer.fixture.deep_user.name",
   "deep-nsis-sparse": "developer.fixture.deep_sparse.name",
+  "leftover-machine": "developer.fixture.leftover_machine.name",
+  "leftover-user": "developer.fixture.leftover_user.name",
+  "leftover-sparse": "developer.fixture.leftover_sparse.name",
 };
 
 const fixtureDescriptionKeys: Record<string, TranslationKey> = {
@@ -35,12 +38,16 @@ const fixtureDescriptionKeys: Record<string, TranslationKey> = {
   "deep-nsis-machine": "developer.fixture.deep_machine.description",
   "deep-nsis-user": "developer.fixture.deep_user.description",
   "deep-nsis-sparse": "developer.fixture.deep_sparse.description",
+  "leftover-machine": "developer.fixture.leftover_machine.description",
+  "leftover-user": "developer.fixture.leftover_user.description",
+  "leftover-sparse": "developer.fixture.leftover_sparse.description",
 };
 
 const fixtureKindKeys: Record<DeveloperFixture["kind"], TranslationKey> = {
   msi: "developer.fixture.kind.msi",
   inno: "developer.fixture.kind.inno",
   nsis: "developer.fixture.kind.nsis",
+  script: "developer.fixture.kind.script",
 };
 
 const commandErrorKeys: Record<string, TranslationKey> = {
@@ -67,9 +74,12 @@ function fixtureDescription(id: string): string {
 
 function formatFixtureSize(bytes: number | null): string {
   if (bytes === null) return t("developer.fixture.size_unknown");
-  const megabytes = bytes / 1024 / 1024;
+  const numberFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
+  if (bytes < 1024 * 1024) {
+    return t("developer.fixture.size_kb", { value0: numberFormat.format(bytes / 1024) });
+  }
   return t("developer.fixture.size", {
-    value0: new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(megabytes),
+    value0: numberFormat.format(bytes / 1024 / 1024),
   });
 }
 
@@ -147,6 +157,9 @@ export function DeveloperToolsPage() {
       const response = await installDeveloperFixtures(fixtureIds);
       setResults(response.results);
       await reloadPrograms({ refresh: true });
+      // 安装完成后刷新目录，让每张夹具卡片的“已安装/未安装”状态即时更新。
+      const catalog = await listDeveloperFixtures();
+      setFixtures(catalog);
     } catch (reason) {
       setError(commandErrorMessage(reason));
     } finally {
@@ -212,6 +225,15 @@ export function DeveloperToolsPage() {
                     </span>
                     <span className="developer-fixture-meta">
                       <small>{t(fixtureKindKeys[fixture.kind])} · {formatFixtureSize(fixture.size)}</small>
+                      {fixture.available && (
+                        <em
+                          data-testid="developer-fixture-state"
+                          data-installed={fixture.installed}
+                          className={fixture.installed ? "state-installed" : "state-not-installed"}
+                        >
+                          {t(fixture.installed ? "developer.fixture.installed" : "developer.fixture.not_installed")}
+                        </em>
+                      )}
                       {!fixture.available && <em>{t("developer.fixture.missing")}</em>}
                       {result && <span data-testid="developer-fixture-result" data-status={result.status}><FixtureResult result={result} /></span>}
                     </span>

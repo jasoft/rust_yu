@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
-export type DeveloperFixtureKind = "msi" | "inno" | "nsis";
+export type DeveloperFixtureKind = "msi" | "inno" | "nsis" | "script";
 export type FixtureInstallStatus = "installed" | "reboot_required" | "failed";
 
 export interface DeveloperFixture {
@@ -10,6 +10,8 @@ export interface DeveloperFixture {
   path: string;
   available: boolean;
   size: number | null;
+  /** 该夹具当前是否已安装在系统中（按 ARP 卸载键判断）。 */
+  installed: boolean;
 }
 
 export interface FixtureInstallResult {

@@ -159,8 +159,13 @@ impl BackupPreparation {
         let matches_snapshot = match item.state {
             BackupItemState::Missing => !current.exists,
             BackupItemState::Ready => {
-                current.exists
-                    && current.kind == item.kind
+                // 备份后目标已消失（例如同批次清理先删除了父键，值随键一起消失）。
+                // 缺失不属于"出现了新内容"的保护场景；按幂等放行，删除阶段会把
+                // NotFound 视为成功，整次清理不应因此被误报为失败。
+                if !current.exists {
+                    return Ok(());
+                }
+                current.kind == item.kind
                     && current.bytes == item.bytes
                     && item.fingerprint.is_some()
                     && current.fingerprint == item.fingerprint

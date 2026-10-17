@@ -23,6 +23,8 @@ pub enum DeveloperFixtureKind {
     Msi,
     Inno,
     Nsis,
+    /// PowerShell 脚本夹具（如故意留痕的卸载测试夹具）。
+    Script,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -32,6 +34,8 @@ pub struct DeveloperFixture {
     pub path: String,
     pub available: bool,
     pub size: Option<u64>,
+    /// 该夹具当前是否已安装在系统中（按 ARP 卸载键判断）。
+    pub installed: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -75,6 +79,9 @@ struct FixtureDefinition {
     id: &'static str,
     kind: DeveloperFixtureKind,
     relative_path: &'static str,
+    /// 判断夹具是否已安装的 ARP 卸载键列表（形如 "HKLM\SOFTWARE\..."）。
+    /// 多数安装器在 WOW64 视图还会有镜像键，命中任意一个即视为已安装。
+    installed_keys: &'static [&'static str],
 }
 
 const FIXTURES: &[FixtureDefinition] = &[
@@ -82,26 +89,55 @@ const FIXTURES: &[FixtureDefinition] = &[
         id: "xplorer-msi",
         kind: DeveloperFixtureKind::Msi,
         relative_path: "Xplorer_0.3.1_x64.msi",
+        installed_keys: &[
+            r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{93CA8C7C-F9B0-4FA3-B0EE-7DFDE701112A}",
+            r"HKLM\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\{93CA8C7C-F9B0-4FA3-B0EE-7DFDE701112A}",
+        ],
     },
     FixtureDefinition {
         id: "legacy-inno",
         kind: DeveloperFixtureKind::Inno,
         relative_path: "inno-legacy-test/output/RustYuLegacyTestSetup.exe",
+        installed_keys: &[
+            r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\rust_yu_legacy_test_app_is1",
+            r"HKLM\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\rust_yu_legacy_test_app_is1",
+        ],
     },
     FixtureDefinition {
         id: "deep-nsis-machine",
         kind: DeveloperFixtureKind::Nsis,
         relative_path: "nsis-random-fixtures/output/RustYuDeepScanMachineSetup.exe",
+        installed_keys: &[r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\RustYuDeepScanMachine"],
     },
     FixtureDefinition {
         id: "deep-nsis-user",
         kind: DeveloperFixtureKind::Nsis,
         relative_path: "nsis-random-fixtures/output/RustYuDeepScanUserSetup.exe",
+        installed_keys: &[r"HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\RustYuDeepScanUser"],
     },
     FixtureDefinition {
         id: "deep-nsis-sparse",
         kind: DeveloperFixtureKind::Nsis,
         relative_path: "nsis-random-fixtures/output/RustYuDeepScanSparseSetup.exe",
+        installed_keys: &[r"HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\RustYuDeepScanSparse"],
+    },
+    FixtureDefinition {
+        id: "leftover-machine",
+        kind: DeveloperFixtureKind::Script,
+        relative_path: "leftover-trace-fixtures/Install-LeftoverFixtures.ps1",
+        installed_keys: &[r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\RustYuLeftoverMachine"],
+    },
+    FixtureDefinition {
+        id: "leftover-user",
+        kind: DeveloperFixtureKind::Script,
+        relative_path: "leftover-trace-fixtures/Install-LeftoverFixtures.ps1",
+        installed_keys: &[r"HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\RustYuLeftoverUser"],
+    },
+    FixtureDefinition {
+        id: "leftover-sparse",
+        kind: DeveloperFixtureKind::Script,
+        relative_path: "leftover-trace-fixtures/Install-LeftoverFixtures.ps1",
+        installed_keys: &[r"HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\RustYuLeftoverSparse"],
     },
 ];
 
@@ -129,6 +165,20 @@ fn installer_argument_path(path: &Path) -> PathBuf {
         .map_or_else(|| path.to_path_buf(), PathBuf::from)
 }
 
+/// 按 ARP 卸载键判断夹具是否已安装。命名注册表视图（WOW64 镜像）下的
+/// 键也算命中，避免 32 位安装器装的夹具被误报为未安装。
+fn registry_key_exists(key_path: &str) -> bool {
+    let Some((hive_str, subkey)) = key_path.split_once('\\') else {
+        return false;
+    };
+    let hive = match hive_str.to_ascii_uppercase().as_str() {
+        "HKLM" | "HKEY_LOCAL_MACHINE" => winreg::enums::HKEY_LOCAL_MACHINE,
+        "HKCU" | "HKEY_CURRENT_USER" => winreg::enums::HKEY_CURRENT_USER,
+        _ => return false,
+    };
+    winreg::RegKey::predef(hive).open_subkey(subkey).is_ok()
+}
+
 fn fixture_catalog() -> Vec<DeveloperFixture> {
     FIXTURES
         .iter()
@@ -142,6 +192,10 @@ fn fixture_catalog() -> Vec<DeveloperFixture> {
                 path: path.to_string_lossy().into_owned(),
                 available: metadata.as_ref().is_some_and(std::fs::Metadata::is_file),
                 size: metadata.map(|value| value.len()),
+                installed: definition
+                    .installed_keys
+                    .iter()
+                    .any(|key| registry_key_exists(key)),
             }
         })
         .collect()
@@ -297,6 +351,26 @@ async fn run_fixture_installer(definition: FixtureDefinition, path: &Path) -> Fi
             command.arg("/S");
             command
         }
+        DeveloperFixtureKind::Script => {
+            // 留痕夹具是 PowerShell 脚本：显式使用 System32 的 Windows PowerShell
+            // 并只安装当前夹具。不要用 MSIX 打包的 pwsh——它的注册表虚拟化沙箱
+            // 会让 HKLM 写入出现"成功但不落盘"的假象。
+            let powershell = std::env::var("SystemRoot")
+                .map(|root| Path::new(&root).join(r"System32\WindowsPowerShell\v1.0\powershell.exe"))
+                .unwrap_or_else(|_| Path::new(r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe").to_path_buf());
+            let mut command = Command::new(powershell);
+            command.args([
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-WindowStyle",
+                "Hidden",
+                "-File",
+            ]);
+            command.arg(&installer_path);
+            command.args(["-FixtureIds", definition.id]);
+            command
+        }
     };
     command.kill_on_drop(true);
 
@@ -355,14 +429,41 @@ mod tests {
     #[test]
     fn catalog_contains_only_the_fixed_installable_fixtures() {
         let catalog = fixture_catalog();
-        assert_eq!(catalog.len(), 5);
+        assert_eq!(catalog.len(), 8);
         assert_eq!(catalog[0].id, "xplorer-msi");
         assert_eq!(catalog[1].id, "legacy-inno");
         assert_eq!(catalog[2].id, "deep-nsis-machine");
         assert_eq!(catalog[3].id, "deep-nsis-user");
         assert_eq!(catalog[4].id, "deep-nsis-sparse");
+        assert_eq!(catalog[5].id, "leftover-machine");
+        assert_eq!(catalog[6].id, "leftover-user");
+        assert_eq!(catalog[7].id, "leftover-sparse");
         assert!(catalog.iter().all(|fixture| fixture.available));
         assert!(catalog.iter().all(|fixture| fixture.size.is_some()));
+    }
+
+    #[test]
+    fn every_fixture_declares_an_install_detection_key() {
+        for definition in FIXTURES {
+            assert!(
+                !definition.installed_keys.is_empty(),
+                "fixture {} must declare at least one ARP key for installed detection",
+                definition.id
+            );
+            for key in definition.installed_keys {
+                let hive = key.split('\\').next().unwrap_or("");
+                assert!(
+                    matches!(hive, "HKLM" | "HKCU"),
+                    "fixture {} uses unsupported hive in {key}",
+                    definition.id
+                );
+                assert!(
+                    key.contains(r"\Uninstall\"),
+                    "fixture {} detection key must point at an ARP uninstall key: {key}",
+                    definition.id
+                );
+            }
+        }
     }
 
     #[test]

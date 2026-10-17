@@ -97,7 +97,13 @@ fn delete_registry_value(hkey: winreg::HKEY, path: &str) -> Result<(), Uninstall
 
     let (value_name, key_path) = (parts[0], parts[1]);
 
-    let key = RegKey::predef(hkey).open_subkey_with_flags(key_path, KEY_WRITE)?;
+    // 同一批次清理中，父键可能已先于值痕迹被删除（例如先删除了整个厂商键）。
+    // 此时值已随键一起消失，必须视为幂等成功，否则整次清理会被误报为失败。
+    let key = match RegKey::predef(hkey).open_subkey_with_flags(key_path, KEY_WRITE) {
+        Ok(key) => key,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(UninstallerError::Registry(e.to_string())),
+    };
 
     match key.delete_value(value_name) {
         Ok(_) => Ok(()),

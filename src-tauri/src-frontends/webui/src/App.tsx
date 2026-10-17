@@ -1265,7 +1265,7 @@ function AppsStage(props: {
           <p className="install-path">{props.selected.location}</p>
           <div className="detail-actions">
             <button onClick={props.onDetails}><Info size={14} />{t("app.message_068")}</button>
-            <button disabled={!props.canDeepAnalyze} onClick={props.onScan}><Search size={14} />{t("app.deep_analysis.action")}</button>
+            <button data-testid="program-deep-analysis" disabled={!props.canDeepAnalyze} onClick={props.onScan}><Search size={14} />{t("app.deep_analysis.action")}</button>
           </div>
           <button data-testid="program-uninstall" className="primary-button uninstall-button" onClick={props.onUninstall}><Trash2 size={16} />{t("app.message_071")}</button>
         </aside>}
