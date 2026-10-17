@@ -9,12 +9,11 @@ use windows::Win32::Security::{
 /// 规范化路径（处理大小写、斜杠等）
 #[allow(dead_code)]
 pub fn normalize_path(path: &str) -> String {
-    let path = path.replace('/', "\\");
+    let mut path = path.replace('/', "\\");
 
     // 处理连续的反斜杠
     while path.contains("\\\\") {
-        let path = path.replace("\\\\", "\\");
-        return normalize_path(&path);
+        path = path.replace("\\\\", "\\");
     }
 
     path
