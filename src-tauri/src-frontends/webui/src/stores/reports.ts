@@ -114,8 +114,8 @@ export const useReportsStore = create<ReportsState>((set) => ({
         actionLoading: false,
         restoringId: null,
         notice: result.success
-          ? `已恢复 ${result.restored_count} 个清理项目。`
-          : `已恢复 ${result.restored_count} 个项目，另有 ${result.failed_count} 个项目未覆盖，可调整目标后重试。`,
+          ? t("stores.reports.message_005", { value0: result.restored_count })
+          : t("stores.reports.message_006", { value0: result.restored_count, value1: result.failed_count }),
       });
       return result;
     } catch (error) {

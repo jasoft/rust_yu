@@ -963,18 +963,18 @@ function TitleBar() {
 }
 
 const navItems: { id: NavKey; label: string; icon: typeof Package }[] = [
-  { id: "apps", label: "已安装应用", icon: Grid2X2 },
-  { id: "health", label: "软件健康", icon: Activity },
-  { id: "startup", label: "自启动管理", icon: Zap },
-  { id: "cleaner", label: "系统清理", icon: Sparkles },
-  { id: "shredder", label: "文件粉碎", icon: FileWarning },
-  { id: "backups", label: "备份与恢复", icon: ShieldCheck },
-  { id: "traces", label: "软件残留", icon: Archive },
-  { id: "monitor", label: "安装监控", icon: SquareActivity },
-  { id: "evidence", label: "证据与策略", icon: FileCode2 },
-  { id: "reports", label: "卸载记录", icon: FileText },
-  { id: "plugins", label: "浏览器插件", icon: AppWindow },
-  { id: "tools", label: "工具箱", icon: Wrench },
+  { id: "apps", label: t("app.message_032"), icon: Grid2X2 },
+  { id: "health", label: t("app.message_033"), icon: Activity },
+  { id: "startup", label: t("app.message_034"), icon: Zap },
+  { id: "cleaner", label: t("app.message_035"), icon: Sparkles },
+  { id: "shredder", label: t("shredder.nav"), icon: FileWarning },
+  { id: "backups", label: t("app.message_036"), icon: ShieldCheck },
+  { id: "traces", label: t("app.message_037"), icon: Archive },
+  { id: "monitor", label: t("app.message_038"), icon: SquareActivity },
+  { id: "evidence", label: t("app.message_039"), icon: FileCode2 },
+  { id: "reports", label: t("app.message_040"), icon: FileText },
+  { id: "plugins", label: t("app.message_041"), icon: AppWindow },
+  { id: "tools", label: t("app.message_042"), icon: Wrench },
 ];
 
 function Sidebar({ active, developerModeEnabled, disabled, onNavigate }: { active: NavKey; developerModeEnabled: boolean; disabled: boolean; onNavigate: (key: NavKey) => void }) {
