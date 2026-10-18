@@ -67,7 +67,7 @@ fn start_api_server() {
                             "size": p.size,
                             "icon_path": p.icon_path,
                             "icon_cache_path_32": p.icon_cache_path_32,
-                            "icon_cache_path_48": p.icon_cache_path_48,
+                            "icon_cache_path_large": p.icon_cache_path_large,
                             "size_last_updated_at": p.size_last_updated_at,
                             "icon_data_url": p.icon_data_url,
                             "icon_data_url_32": p.icon_data_url_32,

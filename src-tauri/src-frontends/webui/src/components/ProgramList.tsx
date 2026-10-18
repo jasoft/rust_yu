@@ -5,7 +5,7 @@ import { useProgramsStore } from "../stores/programs";
 import { Input } from "./ui/input";
 import { Badge } from "./ui/badge";
 import { cn, formatBytes, formatSource } from "../lib/utils";
-import { getProgramIconSrc } from "../lib/icon";
+import { getProgramIconSources } from "../lib/icon";
 import type { InstalledProgram } from "../types";
 import { countProgramsBySource, filterPrograms, programSourceOptions } from "../lib/programFilters";
 
@@ -133,7 +133,7 @@ function ProgramItem({
   selected: boolean;
   onClick: () => void;
 }) {
-  const iconSrc = getProgramIconSrc(program);
+  const iconSources = getProgramIconSources(program);
 
   return (
     <button
@@ -143,8 +143,8 @@ function ProgramItem({
         selected && "bg-blue-600/10 border-l-2 border-blue-500",
       )}
     >
-      {iconSrc ? (
-        <img src={iconSrc} alt="" className="h-8 w-8 rounded" />
+      {iconSources ? (
+        <img src={iconSources.src} srcSet={iconSources.srcSet} alt="" className="h-8 w-8 rounded" />
       ) : (
         <div className="flex h-8 w-8 items-center justify-center rounded bg-slate-700 text-slate-400">
           <Package className="h-4 w-4" />

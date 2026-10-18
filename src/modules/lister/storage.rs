@@ -24,7 +24,8 @@ const CACHE_METADATA_TABLE_NAME: &str = "cache_metadata";
 const META_KEY_SCHEMA_VERSION: &str = "schema_version";
 const META_KEY_GENERATED_AT: &str = "generated_at";
 // 程序 ID 已改为稳定的注册表项路径；递增版本以淘汰旧的随机 UUID 缓存。
-pub const CACHE_SCHEMA_VERSION: u32 = 9;
+// v10：图标缓存由 32/48 改为 32/128（高清档），字段名同步改为 _large。
+pub const CACHE_SCHEMA_VERSION: u32 = 10;
 pub const DEFAULT_CACHE_TTL_SECONDS: i64 = 86_400;
 
 #[cfg(test)]
@@ -123,9 +124,9 @@ fn open_scan_cache_connection() -> Result<Connection, UninstallerError> {
                 estimated_size_bytes INTEGER,
                 icon_path TEXT,
                 icon_cache_path_32 TEXT,
-                icon_cache_path_48 TEXT,
+                icon_cache_path_large TEXT,
                 icon_blob_32 BLOB,
-                icon_blob_48 BLOB,
+                icon_blob_large BLOB,
                 size_last_updated_at TEXT,
                 payload_json TEXT NOT NULL,
                 updated_at TEXT NOT NULL
@@ -145,10 +146,12 @@ fn open_scan_cache_connection() -> Result<Connection, UninstallerError> {
         ))
         .map_err(|error| map_sqlite_error("初始化缓存数据库结构失败", error))?;
 
-    // v8 及更早缓存只保存外部图标路径；新增 BLOB 列后即使缓存目录被清理，
+    // 旧缓存只保存外部图标路径；新增 BLOB 列后即使缓存目录被清理，
     // 启动仍可从 SQLite 恢复图标。ALTER 只在列不存在时执行，保证旧数据库可迁移。
+    // 图标高清档由 48px 换成 128px，列名同步改为 _large，旧列留着不再写入。
+    ensure_cache_column(&connection, "icon_cache_path_large", "TEXT")?;
     ensure_cache_column(&connection, "icon_blob_32", "BLOB")?;
-    ensure_cache_column(&connection, "icon_blob_48", "BLOB")?;
+    ensure_cache_column(&connection, "icon_blob_large", "BLOB")?;
     connection
         .execute(
             &format!(
@@ -429,10 +432,10 @@ pub fn save_scan_cache(
                     estimated_size_bytes,
                     icon_path,
                     icon_cache_path_32,
-                    icon_cache_path_48,
+                    icon_cache_path_large,
                 size_last_updated_at,
                 icon_blob_32,
-                icon_blob_48,
+                icon_blob_large,
                 payload_json,
                 updated_at
                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
@@ -444,7 +447,7 @@ pub fn save_scan_cache(
             let payload_json = serde_json::to_string(program)
                 .map_err(|error| UninstallerError::Serde(error.to_string()))?;
             let icon_blob_32 = read_icon_blob(program.icon_cache_path_32.as_deref());
-            let icon_blob_48 = read_icon_blob(program.icon_cache_path_48.as_deref());
+            let icon_blob_large = read_icon_blob(program.icon_cache_path_large.as_deref());
             statement
                 .execute(params![
                     source.as_str(),
@@ -460,10 +463,10 @@ pub fn save_scan_cache(
                     program.estimated_size,
                     program.icon_path,
                     program.icon_cache_path_32,
-                    program.icon_cache_path_48,
+                    program.icon_cache_path_large,
                     program.size_last_updated_at,
                     icon_blob_32,
-                    icon_blob_48,
+                    icon_blob_large,
                     payload_json,
                     now,
                 ])
@@ -556,7 +559,7 @@ pub fn read_scan_cache(
 
     let mut statement = connection
         .prepare(&format!(
-            "SELECT payload_json, icon_blob_32, icon_blob_48 FROM {} WHERE source_selector = ?1 ORDER BY name COLLATE NOCASE",
+            "SELECT payload_json, icon_blob_32, icon_blob_large FROM {} WHERE source_selector = ?1 ORDER BY name COLLATE NOCASE",
             CACHE_TABLE_NAME
         ))
         .map_err(|error| map_sqlite_error("准备读取缓存列表失败", error))?;
@@ -576,9 +579,9 @@ pub fn read_scan_cache(
         let icon_blob_32 = row
             .get::<usize, Option<Vec<u8>>>(1)
             .map_err(|error| map_sqlite_error("读取 32px 图标缓存失败", error))?;
-        let icon_blob_48 = row
+        let icon_blob_large = row
             .get::<usize, Option<Vec<u8>>>(2)
-            .map_err(|error| map_sqlite_error("读取 48px 图标缓存失败", error))?;
+            .map_err(|error| map_sqlite_error("读取高清图标缓存失败", error))?;
         if let Ok(mut program) = serde_json::from_str::<InstalledProgram>(&payload_json) {
             program.normalize_uninstall_kind();
             // SQLite 中保存的是持久化索引，图标文件仍可能被用户或清理工具移除。
@@ -593,19 +596,20 @@ pub fn read_scan_cache(
                 program.icon_cache_path_32 = None;
             }
             if program
-                .icon_cache_path_48
+                .icon_cache_path_large
                 .as_deref()
                 .map(PathBuf::from)
                 .map(|path| !path.is_file())
                 .unwrap_or(false)
             {
-                program.icon_cache_path_48 = None;
+                program.icon_cache_path_large = None;
             }
             if program.icon_cache_path_32.is_none() {
                 program.icon_cache_path_32 = materialize_icon_blob(icon_blob_32.as_deref(), 32);
             }
-            if program.icon_cache_path_48.is_none() {
-                program.icon_cache_path_48 = materialize_icon_blob(icon_blob_48.as_deref(), 48);
+            if program.icon_cache_path_large.is_none() {
+                program.icon_cache_path_large =
+                    materialize_icon_blob(icon_blob_large.as_deref(), 128);
             }
             programs.push(program);
         }
@@ -802,24 +806,24 @@ mod tests {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let root = with_storage_root("metadata-fields");
         let icon_32 = root.join("icon-cache").join("32").join("demo.png");
-        let icon_48 = root.join("icon-cache").join("48").join("demo.png");
+        let icon_large = root.join("icon-cache").join("128").join("demo.png");
         assert!(icon_32
             .parent()
             .map(std::fs::create_dir_all)
             .transpose()
             .is_ok());
-        assert!(icon_48
+        assert!(icon_large
             .parent()
             .map(std::fs::create_dir_all)
             .transpose()
             .is_ok());
         assert!(std::fs::write(&icon_32, b"png").is_ok());
-        assert!(std::fs::write(&icon_48, b"png").is_ok());
+        assert!(std::fs::write(&icon_large, b"png").is_ok());
 
         let mut program =
             InstalledProgram::new("DemoCacheMeta".to_string(), InstallSource::Registry);
         program.icon_cache_path_32 = Some(icon_32.to_string_lossy().to_string());
-        program.icon_cache_path_48 = Some(icon_48.to_string_lossy().to_string());
+        program.icon_cache_path_large = Some(icon_large.to_string_lossy().to_string());
         program.size_last_updated_at = Some("2026-02-15T00:00:00Z".to_string());
         program.size = Some(4096);
         assert!(save_scan_cache(InstallSourceSelector::All, &[program]).is_ok());
@@ -837,8 +841,8 @@ mod tests {
             Some(icon_32.to_string_lossy().to_string())
         );
         assert_eq!(
-            cached.icon_cache_path_48,
-            Some(icon_48.to_string_lossy().to_string())
+            cached.icon_cache_path_large,
+            Some(icon_large.to_string_lossy().to_string())
         );
         assert_eq!(
             cached.size_last_updated_at,
@@ -859,8 +863,8 @@ mod tests {
             InstalledProgram::new("MissingIconCache".to_string(), InstallSource::Registry);
         program.icon_cache_path_32 =
             Some(root.join("missing-32.png").to_string_lossy().to_string());
-        program.icon_cache_path_48 =
-            Some(root.join("missing-48.png").to_string_lossy().to_string());
+        program.icon_cache_path_large =
+            Some(root.join("missing-128.png").to_string_lossy().to_string());
         assert!(save_scan_cache(InstallSourceSelector::All, &[program]).is_ok());
 
         let entries = read_scan_cache(InstallSourceSelector::All, DEFAULT_CACHE_TTL_SECONDS)
@@ -872,7 +876,7 @@ mod tests {
             .and_then(|item| item.icon_cache_path_32.as_ref())
             .is_none());
         assert!(cached
-            .and_then(|item| item.icon_cache_path_48.as_ref())
+            .and_then(|item| item.icon_cache_path_large.as_ref())
             .is_none());
 
         cleanup_storage_root(&root);
@@ -1011,7 +1015,7 @@ mod tests {
                     "size": null,
                     "icon_path": null,
                     "icon_cache_path_32": null,
-                    "icon_cache_path_48": null,
+                    "icon_cache_path_large": null,
                     "size_last_updated_at": null,
                     "icon_data_url": null,
                     "icon_data_url_32": null,

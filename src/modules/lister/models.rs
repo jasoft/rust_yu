@@ -70,7 +70,7 @@ pub struct InstalledProgram {
     #[serde(default)]
     pub icon_cache_path_32: Option<String>,
     #[serde(default)]
-    pub icon_cache_path_48: Option<String>,
+    pub icon_cache_path_large: Option<String>,
     #[serde(default)]
     pub size_last_updated_at: Option<String>,
     #[serde(default)]
@@ -127,7 +127,7 @@ impl InstalledProgram {
             size: None,
             icon_path: None,
             icon_cache_path_32: None,
-            icon_cache_path_48: None,
+            icon_cache_path_large: None,
             size_last_updated_at: None,
             icon_data_url: None,
             icon_data_url_32: None,
@@ -499,7 +499,7 @@ mod tests {
                 "size": null,
                 "icon_path": null,
                 "icon_cache_path_32": null,
-                "icon_cache_path_48": null,
+                "icon_cache_path_large": null,
                 "size_last_updated_at": null,
                 "icon_data_url": null,
                 "icon_data_url_32": null,

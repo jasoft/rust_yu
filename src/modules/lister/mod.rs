@@ -371,7 +371,7 @@ fn restore_cached_icon_metadata(
             continue;
         };
         program.icon_cache_path_32 = cached.icon_cache_path_32.clone();
-        program.icon_cache_path_48 = cached.icon_cache_path_48.clone();
+        program.icon_cache_path_large = cached.icon_cache_path_large.clone();
         program.icon_data_url = cached.icon_data_url.clone();
         program.icon_data_url_32 = cached.icon_data_url_32.clone();
         program.icon_data_url_48 = cached.icon_data_url_48.clone();
@@ -514,12 +514,12 @@ mod tests {
         cached.uninstall_string = Some(r#""C:\Program Files\Demo\uninstall.exe""#.to_string());
         cached.install_location = Some(r"C:\Program Files\Demo".to_string());
         cached.icon_cache_path_32 = Some(r"C:\cache\demo-32.png".to_string());
-        cached.icon_cache_path_48 = Some(r"C:\cache\demo-48.png".to_string());
+        cached.icon_cache_path_large = Some(r"C:\cache\demo-128.png".to_string());
 
         let mut refreshed = cached.clone();
         refreshed.id = "new-scan-id".to_string();
         refreshed.icon_cache_path_32 = None;
-        refreshed.icon_cache_path_48 = None;
+        refreshed.icon_cache_path_large = None;
 
         restore_cached_icon_metadata(std::slice::from_mut(&mut refreshed), &[cached]);
 
@@ -528,8 +528,8 @@ mod tests {
             Some(r"C:\cache\demo-32.png")
         );
         assert_eq!(
-            refreshed.icon_cache_path_48.as_deref(),
-            Some(r"C:\cache\demo-48.png")
+            refreshed.icon_cache_path_large.as_deref(),
+            Some(r"C:\cache\demo-128.png")
         );
     }
 

@@ -30,7 +30,7 @@ function program(id: string): InstalledProgram {
     size: 1024,
     icon_path: null,
     icon_cache_path_32: null,
-    icon_cache_path_48: null,
+    icon_cache_path_large: null,
     size_last_updated_at: null,
     icon_data_url: null,
     icon_data_url_32: null,

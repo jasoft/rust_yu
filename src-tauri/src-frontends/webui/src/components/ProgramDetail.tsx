@@ -14,7 +14,7 @@ import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { formatBytes, formatSource } from "../lib/utils";
-import { getProgramIconSrc } from "../lib/icon";
+import { getProgramIconSources } from "../lib/icon";
 import { formatWindowsDate } from "../lib/date";
 
 export function ProgramDetail() {
@@ -25,7 +25,7 @@ export function ProgramDetail() {
 
   if (!selectedProgram) return null;
   const p = selectedProgram;
-  const iconSrc = getProgramIconSrc(p);
+  const iconSources = getProgramIconSources(p, { large: true });
   const openInstallLocation = async () => {
     if (!p.install_location || directoryOpening) return;
     setDirectoryOpening(true);
@@ -67,9 +67,10 @@ export function ProgramDetail() {
         {/* 图标与基本信息 */}
         <Card className="min-w-0">
           <CardContent className="flex items-center gap-4 py-4">
-            {iconSrc ? (
+            {iconSources ? (
               <img
-                src={iconSrc}
+                src={iconSources.src}
+                srcSet={iconSources.srcSet}
                 alt=""
                 className="h-12 w-12 rounded"
               />

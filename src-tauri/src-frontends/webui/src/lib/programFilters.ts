@@ -54,7 +54,7 @@ export function hasMissingProgramIcons(programs: readonly InstalledProgram[]): b
   return programs.some(
     (program) =>
       Boolean(program.icon_path) &&
-      (!program.icon_cache_path_32 || !program.icon_cache_path_48),
+      (!program.icon_cache_path_32 || !program.icon_cache_path_large),
   );
 }
 

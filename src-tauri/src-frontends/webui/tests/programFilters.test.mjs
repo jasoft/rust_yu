@@ -17,7 +17,7 @@ function program(name, install_source, publisher = null) {
     install_source,
     icon_path: `C:\\Apps\\${name}.exe`,
     icon_cache_path_32: `C:\\cache\\32\\${name}.png`,
-    icon_cache_path_48: `C:\\cache\\48\\${name}.png`,
+    icon_cache_path_large: `C:\\cache\\128\\${name}.png`,
   };
 }
 
@@ -53,12 +53,12 @@ test("组合搜索和来源筛选时仍严格匹配来源", () => {
 test("仅在存在图标来源且缓存不完整时请求预热", () => {
   assert.equal(hasMissingProgramIcons(programs), false);
   assert.equal(
-    hasMissingProgramIcons([{ ...programs[0], icon_cache_path_48: null }]),
+    hasMissingProgramIcons([{ ...programs[0], icon_cache_path_large: null }]),
     true,
   );
   assert.equal(
     hasMissingProgramIcons([
-      { ...programs[0], icon_path: null, icon_cache_path_32: null, icon_cache_path_48: null },
+      { ...programs[0], icon_path: null, icon_cache_path_32: null, icon_cache_path_large: null },
     ]),
     false,
   );

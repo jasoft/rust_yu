@@ -22,9 +22,11 @@ const SIZE_SCAN_TOTAL_TIMEOUT: Duration = Duration::from_millis(900);
 const SIZE_SCAN_MAX_TOTAL_ENTRIES: usize = 60_000;
 const SIZE_SCAN_MAX_CANDIDATE_DIRS: usize = 8;
 const ICON_SCAN_MAX_ENTRIES: usize = 128;
+// 列表行按 32px 渲染，详情大图槽位是 54px，高分屏下需要约 108 物理像素。
+// 因此缓存一档 128px 高清图标，供大图与列表 2x srcset 使用，避免小图被放大变糊。
 const ICON_SIZE_SMALL: u32 = 32;
-const ICON_SIZE_LARGE: u32 = 48;
-const ICON_CACHE_KEY_VERSION: u32 = 2;
+const ICON_SIZE_LARGE: u32 = 128;
+const ICON_CACHE_KEY_VERSION: u32 = 3;
 
 /// 归一化安装日期为 YYYY-MM-DD
 pub fn normalize_install_date(raw: &str) -> Option<String> {
@@ -431,7 +433,7 @@ fn resolve_program_icon_path(program: &mut InstalledProgram) {
     } else {
         program.icon_path = None;
         program.icon_cache_path_32 = None;
-        program.icon_cache_path_48 = None;
+        program.icon_cache_path_large = None;
         program.icon_data_url = None;
         program.icon_data_url_32 = None;
         program.icon_data_url_48 = None;
@@ -792,7 +794,7 @@ fn find_app_paths_icon(_program: &InstalledProgram) -> Option<String> {
 #[derive(Debug, Clone)]
 struct IconAssetBundle {
     icon_cache_path_32: Option<String>,
-    icon_cache_path_48: Option<String>,
+    icon_cache_path_large: Option<String>,
 }
 
 fn build_icon_assets_from_path(icon_path: &str) -> Option<IconAssetBundle> {
@@ -803,35 +805,35 @@ fn build_icon_assets_from_path(icon_path: &str) -> Option<IconAssetBundle> {
         return None;
     }
 
-    let (icon_32_path, icon_48_path) = resolve_icon_cache_paths(source_path, icon_index)?;
-    if !icon_32_path.exists() || !icon_48_path.exists() {
-        generate_icon_cache_files(source_path, icon_index, &icon_32_path, &icon_48_path)?;
+    let (icon_small_path, icon_large_path) = resolve_icon_cache_paths(source_path, icon_index)?;
+    if !icon_small_path.exists() || !icon_large_path.exists() {
+        generate_icon_cache_files(source_path, icon_index, &icon_small_path, &icon_large_path)?;
     }
 
-    if !icon_32_path.exists() && !icon_48_path.exists() {
+    if !icon_small_path.exists() && !icon_large_path.exists() {
         return None;
     }
 
     Some(IconAssetBundle {
-        icon_cache_path_32: icon_32_path
+        icon_cache_path_32: icon_small_path
             .exists()
-            .then(|| icon_32_path.to_string_lossy().to_string()),
-        icon_cache_path_48: icon_48_path
+            .then(|| icon_small_path.to_string_lossy().to_string()),
+        icon_cache_path_large: icon_large_path
             .exists()
-            .then(|| icon_48_path.to_string_lossy().to_string()),
+            .then(|| icon_large_path.to_string_lossy().to_string()),
     })
 }
 
 fn resolve_icon_cache_paths(source_path: &Path, icon_index: i32) -> Option<(PathBuf, PathBuf)> {
     let cache_root = storage::get_icon_cache_dir().ok()?;
     let cache_key = build_icon_cache_key(source_path, icon_index);
-    let cache_32_dir = cache_root.join(ICON_SIZE_SMALL.to_string());
-    let cache_48_dir = cache_root.join(ICON_SIZE_LARGE.to_string());
-    std::fs::create_dir_all(&cache_32_dir).ok()?;
-    std::fs::create_dir_all(&cache_48_dir).ok()?;
-    let icon_32_path = cache_32_dir.join(format!("{}.png", cache_key));
-    let icon_48_path = cache_48_dir.join(format!("{}.png", cache_key));
-    Some((icon_32_path, icon_48_path))
+    let cache_small_dir = cache_root.join(ICON_SIZE_SMALL.to_string());
+    let cache_large_dir = cache_root.join(ICON_SIZE_LARGE.to_string());
+    std::fs::create_dir_all(&cache_small_dir).ok()?;
+    std::fs::create_dir_all(&cache_large_dir).ok()?;
+    let icon_small_path = cache_small_dir.join(format!("{}.png", cache_key));
+    let icon_large_path = cache_large_dir.join(format!("{}.png", cache_key));
+    Some((icon_small_path, icon_large_path))
 }
 
 fn build_icon_cache_key(source_path: &Path, icon_index: i32) -> String {
@@ -859,8 +861,8 @@ fn build_icon_cache_key(source_path: &Path, icon_index: i32) -> String {
 fn generate_icon_cache_files(
     source_path: &Path,
     icon_index: i32,
-    icon_32_path: &Path,
-    icon_48_path: &Path,
+    icon_small_path: &Path,
+    icon_large_path: &Path,
 ) -> Option<()> {
     #[cfg(not(windows))]
     {
@@ -877,15 +879,15 @@ fn generate_icon_cache_files(
         }
 
         let bytes = std::fs::read(source_path).ok()?;
-        if let Some(parent_dir) = icon_32_path.parent() {
+        if let Some(parent_dir) = icon_small_path.parent() {
             std::fs::create_dir_all(parent_dir).ok()?;
         }
-        if let Some(parent_dir) = icon_48_path.parent() {
+        if let Some(parent_dir) = icon_large_path.parent() {
             std::fs::create_dir_all(parent_dir).ok()?;
         }
 
-        std::fs::write(icon_32_path, &bytes).ok()?;
-        std::fs::write(icon_48_path, &bytes).ok()?;
+        std::fs::write(icon_small_path, &bytes).ok()?;
+        std::fs::write(icon_large_path, &bytes).ok()?;
         Some(())
     }
 
@@ -893,52 +895,55 @@ fn generate_icon_cache_files(
     {
         let source_abs_path = source_path.to_string_lossy().to_string();
         let icon_index_value = icon_index.to_string();
-        let icon_32_abs_path = icon_32_path.to_string_lossy().to_string();
-        let icon_48_abs_path = icon_48_path.to_string_lossy().to_string();
+        let icon_small_abs_path = icon_small_path.to_string_lossy().to_string();
+        let icon_large_abs_path = icon_large_path.to_string_lossy().to_string();
 
         let script = r##"
 $ErrorActionPreference = "Stop"
 $sourcePath = $env:RUST_YU_ICON_SOURCE
 $iconIndex = 0
 [void][int]::TryParse($env:RUST_YU_ICON_INDEX, [ref]$iconIndex)
-$target32 = $env:RUST_YU_ICON_32
-$target48 = $env:RUST_YU_ICON_48
+$targetSmall = $env:RUST_YU_ICON_SMALL
+$targetLarge = $env:RUST_YU_ICON_LARGE
 
 if ([string]::IsNullOrWhiteSpace($sourcePath)) { exit 2 }
-if ([string]::IsNullOrWhiteSpace($target32)) { exit 2 }
-if ([string]::IsNullOrWhiteSpace($target48)) { exit 2 }
+if ([string]::IsNullOrWhiteSpace($targetSmall)) { exit 2 }
+if ([string]::IsNullOrWhiteSpace($targetLarge)) { exit 2 }
 
-function Save-IconAsPng {
-    param(
-        [Parameter(Mandatory = $true)][IntPtr]$IconHandle,
-        [Parameter(Mandatory = $true)][string]$TargetPath
-    )
-
-    if ($IconHandle -eq [IntPtr]::Zero) { return }
+function Ensure-Directory {
+    param([Parameter(Mandatory = $true)][string]$TargetPath)
 
     $dir = [System.IO.Path]::GetDirectoryName($TargetPath)
     if (-not [string]::IsNullOrWhiteSpace($dir) -and -not (Test-Path -LiteralPath $dir)) {
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
     }
+}
+
+# 把图标句柄按目标尺寸重采样后保存；句柄不在此处销毁，由调用方统一 DestroyIcon。
+function Save-IconHandleAsPng {
+    param(
+        [Parameter(Mandatory = $true)][IntPtr]$IconHandle,
+        [Parameter(Mandatory = $true)][int]$Size,
+        [Parameter(Mandatory = $true)][string]$TargetPath
+    )
+
+    if ($IconHandle -eq [IntPtr]::Zero) { return }
 
     $icon = [System.Drawing.Icon]::FromHandle($IconHandle)
     $bitmap = $icon.ToBitmap()
-    $bitmap.Save($TargetPath, [System.Drawing.Imaging.ImageFormat]::Png)
+    Save-ResampledImageAsPng -Image $bitmap -Size $Size -TargetPath $TargetPath
     $bitmap.Dispose()
     $icon.Dispose()
 }
 
-function Save-ResizedImageAsPng {
+function Save-ResampledImageAsPng {
     param(
         [Parameter(Mandatory = $true)][System.Drawing.Image]$Image,
         [Parameter(Mandatory = $true)][int]$Size,
         [Parameter(Mandatory = $true)][string]$TargetPath
     )
 
-    $dir = [System.IO.Path]::GetDirectoryName($TargetPath)
-    if (-not [string]::IsNullOrWhiteSpace($dir) -and -not (Test-Path -LiteralPath $dir)) {
-        New-Item -ItemType Directory -Path $dir -Force | Out-Null
-    }
+    Ensure-Directory -TargetPath $TargetPath
 
     $canvas = New-Object System.Drawing.Bitmap($Size, $Size)
     $graphics = [System.Drawing.Graphics]::FromImage($canvas)
@@ -959,8 +964,7 @@ function Save-ResizedImageAsPng {
     $canvas.Dispose()
 }
 
-$icon32 = [IntPtr]::Zero
-$icon48 = [IntPtr]::Zero
+$source = [IntPtr]::Zero
 
 try {
     $actualPath = [Environment]::ExpandEnvironmentVariables($sourcePath.Trim('"'))
@@ -1005,6 +1009,9 @@ public static class ShellIconBridge {
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool DestroyIcon(IntPtr hIcon);
 
+    // 从大到小尝试，优先拿到高分辨率帧（现代应用通常内嵌 256px）。
+    private static readonly int[] SourceSizes = new int[] { 256, 128, 96, 64, 48, 32 };
+
     private static IntPtr ExtractBySize(string path, int index, int size) {
         try {
             IntPtr[] icons = new IntPtr[1];
@@ -1018,16 +1025,18 @@ public static class ShellIconBridge {
         return IntPtr.Zero;
     }
 
-    public static IntPtr Extract32(string path, int index) {
-        IntPtr bySize = ExtractBySize(path, index, 32);
-        if (bySize != IntPtr.Zero) {
-            return bySize;
+    public static IntPtr ExtractBest(string path, int index) {
+        foreach (int size in SourceSizes) {
+            IntPtr handle = ExtractBySize(path, index, size);
+            if (handle != IntPtr.Zero) {
+                return handle;
+            }
         }
 
         try {
             if (index != 0) {
                 IntPtr[] large = new IntPtr[1];
-                if (ExtractIconEx(path, index, large, null, 1) > 0) {
+                if (ExtractIconEx(path, index, large, null, 1) > 0 && large[0] != IntPtr.Zero) {
                     return large[0];
                 }
             }
@@ -1039,43 +1048,39 @@ public static class ShellIconBridge {
         } catch { }
         return IntPtr.Zero;
     }
-
-    public static IntPtr Extract48(string path, int index) {
-        return ExtractBySize(path, index, 48);
-    }
 }
 "@ | Out-Null
 
     $extension = [System.IO.Path]::GetExtension($actualPath).ToLowerInvariant()
 
-    if ($extension -ne ".exe" -and $extension -ne ".dll") {
+    if ($extension -eq ".exe" -or $extension -eq ".dll") {
+        $source = [ShellIconBridge]::ExtractBest($actualPath, $iconIndex)
+        if ($source -eq [IntPtr]::Zero) { exit 5 }
+
+        # 拿到高清源图后统一重采样，确保每个缓存文件的像素尺寸与目录一致，
+        # 避免出现“48 目录里存 32px 位图”这类被放大变糊的情况。
+        Save-IconHandleAsPng -IconHandle $source -Size 32 -TargetPath $targetSmall
+        Save-IconHandleAsPng -IconHandle $source -Size 128 -TargetPath $targetLarge
+    } elseif ($extension -eq ".ico") {
+        $ico = New-Object System.Drawing.Icon($actualPath, 32, 32)
+        $bmp = $ico.ToBitmap()
+        Save-ResampledImageAsPng -Image $bmp -Size 32 -TargetPath $targetSmall
+        $bmp.Dispose()
+        $ico.Dispose()
+
+        $ico = New-Object System.Drawing.Icon($actualPath, 128, 128)
+        $bmp = $ico.ToBitmap()
+        Save-ResampledImageAsPng -Image $bmp -Size 128 -TargetPath $targetLarge
+        $bmp.Dispose()
+        $ico.Dispose()
+    } else {
         $img = [System.Drawing.Image]::FromFile($actualPath)
-        Save-ResizedImageAsPng -Image $img -Size 32 -TargetPath $target32
-        Save-ResizedImageAsPng -Image $img -Size 48 -TargetPath $target48
+        Save-ResampledImageAsPng -Image $img -Size 32 -TargetPath $targetSmall
+        Save-ResampledImageAsPng -Image $img -Size 128 -TargetPath $targetLarge
         $img.Dispose()
-        if ((Test-Path -LiteralPath $target32) -and (Test-Path -LiteralPath $target48)) {
-            exit 0
-        }
-        exit 4
     }
 
-    $icon32 = [ShellIconBridge]::Extract32($actualPath, $iconIndex)
-    $icon48 = [ShellIconBridge]::Extract48($actualPath, $iconIndex)
-
-    if ($icon48 -eq [IntPtr]::Zero) {
-        $icon48 = $icon32
-    }
-    if ($icon32 -eq [IntPtr]::Zero) {
-        $icon32 = $icon48
-    }
-    if ($icon32 -eq [IntPtr]::Zero -or $icon48 -eq [IntPtr]::Zero) {
-        exit 5
-    }
-
-    Save-IconAsPng -IconHandle $icon32 -TargetPath $target32
-    Save-IconAsPng -IconHandle $icon48 -TargetPath $target48
-
-    if (-not (Test-Path -LiteralPath $target32) -or -not (Test-Path -LiteralPath $target48)) {
+    if (-not (Test-Path -LiteralPath $targetSmall) -or -not (Test-Path -LiteralPath $targetLarge)) {
         exit 6
     }
     exit 0
@@ -1083,8 +1088,7 @@ public static class ShellIconBridge {
     Write-Error ("icon extract failed: " + $_.Exception.Message)
     exit 1
 } finally {
-    if ($icon32 -ne [IntPtr]::Zero) { [void][ShellIconBridge]::DestroyIcon($icon32) }
-    if ($icon48 -ne [IntPtr]::Zero -and $icon48 -ne $icon32) { [void][ShellIconBridge]::DestroyIcon($icon48) }
+    if ($source -ne [IntPtr]::Zero) { [void][ShellIconBridge]::DestroyIcon($source) }
 }
 "##;
 
@@ -1099,8 +1103,8 @@ public static class ShellIconBridge {
             ])
             .env("RUST_YU_ICON_SOURCE", &source_abs_path)
             .env("RUST_YU_ICON_INDEX", &icon_index_value)
-            .env("RUST_YU_ICON_32", &icon_32_abs_path)
-            .env("RUST_YU_ICON_48", &icon_48_abs_path)
+            .env("RUST_YU_ICON_SMALL", &icon_small_abs_path)
+            .env("RUST_YU_ICON_LARGE", &icon_large_abs_path)
             .output()
             .ok()?;
 
@@ -1115,13 +1119,13 @@ public static class ShellIconBridge {
             );
             return None;
         }
-        if !icon_32_path.exists() || !icon_48_path.exists() {
+        if !icon_small_path.exists() || !icon_large_path.exists() {
             tracing::debug!(
-                "图标提取命令执行成功但输出文件缺失: source={}, index={}, path32={}, path48={}",
+                "图标提取命令执行成功但输出文件缺失: source={}, index={}, path32={}, path128={}",
                 source_abs_path,
                 icon_index,
-                icon_32_abs_path,
-                icon_48_abs_path
+                icon_small_abs_path,
+                icon_large_abs_path
             );
             return None;
         }
@@ -1182,14 +1186,14 @@ fn has_ready_icon_cache(program: &InstalledProgram) -> bool {
         .map(Path::new)
         .map(Path::exists)
         .unwrap_or(false);
-    let cache_48_ready = program
-        .icon_cache_path_48
+    let cache_large_ready = program
+        .icon_cache_path_large
         .as_deref()
         .map(Path::new)
         .map(Path::exists)
         .unwrap_or(false);
 
-    cache_32_ready && cache_48_ready
+    cache_32_ready && cache_large_ready
 }
 
 fn warmup_program_icon_assets(
@@ -1199,7 +1203,7 @@ fn warmup_program_icon_assets(
     apply_slow_app_info(program, &slow_info);
     let Some(icon_extract_source) = program.icon_path.as_deref() else {
         program.icon_cache_path_32 = None;
-        program.icon_cache_path_48 = None;
+        program.icon_cache_path_large = None;
         return (
             MetadataWarmupItemStatus::Skipped,
             Some("icon_source_missing".to_string()),
@@ -1209,9 +1213,9 @@ fn warmup_program_icon_assets(
     match build_icon_assets_from_path(icon_extract_source) {
         Some(icon_assets) => {
             let changed = program.icon_cache_path_32 != icon_assets.icon_cache_path_32
-                || program.icon_cache_path_48 != icon_assets.icon_cache_path_48;
+                || program.icon_cache_path_large != icon_assets.icon_cache_path_large;
             program.icon_cache_path_32 = icon_assets.icon_cache_path_32;
-            program.icon_cache_path_48 = icon_assets.icon_cache_path_48;
+            program.icon_cache_path_large = icon_assets.icon_cache_path_large;
             program.icon_data_url = None;
             program.icon_data_url_32 = None;
             program.icon_data_url_48 = None;
@@ -1226,7 +1230,7 @@ fn warmup_program_icon_assets(
         }
         None => {
             program.icon_cache_path_32 = None;
-            program.icon_cache_path_48 = None;
+            program.icon_cache_path_large = None;
             (
                 MetadataWarmupItemStatus::Failed,
                 Some("icon_extract_failed".to_string()),
@@ -1631,14 +1635,14 @@ mod tests {
         let assets = build_icon_assets_from_path(&icon_path.to_string_lossy())
             .unwrap_or_else(|| panic!("failed to build icon assets"));
         assert!(assets.icon_cache_path_32.is_some());
-        assert!(assets.icon_cache_path_48.is_some());
+        assert!(assets.icon_cache_path_large.is_some());
 
         cleanup_storage_root(&storage_root);
         let _ = fs::remove_dir_all(&temp_root);
     }
 
     #[test]
-    fn build_icon_assets_generates_32_and_48_cache_files() {
+    fn build_icon_assets_generates_32_and_large_cache_files() {
         let _guard = super::storage::TEST_STORAGE_ENV_LOCK
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -1654,11 +1658,11 @@ mod tests {
             .unwrap_or_else(|| panic!("failed to build icon assets"));
 
         let cache_path_32 = assets.icon_cache_path_32.unwrap_or_default();
-        let cache_path_48 = assets.icon_cache_path_48.unwrap_or_default();
+        let cache_path_large = assets.icon_cache_path_large.unwrap_or_default();
         assert!(cache_path_32.contains("\\32\\"));
-        assert!(cache_path_48.contains("\\48\\"));
+        assert!(cache_path_large.contains("\\128\\"));
         assert!(Path::new(&cache_path_32).exists());
-        assert!(Path::new(&cache_path_48).exists());
+        assert!(Path::new(&cache_path_large).exists());
 
         cleanup_storage_root(&storage_root);
         let _ = fs::remove_dir_all(&source_root);
@@ -1690,8 +1694,8 @@ mod tests {
             assets_idx1.icon_cache_path_32
         );
         assert_ne!(
-            assets_idx0.icon_cache_path_48,
-            assets_idx1.icon_cache_path_48
+            assets_idx0.icon_cache_path_large,
+            assets_idx1.icon_cache_path_large
         );
 
         cleanup_storage_root(&storage_root);
@@ -1700,7 +1704,7 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn build_icon_assets_extracts_native_32_and_48_icons_from_exe() {
+    fn build_icon_assets_extracts_native_32_and_large_icons_from_exe() {
         let _guard = super::storage::TEST_STORAGE_ENV_LOCK
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -1716,11 +1720,11 @@ mod tests {
             .unwrap_or_else(|| panic!("failed to build icon assets for exe"));
 
         let cache_path_32 = assets.icon_cache_path_32.unwrap_or_default();
-        let cache_path_48 = assets.icon_cache_path_48.unwrap_or_default();
+        let cache_path_large = assets.icon_cache_path_large.unwrap_or_default();
         assert!(cache_path_32.contains("\\32\\"));
-        assert!(cache_path_48.contains("\\48\\"));
+        assert!(cache_path_large.contains("\\128\\"));
         assert!(Path::new(&cache_path_32).exists());
-        assert!(Path::new(&cache_path_48).exists());
+        assert!(Path::new(&cache_path_large).exists());
         assert!(
             fs::metadata(&cache_path_32)
                 .map(|meta| meta.len())
@@ -1728,7 +1732,7 @@ mod tests {
                 > 0
         );
         assert!(
-            fs::metadata(&cache_path_48)
+            fs::metadata(&cache_path_large)
                 .map(|meta| meta.len())
                 .unwrap_or(0)
                 > 0
@@ -1772,24 +1776,24 @@ mod tests {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let storage_root = with_storage_root("icon-ready-check");
         let cache_32 = storage_root.join("icon-cache").join("32").join("ready.png");
-        let cache_48 = storage_root.join("icon-cache").join("48").join("ready.png");
+        let cache_large = storage_root.join("icon-cache").join("128").join("ready.png");
         assert!(cache_32
             .parent()
             .map(fs::create_dir_all)
             .transpose()
             .is_ok());
-        assert!(cache_48
+        assert!(cache_large
             .parent()
             .map(fs::create_dir_all)
             .transpose()
             .is_ok());
         assert!(write_minimal_png(&cache_32));
-        assert!(write_minimal_png(&cache_48));
+        assert!(write_minimal_png(&cache_large));
 
         let mut program = InstalledProgram::new("ReadyIcon".to_string(), InstallSource::Registry);
         program.icon_path = Some(r"C:\Program Files\ReadyIcon\app.exe".to_string());
         program.icon_cache_path_32 = Some(cache_32.to_string_lossy().to_string());
-        program.icon_cache_path_48 = Some(cache_48.to_string_lossy().to_string());
+        program.icon_cache_path_large = Some(cache_large.to_string_lossy().to_string());
 
         assert!(!is_program_metadata_warmup_eligible(
             &program,

@@ -16,7 +16,7 @@ export interface InstalledProgram {
   size: number | null;
   icon_path: string | null;
   icon_cache_path_32: string | null;
-  icon_cache_path_48: string | null;
+  icon_cache_path_large: string | null;
   size_last_updated_at: string | null;
   icon_data_url: string | null;
   icon_data_url_32: string | null;

@@ -40,7 +40,7 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { getProgramIconSrc } from "./lib/icon";
+import { getProgramIconSources } from "./lib/icon";
 import { formatWindowsDate } from "./lib/date";
 import { completedSuccessfully, selectAvailableItem, shouldFinalizeSkippedCleanupLocally, toggleAllSelectableIds } from "./lib/appWorkflow";
 import {
@@ -1278,9 +1278,9 @@ function AppsStage(props: {
 }
 
 function AppIcon({ program, large = false }: { program: UiProgram; large?: boolean }) {
-  const iconSrc = program.source ? getProgramIconSrc(program.source) : null;
+  const iconSources = program.source ? getProgramIconSources(program.source, { large }) : null;
   const storeIconClass = program.source?.install_source === "store" ? " store-icon" : "";
-  if (iconSrc) return <img className={`app-icon${large ? " large" : ""}${storeIconClass}`} src={iconSrc} alt="" />;
+  if (iconSources) return <img className={`app-icon${large ? " large" : ""}${storeIconClass}`} src={iconSources.src} srcSet={iconSources.srcSet} alt="" />;
   return <span className={`app-icon ${large ? "large" : ""} ${program.iconClass}`}>{program.icon}</span>;
 }
 
