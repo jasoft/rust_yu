@@ -6,6 +6,7 @@
 //! 路径或注册表值。
 
 use crate::modules::cleaner::safety;
+use crate::modules::common::atomic_file;
 use crate::modules::common::error::UninstallerError;
 use crate::modules::common::utils;
 use crate::modules::lister::storage;
@@ -16,6 +17,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
+use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Component, Path, PathBuf};
 use uuid::Uuid;
 use walkdir::WalkDir;
@@ -292,47 +294,7 @@ pub fn plan_for_traces(traces: &[Trace]) -> BackupPlan {
                 safety::pre_delete_check(trace)
             };
             if let Err(error) = safety_result {
-            BackupPlanItem {
-                trace_id: trace.id.clone(),
-                path: trace.path.clone(),
-                trace_type: trace.trace_type,
-                kind: None,
-                exists: false,
-                estimated_bytes: 0,
-                eligible: false,
-                reason: Some(error.to_string()),
-            }
-        } else {
-            match inspect_trace(trace) {
-                Ok(inspection) => {
-                    let total = plan.total_bytes.saturating_add(inspection.bytes);
-                    if total > MAX_SESSION_BYTES {
-                        BackupPlanItem {
-                            trace_id: trace.id.clone(),
-                            path: trace.path.clone(),
-                            trace_type: trace.trace_type,
-                            kind: Some(inspection.kind),
-                            exists: inspection.exists,
-                            estimated_bytes: inspection.bytes,
-                            eligible: false,
-                            reason: Some("本次备份总量超过安全上限".to_string()),
-                        }
-                    } else {
-                        plan.total_bytes = total;
-                        plan.eligible_count += 1;
-                        BackupPlanItem {
-                            trace_id: trace.id.clone(),
-                            path: trace.path.clone(),
-                            trace_type: trace.trace_type,
-                            kind: Some(inspection.kind),
-                            exists: inspection.exists,
-                            estimated_bytes: inspection.bytes,
-                            eligible: true,
-                            reason: None,
-                        }
-                    }
-                }
-                Err(error) => BackupPlanItem {
+                BackupPlanItem {
                     trace_id: trace.id.clone(),
                     path: trace.path.clone(),
                     trace_type: trace.trace_type,
@@ -341,8 +303,48 @@ pub fn plan_for_traces(traces: &[Trace]) -> BackupPlan {
                     estimated_bytes: 0,
                     eligible: false,
                     reason: Some(error.to_string()),
-                },
-            }
+                }
+            } else {
+                match inspect_trace(trace) {
+                    Ok(inspection) => {
+                        let total = plan.total_bytes.saturating_add(inspection.bytes);
+                        if total > MAX_SESSION_BYTES {
+                            BackupPlanItem {
+                                trace_id: trace.id.clone(),
+                                path: trace.path.clone(),
+                                trace_type: trace.trace_type,
+                                kind: Some(inspection.kind),
+                                exists: inspection.exists,
+                                estimated_bytes: inspection.bytes,
+                                eligible: false,
+                                reason: Some("本次备份总量超过安全上限".to_string()),
+                            }
+                        } else {
+                            plan.total_bytes = total;
+                            plan.eligible_count += 1;
+                            BackupPlanItem {
+                                trace_id: trace.id.clone(),
+                                path: trace.path.clone(),
+                                trace_type: trace.trace_type,
+                                kind: Some(inspection.kind),
+                                exists: inspection.exists,
+                                estimated_bytes: inspection.bytes,
+                                eligible: true,
+                                reason: None,
+                            }
+                        }
+                    }
+                    Err(error) => BackupPlanItem {
+                        trace_id: trace.id.clone(),
+                        path: trace.path.clone(),
+                        trace_type: trace.trace_type,
+                        kind: None,
+                        exists: false,
+                        estimated_bytes: 0,
+                        eligible: false,
+                        reason: Some(error.to_string()),
+                    },
+                }
             }
         };
 
@@ -376,6 +378,7 @@ pub fn prepare_for_traces(
 
     let id = Uuid::new_v4().to_string();
     let session_dir = create_session_directory(&id)?;
+    let _session_lock = SessionLock::acquire(&session_dir)?;
     let mut session = BackupSession {
         id: id.clone(),
         created_at: Utc::now(),
@@ -460,6 +463,7 @@ pub fn record_cleanup_result(
     success: bool,
     error: Option<String>,
 ) -> Result<(), UninstallerError> {
+    let _session_lock = SessionLock::acquire(&session_directory(session_id)?)?;
     let mut session = load_session(session_id)?;
     let item = session
         .items
@@ -556,6 +560,7 @@ pub fn get_session(session_id: &str) -> Result<BackupSession, UninstallerError> 
 
 /// 恢复一个会话；已经验证恢复的项目会跳过，失败项目可重复调用本函数重试。
 pub fn restore_session(session_id: &str) -> Result<BackupRestoreResult, UninstallerError> {
+    let _session_lock = SessionLock::acquire(&session_directory(session_id)?)?;
     let mut session = load_session(session_id)?;
     let session_dir = session_directory(&session.id)?;
     let mut restored_count = 0usize;
@@ -870,6 +875,11 @@ fn copy_file(source: &Path, destination: &Path) -> Result<(), UninstallerError> 
         fs::create_dir_all(parent)?;
     }
     fs::copy(source, destination)?;
+    // 只有载荷成功落盘后才能持久化 Ready，进而允许清理源文件。
+    OpenOptions::new()
+        .write(true)
+        .open(destination)?
+        .sync_all()?;
     Ok(())
 }
 
@@ -936,9 +946,10 @@ fn validate_payload_integrity(
     })?;
     let actual = match item.kind {
         BackupItemKind::File | BackupItemKind::Directory => {
-            let relative = item.payload.as_deref().ok_or_else(|| {
-                UninstallerError::Other("备份项目缺少载荷文件".to_string())
-            })?;
+            let relative = item
+                .payload
+                .as_deref()
+                .ok_or_else(|| UninstallerError::Other("备份项目缺少载荷文件".to_string()))?;
             let path = safe_payload_path(session_dir, relative)?;
             let metadata = fs::symlink_metadata(&path)?;
             let kind_matches = match item.kind {
@@ -966,7 +977,10 @@ fn validate_payload_integrity(
         BackupItemKind::RegistryValue => {
             let payload = read_json_payload::<RegistryValuePayload>(session_dir, item)?;
             let (hive, key_path, value_name) = parse_registry_value_path(&item.original_path)?;
-            if payload.hive != hive || payload.key_path != key_path || payload.value_name != value_name {
+            if payload.hive != hive
+                || payload.key_path != key_path
+                || payload.value_name != value_name
+            {
                 return Err(UninstallerError::Other(
                     "备份注册表值目标改变，已拒绝删除或恢复".to_string(),
                 ));
@@ -1584,7 +1598,7 @@ fn default_backup_kind(trace_type: TraceType) -> BackupItemKind {
 fn write_json_payload<T: Serialize>(path: &Path, value: &T) -> Result<(), UninstallerError> {
     let content = serde_json::to_vec_pretty(value)
         .map_err(|error| UninstallerError::Serde(error.to_string()))?;
-    fs::write(path, content)?;
+    atomic_file::write_atomic(path, &content)?;
     Ok(())
 }
 
@@ -1654,6 +1668,44 @@ fn session_directory(session_id: &str) -> Result<PathBuf, UninstallerError> {
     Uuid::parse_str(session_id)
         .map_err(|_| UninstallerError::PermissionDenied("无效的备份会话 ID".to_string()))?;
     Ok(backup_root()?.join(session_id))
+}
+
+/// 整个读改写事务按会话加锁，跨线程/进程共享；不同会话互不阻塞。
+/// 文件句柄关闭（包括进程异常退出）由系统释放锁，锁文件不能删除重建，
+/// 否则等待旧句柄的写者会与新锁文件的写者同时进入事务。
+struct SessionLock {
+    _file: File,
+}
+
+impl SessionLock {
+    fn acquire(directory: &Path) -> Result<Self, UninstallerError> {
+        atomic_file::validate_directory_chain(directory)?;
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            // 不共享删除：持锁期间不能把锁文件替换成另一文件。
+            .share_mode(
+                (windows::Win32::Storage::FileSystem::FILE_SHARE_READ
+                    | windows::Win32::Storage::FileSystem::FILE_SHARE_WRITE)
+                    .0,
+            )
+            .custom_flags(windows::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT.0)
+            .open(directory.join(".session.lock"))?;
+        let metadata = file.metadata()?;
+        if !metadata.is_file()
+            || metadata.file_attributes()
+                & windows::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT.0
+                != 0
+        {
+            return Err(UninstallerError::PermissionDenied(
+                "备份会话锁不是普通文件".to_string(),
+            ));
+        }
+        file.lock()?;
+        Ok(Self { _file: file })
+    }
 }
 
 fn load_session(session_id: &str) -> Result<BackupSession, UninstallerError> {
@@ -1834,6 +1886,157 @@ mod tests {
     }
 
     #[test]
+    fn backup_result_child_process() {
+        let Ok(fixture) = std::env::var("RUST_YU_INTERNAL_BACKUP_CONCURRENCY_TEST") else {
+            return;
+        };
+        let (session_id, trace_ids, ready_path, go_path): (String, Vec<String>, PathBuf, PathBuf) =
+            serde_json::from_str(&fixture).expect("父测试传入有效夹具");
+        fs::write(ready_path, b"ready").expect("子进程准备完成");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while !go_path.exists() {
+            assert!(std::time::Instant::now() < deadline, "等待测试屏障超时");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        for trace_id in trace_ids {
+            record_cleanup_result(&session_id, &trace_id, false, Some(trace_id.clone()))
+                .expect("子进程更新结果应成功");
+        }
+    }
+
+    #[test]
+    fn concurrent_processes_preserve_every_cleanup_result() {
+        with_storage_root("process-results", |root| {
+            fs::create_dir_all(root).expect("测试目录可创建");
+            let traces = (0..16)
+                .map(|index| {
+                    let path = root.join(format!("process-{index}.txt"));
+                    fs::write(&path, b"fixture").expect("夹具可写入");
+                    Trace::new(
+                        "RustYu process fixture".to_string(),
+                        TraceType::File,
+                        path.to_string_lossy().into_owned(),
+                    )
+                })
+                .collect::<Vec<_>>();
+            let prepared = prepare_for_traces(&traces, "process results")
+                .expect("备份成功")
+                .expect("存在会话");
+            struct Children(Vec<std::process::Child>);
+            impl Drop for Children {
+                fn drop(&mut self) {
+                    for child in &mut self.0 {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                    }
+                }
+            }
+            let mut children = Children(Vec::new());
+            let go_path = root.join("go");
+            for (index, batch) in traces.chunks(8).enumerate() {
+                let fixture = serde_json::to_string(&(
+                    &prepared.session_id,
+                    batch.iter().map(|trace| &trace.id).collect::<Vec<_>>(),
+                    root.join(format!("ready-{index}")),
+                    &go_path,
+                ))
+                .expect("可序列化测试参数");
+                children.0.push(
+                    std::process::Command::new(std::env::current_exe().expect("测试程序路径"))
+                        .args([
+                            "--exact",
+                            "modules::backup::tests::backup_result_child_process",
+                        ])
+                        .env("RUST_YU_INTERNAL_BACKUP_CONCURRENCY_TEST", fixture)
+                        .spawn()
+                        .expect("启动本次编译的测试程序"),
+                );
+            }
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+            while !(root.join("ready-0").exists() && root.join("ready-1").exists()) {
+                assert!(std::time::Instant::now() < deadline, "子进程准备超时");
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            fs::write(&go_path, b"go").expect("同时释放两个子进程");
+            for child in &mut children.0 {
+                loop {
+                    if let Some(status) = child.try_wait().expect("读取子进程状态") {
+                        assert!(status.success(), "子进程写入失败");
+                        break;
+                    }
+                    assert!(std::time::Instant::now() < deadline, "子进程更新超时");
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+            }
+            let session = super::get_session(&prepared.session_id).expect("清单可解析");
+            assert_eq!(session.items.len(), traces.len());
+            assert!(
+                session
+                    .items
+                    .iter()
+                    .all(|item| item.state == BackupItemState::DeleteFailed
+                        && item.error.as_ref() == Some(&item.trace_id)),
+                "跨进程不能丢更新"
+            );
+        });
+    }
+
+    #[test]
+    fn concurrent_cleanup_results_preserve_every_item() {
+        with_storage_root("concurrent-results", |root| {
+            fs::create_dir_all(root).expect("测试目录可创建");
+            let traces = (0..16)
+                .map(|index| {
+                    let path = root.join(format!("item-{index}.txt"));
+                    fs::write(&path, b"fixture").expect("夹具可写入");
+                    Trace::new(
+                        "RustYu concurrency fixture".to_string(),
+                        TraceType::File,
+                        path.to_string_lossy().into_owned(),
+                    )
+                })
+                .collect::<Vec<_>>();
+            let prepared = prepare_for_traces(&traces, "parallel results")
+                .expect("备份成功")
+                .expect("存在会话");
+            let barrier = std::sync::Barrier::new(traces.len());
+            std::thread::scope(|scope| {
+                let handles = traces
+                    .iter()
+                    .map(|trace| {
+                        let session_id = &prepared.session_id;
+                        let barrier = &barrier;
+                        scope.spawn(move || {
+                            barrier.wait();
+                            record_cleanup_result(
+                                session_id,
+                                &trace.id,
+                                false,
+                                Some(trace.id.clone()),
+                            )
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                for handle in handles {
+                    handle
+                        .join()
+                        .expect("线程不应 panic")
+                        .expect("结果应完整持久化");
+                }
+            });
+            let session = super::get_session(&prepared.session_id).expect("清单应可解析");
+            assert_eq!(session.items.len(), traces.len());
+            assert!(
+                session.items.iter().all(|item| {
+                    item.state == BackupItemState::DeleteFailed
+                        && item.error.as_ref() == Some(&item.trace_id)
+                }),
+                "并发更新不能丢失其他项目的结果"
+            );
+        });
+    }
+
+    #[test]
     fn deletion_validation_rejects_corrupt_or_missing_file_payload() {
         with_storage_root("payload-integrity", |root| {
             fs::create_dir_all(root).expect("测试根目录应可创建");
@@ -1849,7 +2052,10 @@ mod tests {
                 .expect("应有备份会话");
             let session = super::get_session(preparation.session_id()).expect("应能读取会话");
             let relative = session.items[0].payload.as_ref().expect("应有备份载荷");
-            let payload = root.join("backups").join(preparation.session_id()).join(relative);
+            let payload = root
+                .join("backups")
+                .join(preparation.session_id())
+                .join(relative);
             assert!(preparation.validate_trace(&trace).is_ok());
 
             // 同长度篡改、截断和丢失均不得凭“源文件未变化”被放行删除。
@@ -1897,12 +2103,16 @@ mod tests {
                 .expect("目录备份应成功")
                 .expect("应有会话");
             let session = super::get_session(preparation.session_id()).expect("应有会话");
-            let payload = root.join("backups").join(preparation.session_id()).join(
-                session.items[0].payload.as_ref().expect("应有载荷目录"),
-            );
+            let payload = root
+                .join("backups")
+                .join(preparation.session_id())
+                .join(session.items[0].payload.as_ref().expect("应有载荷目录"));
             fs::remove_file(payload.join("lost.txt")).expect("仅移除备份中的测试子文件");
             assert!(preparation.validate_trace(&trace).is_err());
-            assert_eq!(fs::read(source.join("lost.txt")).expect("源文件须保留"), b"original");
+            assert_eq!(
+                fs::read(source.join("lost.txt")).expect("源文件须保留"),
+                b"original"
+            );
         });
     }
 
@@ -1921,7 +2131,8 @@ mod tests {
                 uuid::Uuid::new_v4()
             ));
             let (key, _) = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER)
-                .create_subkey(&fixture.0).expect("应能创建 UUID 测试键");
+                .create_subkey(&fixture.0)
+                .expect("应能创建 UUID 测试键");
             key.set_value("Keep", &"original").expect("应能写入测试值");
             let trace = Trace::new(
                 "Demo".to_string(),
@@ -1933,43 +2144,70 @@ mod tests {
                 TraceType::RegistryValue,
                 format!("HKCU\\{}\\Keep", fixture.0),
             );
-            let preparation = prepare_for_traces(&[trace.clone(), value_trace.clone()], "integrity")
-                .expect("注册表备份应成功").expect("应有会话");
+            let preparation =
+                prepare_for_traces(&[trace.clone(), value_trace.clone()], "integrity")
+                    .expect("注册表备份应成功")
+                    .expect("应有会话");
             let session = super::get_session(preparation.session_id()).expect("应有会话");
-            let payload = root.join("backups").join(preparation.session_id()).join(
-                session.items[0].payload.as_ref().expect("应有注册表载荷"),
-            );
-            let mut snapshot: serde_json::Value = serde_json::from_slice(
-                &fs::read(&payload).expect("应能读取载荷"),
-            ).expect("载荷应为 JSON");
+            let payload = root
+                .join("backups")
+                .join(preparation.session_id())
+                .join(session.items[0].payload.as_ref().expect("应有注册表载荷"));
+            let mut snapshot: serde_json::Value =
+                serde_json::from_slice(&fs::read(&payload).expect("应能读取载荷"))
+                    .expect("载荷应为 JSON");
             // 空树仍是有效 JSON，子集式校验会误报成功，必须比较完整指纹。
             snapshot["root"]["values"] = serde_json::json!([]);
             fs::write(&payload, serde_json::to_vec(&snapshot).expect("应能序列化"))
                 .expect("应能模拟载荷丢项");
             assert!(preparation.validate_trace(&trace).is_err());
-            assert_eq!(key.get_value::<String, _>("Keep").expect("源值须保留"), "original");
-
-            let value_payload = root.join("backups").join(preparation.session_id()).join(
-                session.items[1].payload.as_ref().expect("应有值载荷"),
+            assert_eq!(
+                key.get_value::<String, _>("Keep").expect("源值须保留"),
+                "original"
             );
-            let original_value: serde_json::Value = serde_json::from_slice(
-                &fs::read(&value_payload).expect("应能读取值载荷"),
-            ).expect("应为 JSON");
+
+            let value_payload = root
+                .join("backups")
+                .join(preparation.session_id())
+                .join(session.items[1].payload.as_ref().expect("应有值载荷"));
+            let original_value: serde_json::Value =
+                serde_json::from_slice(&fs::read(&value_payload).expect("应能读取值载荷"))
+                    .expect("应为 JSON");
             for damage in ["bytes", "type", "target"] {
                 let mut damaged = original_value.clone();
                 match damage {
                     "bytes" => damaged["value"]["bytes"] = serde_json::json!([0]),
-                    "type" => damaged["value"]["value_type"] =
-                        serde_json::json!(winreg::enums::REG_DWORD as u32),
-                    _ => damaged["key_path"] = serde_json::json!(format!("{}\\Redirect", fixture.0)),
+                    "type" => {
+                        damaged["value"]["value_type"] =
+                            serde_json::json!(winreg::enums::REG_DWORD as u32)
+                    }
+                    _ => {
+                        damaged["key_path"] = serde_json::json!(format!("{}\\Redirect", fixture.0))
+                    }
                 }
-                fs::write(&value_payload, serde_json::to_vec(&damaged).expect("应能序列化"))
-                    .expect("应能模拟值载荷损坏");
-                assert!(preparation.validate_trace(&value_trace).is_err(), "{damage}");
+                fs::write(
+                    &value_payload,
+                    serde_json::to_vec(&damaged).expect("应能序列化"),
+                )
+                .expect("应能模拟值载荷损坏");
+                assert!(
+                    preparation.validate_trace(&value_trace).is_err(),
+                    "{damage}"
+                );
             }
-            assert!(!restore_session(preparation.session_id()).expect("应返回失败状态").success);
-            assert_eq!(key.get_value::<String, _>("Keep").expect("源值须保留"), "original");
-            assert!(key.open_subkey("Redirect").is_err(), "损坏载荷不得先写入其他目标");
+            assert!(
+                !restore_session(preparation.session_id())
+                    .expect("应返回失败状态")
+                    .success
+            );
+            assert_eq!(
+                key.get_value::<String, _>("Keep").expect("源值须保留"),
+                "original"
+            );
+            assert!(
+                key.open_subkey("Redirect").is_err(),
+                "损坏载荷不得先写入其他目标"
+            );
         });
     }
 

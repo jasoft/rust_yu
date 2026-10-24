@@ -5,7 +5,6 @@ use crate::modules::common::error::UninstallerError;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
-use uuid::Uuid;
 
 const REPORTS_DIR_NAME: &str = "reports";
 const EXPORTS_DIR_NAME: &str = "exports";
@@ -194,43 +193,7 @@ fn write_atomic(path: &Path, content: &[u8]) -> Result<(), UninstallerError> {
         .parent()
         .ok_or_else(|| UninstallerError::Other("报告路径缺少父目录".to_string()))?;
     ensure_safe_directory(parent)?;
-    if let Ok(metadata) = fs::symlink_metadata(path) {
-        if metadata.file_type().is_symlink() {
-            return Err(UninstallerError::Other(format!(
-                "拒绝覆盖符号链接报告: {}",
-                path.display()
-            )));
-        }
-        if !metadata.is_file() {
-            return Err(UninstallerError::Other(format!(
-                "报告目标不是普通文件: {}",
-                path.display()
-            )));
-        }
-    }
-    let temporary = parent.join(format!(
-        ".{}.{}.tmp",
-        path.file_name()
-            .and_then(|value| value.to_str())
-            .unwrap_or("report"),
-        Uuid::new_v4()
-    ));
-    fs::write(&temporary, content)?;
-    if let Err(error) = fs::rename(&temporary, path) {
-        let destination_is_regular_file = fs::symlink_metadata(path)
-            .map(|metadata| metadata.is_file() && !metadata.file_type().is_symlink())
-            .unwrap_or(false);
-        if destination_is_regular_file {
-            fs::remove_file(path)?;
-            if let Err(retry_error) = fs::rename(&temporary, path) {
-                let _ = fs::remove_file(&temporary);
-                return Err(UninstallerError::FileSystem(retry_error));
-            }
-        } else {
-            let _ = fs::remove_file(&temporary);
-            return Err(UninstallerError::FileSystem(error));
-        }
-    }
+    crate::modules::common::atomic_file::write_atomic(path, content)?;
     Ok(())
 }
 

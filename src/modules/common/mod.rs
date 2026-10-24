@@ -1,3 +1,4 @@
+pub(crate) mod atomic_file;
 pub mod error;
 pub mod logging;
 pub mod process;
