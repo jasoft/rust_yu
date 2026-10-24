@@ -104,6 +104,15 @@ const FIXTURES: &[FixtureDefinition] = &[
         ],
     },
     FixtureDefinition {
+        id: "inno-dirty",
+        kind: DeveloperFixtureKind::Inno,
+        relative_path: "inno-dirty-traces/output/RustYuDirtyTracesSetup.exe",
+        installed_keys: &[
+            r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\rust_yu_dirty_traces_is1",
+            r"HKLM\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\rust_yu_dirty_traces_is1",
+        ],
+    },
+    FixtureDefinition {
         id: "deep-nsis-machine",
         kind: DeveloperFixtureKind::Nsis,
         relative_path: "nsis-random-fixtures/output/RustYuDeepScanMachineSetup.exe",
@@ -429,15 +438,16 @@ mod tests {
     #[test]
     fn catalog_contains_only_the_fixed_installable_fixtures() {
         let catalog = fixture_catalog();
-        assert_eq!(catalog.len(), 8);
+        assert_eq!(catalog.len(), 9);
         assert_eq!(catalog[0].id, "xplorer-msi");
         assert_eq!(catalog[1].id, "legacy-inno");
-        assert_eq!(catalog[2].id, "deep-nsis-machine");
-        assert_eq!(catalog[3].id, "deep-nsis-user");
-        assert_eq!(catalog[4].id, "deep-nsis-sparse");
-        assert_eq!(catalog[5].id, "leftover-machine");
-        assert_eq!(catalog[6].id, "leftover-user");
-        assert_eq!(catalog[7].id, "leftover-sparse");
+        assert_eq!(catalog[2].id, "inno-dirty");
+        assert_eq!(catalog[3].id, "deep-nsis-machine");
+        assert_eq!(catalog[4].id, "deep-nsis-user");
+        assert_eq!(catalog[5].id, "deep-nsis-sparse");
+        assert_eq!(catalog[6].id, "leftover-machine");
+        assert_eq!(catalog[7].id, "leftover-user");
+        assert_eq!(catalog[8].id, "leftover-sparse");
         assert!(catalog.iter().all(|fixture| fixture.available));
         assert!(catalog.iter().all(|fixture| fixture.size.is_some()));
     }

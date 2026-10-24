@@ -1083,6 +1083,8 @@ const enUS = {
   "developer.fixture.xplorer.description": "Validates Windows Installer inventory and MSI uninstall workflows.",
   "developer.fixture.legacy.name": "Rust Yu Legacy Inno test fixture",
   "developer.fixture.legacy.description": "Validates spawned-uninstaller waiting plus install-folder and user-data leftover scans.",
+  "developer.fixture.inno_dirty.name": "Dirty uninstall: full Inno trace fixture",
+  "developer.fixture.inno_dirty.description": "Installs a real Inno package that registers a running service, a scheduled task, a firewall rule, Run entries, an environment variable, and a resident process; its uninstaller removes only its own files and ARP key, validating detection and cleanup of service, process, task, and registry leftovers.",
   "developer.fixture.deep_machine.name": "Deep analysis: machine-scope truth fixture",
   "developer.fixture.deep_machine.description": "Known truth covers Program Files, ProgramData, HKLM, shared shortcuts, a service, and a scheduled task.",
   "developer.fixture.deep_user.name": "Deep analysis: current-user truth fixture",

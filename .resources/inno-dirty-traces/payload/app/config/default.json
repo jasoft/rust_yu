@@ -1,0 +1,5 @@
+{
+  "fixture": "inno-dirty-traces",
+  "channel": "stable",
+  "telemetry": false
+}
