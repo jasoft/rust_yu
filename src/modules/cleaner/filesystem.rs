@@ -22,9 +22,30 @@ pub async fn delete_file_trace(trace: &Trace) -> Result<CleanResult, Uninstaller
     // 计算并删除
     let bytes_freed: u64;
     let result = if path.is_dir() {
-        // 目录：计算大小后删除
-        bytes_freed = utils::calculate_dir_size(&path).unwrap_or(0);
-        remove_with_process_release(&path)
+        // 目录候选的重解析点硬边界：junction/symlink 目录的 remove_dir_all
+        // 可能跟随链接删除目标侧内容，绝不允许；只接受真实目录作为候选
+        // （扫描/快照侧的符号链接备份同样会拒绝，保持一致）。
+        match std::fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                bytes_freed = 0;
+                Err(std::io::Error::other(format!(
+                    "目录候选是重解析点（junction/symlink），已拒绝删除: {}",
+                    trace.path
+                )))
+            }
+            Ok(metadata) => {
+                bytes_freed = utils::calculate_dir_size(&path).unwrap_or(0);
+                if metadata.is_dir() {
+                    std::fs::remove_dir_all(&path)
+                } else {
+                    std::fs::remove_file(&path)
+                }
+            }
+            Err(error) => {
+                bytes_freed = 0;
+                Err(error)
+            }
+        }
     } else {
         // 文件：计算大小后删除
         bytes_freed = path.metadata()?.len();
@@ -146,6 +167,7 @@ fn normalize_for_compare(path: &std::path::Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::{normalize_for_compare, remove_with_process_release};
+    use crate::modules::scanner::models::{Trace, TraceType};
     use std::path::Path;
 
     #[test]
@@ -201,6 +223,62 @@ mod tests {
             base.join("a").exists(),
             "整条祖先链必须原样保留，不存在隐式向上清理"
         );
+
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[tokio::test]
+    async fn directory_candidate_with_reparse_point_is_rejected_not_followed() {
+        // junction 目录候选必须被拒绝删除，且链接目标侧内容原样保留
+        let base = std::env::temp_dir().join(format!(
+            "rust-yu-reparse-reject-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let outside = base.join("outside");
+        std::fs::create_dir_all(&outside).expect("应能创建目标目录");
+        std::fs::write(outside.join("user-data.txt"), b"precious")
+            .expect("应能写入目标侧数据");
+        let junction = base.join("candidate-link");
+        let output = std::process::Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-Command"])
+            .arg(format!(
+                "New-Item -ItemType Junction -Path '{}' -Target '{}' | Out-Null; if ($?) {{ 'ok' }} else {{ 'fail' }}",
+                junction.display(),
+                outside.display()
+            ))
+            .output()
+            .expect("应能启动 powershell");
+        assert!(
+            String::from_utf8_lossy(&output.stdout).contains("ok"),
+            "创建测试 junction 应成功"
+        );
+
+        let trace = Trace::new(
+            "Demo App".to_string(),
+            TraceType::File,
+            junction.to_string_lossy().into_owned(),
+        );
+        let result = super::delete_file_trace(&trace)
+            .await
+            .expect("调用本身应返回结果");
+        assert!(
+            !result.success,
+            "junction 目录候选必须被拒绝删除"
+        );
+        assert!(
+            result
+                .error
+                .as_deref()
+                .unwrap_or_default()
+                .contains("重解析点"),
+            "拒绝原因必须说明重解析点边界: {:?}",
+            result.error
+        );
+        assert!(
+            outside.join("user-data.txt").exists(),
+            "链接目标侧的用户数据绝不能被跟随删除"
+        );
+        assert!(junction.exists(), "junction 本体保留（只拒绝，不误删链接）");
 
         let _ = std::fs::remove_dir_all(base);
     }
