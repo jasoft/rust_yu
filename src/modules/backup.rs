@@ -476,7 +476,14 @@ pub fn record_cleanup_result(
 
 /// 删除完成后的独立校验。调用方只有在目标确实不存在时才能把结果标记为成功。
 pub fn verify_trace_removed(trace: &Trace) -> Result<bool, UninstallerError> {
-    crate::modules::cleaner::safety::pre_delete_check(trace)?;
+    // 验证阶段只关心目标是否仍然存在。共享应用值容器复用归属重校验，
+    // 与清理/备份两道闸门保持同一套分流：is_critical 整段检查会误拒
+    // 已经完成的应用私有值删除，把它谎报成失败。
+    if crate::modules::cleaner::safety::is_shared_application_value_container(trace) {
+        crate::modules::cleaner::safety::revalidate_shared_value_ownership(trace)?;
+    } else {
+        crate::modules::cleaner::safety::pre_delete_check(trace)?;
+    }
     Ok(!inspect_trace(trace)?.exists)
 }
 
