@@ -84,6 +84,20 @@ async fn clean_traces_with_authorization(
         }
     };
     let backup_preparation = backup_preparation.map(Arc::new);
+    // 必须从第一次删除前校验一直持有到最后一次结果落盘，防止恢复操作
+    // 插入“已校验但尚未删除”的窗口。获取锁放到 blocking 池，冲突立即拒绝。
+    let _backup_operation = if let Some(preparation) = backup_preparation.as_ref() {
+        let session_id = preparation.session_id().to_string();
+        Some(
+            tokio::task::spawn_blocking(move || {
+                crate::modules::backup::acquire_operation(&session_id)
+            })
+            .await
+            .map_err(|error| UninstallerError::Other(format!("备份会话操作锁任务失败: {error}")))??,
+        )
+    } else {
+        None
+    };
     let mut results = Vec::new();
 
     for trace in traces {

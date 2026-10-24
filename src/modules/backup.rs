@@ -560,6 +560,8 @@ pub fn get_session(session_id: &str) -> Result<BackupSession, UninstallerError> 
 
 /// 恢复一个会话；已经验证恢复的项目会跳过，失败项目可重复调用本函数重试。
 pub fn restore_session(session_id: &str) -> Result<BackupRestoreResult, UninstallerError> {
+    // 锁顺序固定为操作锁 → 清单事务锁；清理也遵循此顺序，禁止交错改数据。
+    let _operation = acquire_operation(session_id)?;
     let _session_lock = SessionLock::acquire(&session_directory(session_id)?)?;
     let mut session = load_session(session_id)?;
     let session_dir = session_directory(&session.id)?;
@@ -1691,33 +1693,57 @@ struct SessionLock {
 
 impl SessionLock {
     fn acquire(directory: &Path) -> Result<Self, UninstallerError> {
-        atomic_file::validate_directory_chain(directory)?;
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            // 不共享删除：持锁期间不能把锁文件替换成另一文件。
-            .share_mode(
-                (windows::Win32::Storage::FileSystem::FILE_SHARE_READ
-                    | windows::Win32::Storage::FileSystem::FILE_SHARE_WRITE)
-                    .0,
-            )
-            .custom_flags(windows::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT.0)
-            .open(directory.join(".session.lock"))?;
-        let metadata = file.metadata()?;
-        if !metadata.is_file()
-            || metadata.file_attributes()
-                & windows::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT.0
-                != 0
-        {
-            return Err(UninstallerError::PermissionDenied(
-                "备份会话锁不是普通文件".to_string(),
-            ));
-        }
+        let file = open_session_lock(directory, ".session.lock")?;
         file.lock()?;
         Ok(Self { _file: file })
     }
+}
+
+/// 删除与恢复必须互斥到数据操作和结果落盘全部结束，不能只锁清单的读改写。
+/// 与清单事务锁分开，避免清理持锁后写回单项结果时重入同一把锁而死锁。
+pub(crate) struct BackupOperationGuard {
+    _file: File,
+}
+
+pub(crate) fn acquire_operation(
+    session_id: &str,
+) -> Result<BackupOperationGuard, UninstallerError> {
+    let file = open_session_lock(&session_directory(session_id)?, ".operation.lock")?;
+    // 冲突立即报错，不能让清理/恢复命令无限等待；句柄关闭或进程退出即释放。
+    file.try_lock().map_err(|error| {
+        UninstallerError::Other(format!(
+            "无法获取备份会话操作锁，清理或恢复可能正在运行: {error}"
+        ))
+    })?;
+    Ok(BackupOperationGuard { _file: file })
+}
+
+fn open_session_lock(directory: &Path, name: &str) -> Result<File, UninstallerError> {
+    atomic_file::validate_directory_chain(directory)?;
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        // 不共享删除：持锁期间不能把锁文件替换成另一文件。
+        .share_mode(
+            (windows::Win32::Storage::FileSystem::FILE_SHARE_READ
+                | windows::Win32::Storage::FileSystem::FILE_SHARE_WRITE)
+                .0,
+        )
+        .custom_flags(windows::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT.0)
+        .open(directory.join(name))?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file()
+        || metadata.file_attributes()
+            & windows::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT.0
+            != 0
+    {
+        return Err(UninstallerError::PermissionDenied(
+            "备份会话锁不是普通文件".to_string(),
+        ));
+    }
+    Ok(file)
 }
 
 fn load_session(session_id: &str) -> Result<BackupSession, UninstallerError> {
@@ -1849,6 +1875,42 @@ mod tests {
         first_chunk: Option<&'static [u8]>,
     }
 
+    struct TestChildren(Vec<std::process::Child>);
+
+    impl Drop for TestChildren {
+        fn drop(&mut self) {
+            for child in &mut self.0 {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+    }
+
+    fn wait_for_test_condition(mut ready: impl FnMut() -> bool, message: &str) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while !ready() {
+            assert!(std::time::Instant::now() < deadline, "{message}");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+
+    impl TestChildren {
+        fn wait_success(&mut self) {
+            for child in &mut self.0 {
+                wait_for_test_condition(
+                    || match child.try_wait().expect("读取子进程状态") {
+                        Some(status) => {
+                            assert!(status.success(), "子进程执行失败");
+                            true
+                        }
+                        None => false,
+                    },
+                    "子进程执行超时",
+                );
+            }
+        }
+    }
+
     impl Read for FailAfterFirstChunk {
         fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
             if let Some(chunk) = self.first_chunk.take() {
@@ -1895,6 +1957,135 @@ mod tests {
         };
         std::env::set_var("RUST_YU_STORAGE_DIR", &scope.root);
         test(&scope.root)
+    }
+
+    #[test]
+    fn operation_exclusion_preserves_data_and_manifest_until_cleanup_finishes() {
+        with_storage_root("operation-exclusion", |root| {
+            fs::create_dir_all(root).expect("创建独占夹具根");
+            let target = root.join("pending.json");
+            fs::write(&target, b"original-pending-data").expect("写入原始夹具");
+            let trace = Trace::new(
+                "RustYu operation fixture".to_string(),
+                TraceType::File,
+                target.to_string_lossy().into_owned(),
+            );
+            let prepared = prepare_for_traces(std::slice::from_ref(&trace), "operation exclusion")
+                .expect("准备备份")
+                .expect("存在会话");
+            let operation = super::acquire_operation(&prepared.session_id).expect("清理占有操作锁");
+            prepared.validate_trace(&trace).expect("删除前校验");
+            let manifest = super::session_directory(&prepared.session_id)
+                .expect("会话目录")
+                .join(super::MANIFEST_FILE_NAME);
+            let original_manifest = fs::read(&manifest).expect("清单原字节");
+            // 精确停在校验与实际删除之间。恢复若放行，会先报告 Restored，
+            // 后续删除却把刚报告恢复成功的数据再次删掉。
+            let blocked = restore_session(&prepared.session_id);
+            assert!(
+                blocked.is_err(),
+                "清理未结束时恢复必须拒绝，不能提前报告恢复成功"
+            );
+            assert_eq!(fs::read(&manifest).expect("拒绝后清单"), original_manifest);
+            assert_eq!(
+                fs::read(&target).expect("拒绝后源文件"),
+                b"original-pending-data"
+            );
+            assert!(super::acquire_operation(&prepared.session_id).is_err());
+
+            fs::remove_file(&target).expect("仅删除独占夹具文件");
+            record_cleanup_result(&prepared.session_id, &trace.id, true, None)
+                .expect("操作锁内仍可持有独立清单事务锁");
+            assert!(restore_session(&prepared.session_id).is_err());
+            assert!(!target.exists());
+            drop(operation);
+
+            let restored = restore_session(&prepared.session_id).expect("清理结束后可恢复");
+            assert!(restored.success);
+            assert_eq!(
+                fs::read(&target).expect("恢复原字节"),
+                b"original-pending-data"
+            );
+            assert!(
+                restore_session(&prepared.session_id)
+                    .expect("重复恢复")
+                    .success
+            );
+            assert!(
+                super::acquire_operation(&prepared.session_id).is_ok(),
+                "恢复结束释放操作锁"
+            );
+        });
+    }
+
+    #[test]
+    fn operation_exclusion_is_cross_process_and_other_sessions_remain_available() {
+        with_storage_root("process-operation", |root| {
+            fs::create_dir_all(root).expect("创建独占测试根");
+            let target = root.join("deleted.txt");
+            fs::write(&target, b"recover-after-operation").expect("写入独占夹具");
+            let trace = Trace::new(
+                "RustYu process operation fixture".to_string(),
+                TraceType::File,
+                target.to_string_lossy().into_owned(),
+            );
+            let prepared =
+                prepare_for_traces(std::slice::from_ref(&trace), "cross-process operation")
+                    .expect("准备备份")
+                    .expect("存在会话");
+            fs::remove_file(&target).expect("删除独占夹具");
+            record_cleanup_result(&prepared.session_id, &trace.id, true, None).expect("记录删除");
+            let directory = super::session_directory(&prepared.session_id).expect("会话目录");
+            let manifest = directory.join(super::MANIFEST_FILE_NAME);
+            let bytes = fs::read(&manifest).expect("原清单字节");
+            let ready = root.join("operation-ready");
+            let go = root.join("operation-release");
+            let fixture = serde_json::to_string(&(&prepared.session_id, &ready, &go))
+                .expect("子进程测试参数");
+            let mut children = TestChildren(vec![std::process::Command::new(
+                std::env::current_exe().expect("当前测试程序"),
+            )
+            .args([
+                "--exact",
+                "modules::backup::tests::backup_result_child_process",
+            ])
+            .env("RUST_YU_INTERNAL_BACKUP_OPERATION_TEST", fixture)
+            .spawn()
+            .expect("启动真实持锁子进程")]);
+            wait_for_test_condition(|| ready.exists(), "持锁子进程准备超时");
+            assert!(restore_session(&prepared.session_id).is_err());
+            assert!(!target.exists(), "冲突拒绝时不能写回任何数据");
+            assert_eq!(fs::read(&manifest).expect("拒绝后清单"), bytes);
+
+            let independent = prepare_for_traces(
+                &[Trace::new(
+                    "RustYu independent fixture".to_string(),
+                    TraceType::File,
+                    root.join("already-missing.txt")
+                        .to_string_lossy()
+                        .into_owned(),
+                )],
+                "independent session",
+            )
+            .expect("独立会话")
+            .expect("存在会话");
+            assert!(
+                restore_session(&independent.session_id)
+                    .expect("不同会话不受阻塞")
+                    .success
+            );
+            fs::write(go, b"release").expect("释放子进程操作锁");
+            children.wait_success();
+            assert!(
+                restore_session(&prepared.session_id)
+                    .expect("子进程退出后可重试")
+                    .success
+            );
+            assert_eq!(
+                fs::read(&target).expect("恢复原字节"),
+                b"recover-after-operation"
+            );
+        });
     }
 
     #[test]
@@ -2076,17 +2267,21 @@ mod tests {
 
     #[test]
     fn backup_result_child_process() {
+        if let Ok(fixture) = std::env::var("RUST_YU_INTERNAL_BACKUP_OPERATION_TEST") {
+            let (session_id, ready_path, go_path): (String, PathBuf, PathBuf) =
+                serde_json::from_str(&fixture).expect("独占操作夹具参数");
+            let _operation = super::acquire_operation(&session_id).expect("子进程占有操作锁");
+            fs::write(ready_path, b"locked").expect("操作锁就绪");
+            wait_for_test_condition(|| go_path.exists(), "等待操作释放屏障超时");
+            return;
+        }
         let Ok(fixture) = std::env::var("RUST_YU_INTERNAL_BACKUP_CONCURRENCY_TEST") else {
             return;
         };
         let (session_id, trace_ids, ready_path, go_path): (String, Vec<String>, PathBuf, PathBuf) =
             serde_json::from_str(&fixture).expect("父测试传入有效夹具");
         fs::write(ready_path, b"ready").expect("子进程准备完成");
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
-        while !go_path.exists() {
-            assert!(std::time::Instant::now() < deadline, "等待测试屏障超时");
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
+        wait_for_test_condition(|| go_path.exists(), "等待测试屏障超时");
         for trace_id in trace_ids {
             record_cleanup_result(&session_id, &trace_id, false, Some(trace_id.clone()))
                 .expect("子进程更新结果应成功");
@@ -2111,16 +2306,7 @@ mod tests {
             let prepared = prepare_for_traces(&traces, "process results")
                 .expect("备份成功")
                 .expect("存在会话");
-            struct Children(Vec<std::process::Child>);
-            impl Drop for Children {
-                fn drop(&mut self) {
-                    for child in &mut self.0 {
-                        let _ = child.kill();
-                        let _ = child.wait();
-                    }
-                }
-            }
-            let mut children = Children(Vec::new());
+            let mut children = TestChildren(Vec::new());
             let go_path = root.join("go");
             for (index, batch) in traces.chunks(8).enumerate() {
                 let fixture = serde_json::to_string(&(
@@ -2141,22 +2327,12 @@ mod tests {
                         .expect("启动本次编译的测试程序"),
                 );
             }
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
-            while !(root.join("ready-0").exists() && root.join("ready-1").exists()) {
-                assert!(std::time::Instant::now() < deadline, "子进程准备超时");
-                std::thread::sleep(std::time::Duration::from_millis(10));
-            }
+            wait_for_test_condition(
+                || root.join("ready-0").exists() && root.join("ready-1").exists(),
+                "子进程准备超时",
+            );
             fs::write(&go_path, b"go").expect("同时释放两个子进程");
-            for child in &mut children.0 {
-                loop {
-                    if let Some(status) = child.try_wait().expect("读取子进程状态") {
-                        assert!(status.success(), "子进程写入失败");
-                        break;
-                    }
-                    assert!(std::time::Instant::now() < deadline, "子进程更新超时");
-                    std::thread::sleep(std::time::Duration::from_millis(10));
-                }
-            }
+            children.wait_success();
             let session = super::get_session(&prepared.session_id).expect("清单可解析");
             assert_eq!(session.items.len(), traces.len());
             assert!(
