@@ -920,6 +920,15 @@ fn restore_item(session_dir: &Path, item: &BackupItem) -> Result<(), Uninstaller
     // 恢复前同样校验原始指纹；复制损坏载荷后再与损坏载荷自身比对会产生
     // 假成功，且可能把错误内容写回系统，因此校验必须在任何目标写入之前。
     validate_payload_integrity(session_dir, item)?;
+    if matches!(item.kind, BackupItemKind::File | BackupItemKind::Directory) {
+        ensure_safe_parent(Path::new(&item.original_path))?;
+    }
+    // 数据落位和清单持久化不是同一个系统事务。上次在两者之间失败时，
+    // 只接受与准备时完整指纹一致的既有目标，不重复写入，更不能覆盖新数据。
+    let current = inspect_path(item.trace_type, &item.original_path)?;
+    if current.exists && current.kind == item.kind && current.fingerprint == item.fingerprint {
+        return Ok(());
+    }
     let payload = item
         .payload
         .as_deref()
@@ -1037,7 +1046,7 @@ fn copy_reader_create_new(
         // 恢复数据先完整写入同目录临时文件，再原子落位；失败时绝不留下
         // 会阻塞后续重试的半成品目标，也不会覆盖用户新创建的内容。
         reject_existing_target(destination)?;
-        fs::rename(&temporary, destination)?;
+        atomic_file::rename_no_replace(&temporary, destination)?;
         Ok(())
     })();
 
@@ -1068,7 +1077,7 @@ fn copy_directory_create_new(source: &Path, destination: &Path) -> Result<(), Un
     let result = copy_directory_contents(source, &temporary).and_then(|()| {
         // Windows 的同卷目录重命名不会覆盖已有目标；前置检查提供更清晰的错误。
         reject_existing_target(destination)?;
-        fs::rename(&temporary, destination)?;
+        atomic_file::rename_no_replace(&temporary, destination)?;
         Ok(())
     });
 
@@ -1883,6 +1892,100 @@ mod tests {
         };
         std::env::set_var("RUST_YU_STORAGE_DIR", &scope.root);
         test(&scope.root)
+    }
+
+    #[test]
+    fn restore_retry_after_manifest_write_failure_recovers_original_bytes() {
+        use std::os::windows::fs::OpenOptionsExt;
+        with_storage_root("restore-persist-retry", |root| {
+            fs::create_dir_all(root).expect("测试目录可创建");
+            let pending = root.join("中文夹具").join("pending.json");
+            fs::create_dir_all(pending.parent().expect("父目录")).expect("夹具父目录");
+            fs::write(&pending, b"{\"pending\":\"original\"}").expect("写入原始字节");
+            let directory = root.join("目录夹具");
+            fs::create_dir(&directory).expect("创建目录夹具");
+            fs::write(directory.join("data.txt"), b"directory-original").expect("目录子文件");
+            let traces = [
+                Trace::new(
+                    "RustYu retry fixture".to_string(),
+                    TraceType::File,
+                    pending.to_string_lossy().into_owned(),
+                ),
+                Trace::new(
+                    "RustYu retry fixture".to_string(),
+                    TraceType::File,
+                    directory.to_string_lossy().into_owned(),
+                ),
+            ];
+            let prepared = prepare_for_traces(&traces, "restore manifest failure")
+                .expect("备份成功")
+                .expect("存在会话");
+            for trace in &traces {
+                record_cleanup_result(&prepared.session_id, &trace.id, true, None)
+                    .expect("记录夹具清理状态");
+            }
+            fs::remove_file(&pending).expect("只删除自建夹具文件");
+            fs::remove_dir_all(&directory).expect("只删除自建夹具目录");
+            let manifest = root
+                .join("backups")
+                .join(&prepared.session_id)
+                .join("manifest.json");
+            let before = fs::read(&manifest).expect("记录旧清单");
+            let busy = fs::OpenOptions::new()
+                .read(true)
+                .share_mode(3)
+                .open(&manifest)
+                .expect("模拟真实清单占用，禁止替换");
+            assert!(
+                restore_session(&prepared.session_id).is_err(),
+                "清单落盘失败必须如实报错"
+            );
+            assert_eq!(fs::read(&manifest).expect("旧清单仍可读"), before);
+            assert_eq!(
+                fs::read(&pending).expect("第一项数据已恢复"),
+                b"{\"pending\":\"original\"}"
+            );
+            assert!(!directory.exists(), "首次状态落盘失败后应中止后续恢复");
+            drop(busy);
+            let retry = restore_session(&prepared.session_id).expect("解除占用后可重试");
+            assert!(retry.success, "已恢复但状态未落盘的项目必须安全重试");
+            assert_eq!(retry.restored_count, 2);
+            assert_eq!(
+                fs::read(&pending).expect("原始文件字节"),
+                b"{\"pending\":\"original\"}"
+            );
+            assert_eq!(
+                fs::read(directory.join("data.txt")).expect("目录原始字节"),
+                b"directory-original"
+            );
+            assert!(
+                restore_session(&prepared.session_id)
+                    .expect("重复操作幂等")
+                    .success
+            );
+            fs::write(&pending, b"later-user-data").expect("模拟恢复后的用户修改");
+            for _ in 0..2 {
+                assert!(
+                    !restore_session(&prepared.session_id)
+                        .expect("返回冲突结果")
+                        .success
+                );
+                assert_eq!(
+                    fs::read(&pending).expect("用户新字节保留"),
+                    b"later-user-data"
+                );
+            }
+            fs::remove_file(&pending).expect("仅移除自建的冲突夹具");
+            assert!(
+                restore_session(&prepared.session_id)
+                    .expect("冲突解除后重试")
+                    .success
+            );
+            assert_eq!(
+                fs::read(&pending).expect("重新恢复原字节"),
+                b"{\"pending\":\"original\"}"
+            );
+        });
     }
 
     #[test]

@@ -8,6 +8,7 @@ use std::path::Path;
 use windows::core::PCWSTR;
 use windows::Win32::Storage::FileSystem::{
     MoveFileExW, FILE_ATTRIBUTE_REPARSE_POINT, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+    MOVE_FILE_FLAGS,
 };
 
 /// 只接受普通目录链；备份、日志不得穿过目录联接或其他重解析点。
@@ -29,6 +30,46 @@ pub(crate) fn validate_directory_chain(directory: &Path) -> io::Result<()> {
 
 pub(crate) fn write_atomic(path: &Path, content: &[u8]) -> io::Result<()> {
     write_atomic_with(path, |file| file.write_all(content))
+}
+
+pub(crate) fn rename_no_replace(source: &Path, destination: &Path) -> io::Result<()> {
+    for path in [source, destination] {
+        let parent = path
+            .parent()
+            .ok_or_else(|| io::Error::other("落位路径缺少父目录"))?;
+        validate_directory_chain(parent)?;
+    }
+    // 预检查无法排除随后新建目标的竞争；必须让 Windows 原子拒绝覆盖。
+    move_file(source, destination, MOVEFILE_WRITE_THROUGH)
+}
+
+fn wide_file_path(path: &Path) -> io::Result<Vec<u16>> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| io::Error::other("落位路径缺少父目录"))?;
+    let name = path
+        .file_name()
+        .ok_or_else(|| io::Error::other("落位路径缺少文件名"))?;
+    // Windows canonicalize 返回扩展长度路径，避免直接 Win32 调用退回 MAX_PATH。
+    // 只解析既存父目录，新建目标自身还不存在，不能 canonicalize 整个目标。
+    let normalized = fs::canonicalize(parent)?.join(name);
+    let mut wide = normalized.as_os_str().encode_wide().collect::<Vec<_>>();
+    if wide.contains(&0) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "文件路径包含空字符",
+        ));
+    }
+    wide.push(0);
+    Ok(wide)
+}
+
+fn move_file(source: &Path, destination: &Path, flags: MOVE_FILE_FLAGS) -> io::Result<()> {
+    let source = wide_file_path(source)?;
+    let destination = wide_file_path(destination)?;
+    // 两个缓冲区在调用期间存活且以 NUL 结尾；flags 明确区分覆盖和拒绝覆盖。
+    unsafe { MoveFileExW(PCWSTR(source.as_ptr()), PCWSTR(destination.as_ptr()), flags) }
+        .map_err(|error| io::Error::from_raw_os_error(error.code().0 & 0xffff))
 }
 
 fn write_atomic_with(
@@ -64,25 +105,12 @@ fn write_atomic_with(
         file.flush()?;
         file.sync_all()?;
         drop(file);
-        let source = temporary
-            .as_os_str()
-            .encode_wide()
-            .chain(Some(0))
-            .collect::<Vec<_>>();
-        let destination = path
-            .as_os_str()
-            .encode_wide()
-            .chain(Some(0))
-            .collect::<Vec<_>>();
         // Windows rename 失败时不能 remove_file(旧清单) 后重试；那会丢掉唯一恢复依据。
-        unsafe {
-            MoveFileExW(
-                PCWSTR(source.as_ptr()),
-                PCWSTR(destination.as_ptr()),
-                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
-            )
-        }
-        .map_err(|error| io::Error::from_raw_os_error(error.code().0 & 0xffff))
+        move_file(
+            &temporary,
+            path,
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
     })();
     if result.is_err() {
         // 只清理本次独占创建的 UUID 临时文件，旧目标始终保留。
@@ -96,17 +124,72 @@ mod tests {
     use super::*;
     use std::os::windows::fs::OpenOptionsExt;
 
+    struct TestDirectory(std::path::PathBuf);
+
+    impl TestDirectory {
+        fn new(label: &str) -> Self {
+            let path =
+                std::env::temp_dir().join(format!("rust-yu-{label}-{}", uuid::Uuid::new_v4()));
+            fs::create_dir(&path).expect("可创建 UUID 测试目录");
+            Self(path)
+        }
+    }
+
+    impl Drop for TestDirectory {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn restore_publication_supports_long_unicode_paths() {
+        let scope = TestDirectory::new("long-publish");
+        let mut parent = scope.0.clone();
+        for _ in 0..8 {
+            parent = parent.join("中文路径长目录长目录长目录长目录长目录长目录");
+        }
+        fs::create_dir_all(&parent).expect("可创建长中文路径");
+        let source = parent.join("完整载荷.tmp");
+        let destination = parent.join("恢复结果.json");
+        assert!(destination.as_os_str().encode_wide().count() > 260);
+        write_atomic(&source, b"original").expect("长路径原子写入");
+        rename_no_replace(&source, &destination).expect("长路径安全落位");
+        assert_eq!(
+            fs::read(&destination).expect("读回长路径原始字节"),
+            b"original"
+        );
+        write_atomic(&destination, b"replacement").expect("长路径原子替换");
+        assert_eq!(fs::read(&destination).expect("替换后字节"), b"replacement");
+    }
+
+    #[test]
+    fn restore_publication_preserves_target_created_after_precheck() {
+        let scope = TestDirectory::new("restore-publish");
+        let root = &scope.0;
+        let temporary = root.join("complete.tmp");
+        let destination = root.join("恢复目标.json");
+        fs::write(&temporary, b"original-backup").expect("临时载荷写完");
+        assert!(!destination.exists(), "预检查时目标尚不存在");
+        // 模拟预检查之后、原子落位之前，另一进程创建了用户的新数据。
+        fs::write(&destination, b"later-user-data").expect("并发写者创建目标");
+        assert!(
+            rename_no_replace(&temporary, &destination).is_err(),
+            "落位必须原子拒绝覆盖"
+        );
+        assert_eq!(
+            fs::read(&destination).expect("新数据仍可读取"),
+            b"later-user-data"
+        );
+        assert_eq!(
+            fs::read(&temporary).expect("失败后备份仍保留"),
+            b"original-backup"
+        );
+    }
+
     #[test]
     fn interrupted_write_and_denied_replace_preserve_previous_bytes() {
-        let root = std::env::temp_dir().join(format!("rust-yu-atomic-{}", uuid::Uuid::new_v4()));
-        fs::create_dir(&root).expect("测试目录可创建");
-        struct Scope(std::path::PathBuf);
-        impl Drop for Scope {
-            fn drop(&mut self) {
-                let _ = fs::remove_dir_all(&self.0);
-            }
-        }
-        let _scope = Scope(root.clone());
+        let scope = TestDirectory::new("atomic");
+        let root = &scope.0;
         let path = root.join("清单.json");
         write_atomic(&path, b"original").expect("首次写入成功");
         let result = write_atomic_with(&path, |file| {
@@ -127,7 +210,7 @@ mod tests {
         write_atomic(&path, b"replacement").expect("释放占用后可重试");
         assert_eq!(fs::read(&path).expect("新数据可读"), b"replacement");
         assert_eq!(
-            fs::read_dir(&root).expect("目录可读").count(),
+            fs::read_dir(root).expect("目录可读").count(),
             1,
             "失败不遗留临时文件"
         );
