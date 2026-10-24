@@ -1,0 +1,11 @@
+run-id: parallel-regression-20261025-021859
+date: 2026-10-25T02:19:00+08:00
+toolchain host check (rustc +stable-x86_64-pc-windows-msvc -vV):
+host: x86_64-pc-windows-msvc
+release: 1.99.1
+command per round: /c/Users/11885/.cargo/bin/cargo.exe +stable-x86_64-pc-windows-msvc test -p rust-yu --lib   (默认并行线程数，无 --test-threads 参数)
+
+round 1: exit-code=0 | test result: ok. 247 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 66.14s
+round 2: exit-code=0 | test result: ok. 247 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 65.27s
+round 3: exit-code=0 | test result: ok. 247 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 66.60s
+ROUNDS-FAILED: 0/3

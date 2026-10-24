@@ -1,0 +1,18 @@
+{
+  "captured_at": "2026-10-24T18:46:44.263392400+00:00",
+  "items": [
+    {
+      "path": "C:\\ProgramData\\RustYu Dirty Traces",
+      "sha256": null,
+      "size": 4096,
+      "trace_type": "File"
+    },
+    {
+      "path": "C:\\Users\\11885\\AppData\\Local\\RustYu Dirty Traces",
+      "sha256": null,
+      "size": 0,
+      "trace_type": "AppData"
+    }
+  ],
+  "label": "after-round2-dry-run"
+}

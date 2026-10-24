@@ -1,0 +1,14 @@
+run-id: gate-fix-regression-20261025-023205
+date: 2026-10-25T02:32:05+08:00
+toolchain host check:
+host: x86_64-pc-windows-msvc
+release: 1.99.1
+commands:
+  cargo +stable-x86_64-pc-windows-msvc test --test service_task_backup_gate (isolation-fixed gate tests)
+  cargo +stable-x86_64-pc-windows-msvc test -p rust-yu --lib x3 rounds (default parallel)
+
+gate-tests: exit=0 | test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+round 1: exit=0 | test result: ok. 247 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 66.21s
+round 2: exit=0 | test result: ok. 247 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 66.91s
+round 3: exit=0 | test result: ok. 247 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 68.01s
+PARALLEL-ROUNDS-FAILED: 0/3

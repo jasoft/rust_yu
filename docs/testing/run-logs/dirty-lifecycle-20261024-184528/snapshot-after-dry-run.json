@@ -1,0 +1,107 @@
+{
+  "captured_at": "2026-10-24T18:46:09.514241300+00:00",
+  "items": [
+    {
+      "path": "C:\\Program Files\\RustYu Dirty Traces Test App\\logs\\daemon-heartbeat.log",
+      "sha256": "5c27643feeacfa4646168fb639df4a9a974635296fde3713d19950db540c64bf",
+      "size": 29,
+      "trace_type": "File"
+    },
+    {
+      "path": "C:\\Program Files\\RustYu Dirty Traces Test App\\logs\\service-heartbeat.log",
+      "sha256": "36eb33f00e2a53b23fb4c724b53701b256321ccc41e4cfa7125c84581572e025",
+      "size": 53,
+      "trace_type": "File"
+    },
+    {
+      "path": "C:\\Program Files\\RustYu Dirty Traces Test App\\RustYuDirtyDaemon.exe",
+      "sha256": "219ec9a89cf991aa1a3364aed3d7d9f71cf7da465bb32ec9ff7a695c1df9d151",
+      "size": 150528,
+      "trace_type": "File"
+    },
+    {
+      "path": "C:\\Program Files\\RustYu Dirty Traces Test App\\RustYuDirtyService.exe",
+      "sha256": "b5ac8010b3f23c19bb074322abbb82ba99239ff8aa8b372bf4b0387538af0831",
+      "size": 126464,
+      "trace_type": "File"
+    },
+    {
+      "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\RustYuDirtyDaemon.exe\\(Default)",
+      "registry_bytes_hex": "43003a005c00500072006f006700720061006d002000460069006c00650073005c0052007500730074005900750020004400690072007400790020005400720061006300650073002000540065007300740020004100700070005c00520075007300740059007500440069007200740079004400610065006d006f006e002e006500780065000000",
+      "registry_type": "REG_SZ",
+      "trace_type": "RegistryValue"
+    },
+    {
+      "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\RustYuDirtyDaemon.exe\\Path",
+      "registry_bytes_hex": "43003a005c00500072006f006700720061006d002000460069006c00650073005c0052007500730074005900750020004400690072007400790020005400720061006300650073002000540065007300740020004100700070000000",
+      "registry_type": "REG_SZ",
+      "trace_type": "RegistryValue"
+    },
+    {
+      "path": "HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\App Paths\\RustYuDirtyDaemon.exe\\(Default)",
+      "registry_bytes_hex": "43003a005c00500072006f006700720061006d002000460069006c00650073005c0052007500730074005900750020004400690072007400790020005400720061006300650073002000540065007300740020004100700070005c00520075007300740059007500440069007200740079004400610065006d006f006e002e006500780065000000",
+      "registry_type": "REG_SZ",
+      "trace_type": "RegistryValue"
+    },
+    {
+      "path": "HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\App Paths\\RustYuDirtyDaemon.exe\\Path",
+      "registry_bytes_hex": "43003a005c00500072006f006700720061006d002000460069006c00650073005c0052007500730074005900750020004400690072007400790020005400720061006300650073002000540065007300740020004100700070000000",
+      "registry_type": "REG_SZ",
+      "trace_type": "RegistryValue"
+    },
+    {
+      "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run\\RustYuDirtyTraces",
+      "registry_bytes_hex": "220043003a005c00500072006f006700720061006d002000460069006c00650073005c0052007500730074005900750020004400690072007400790020005400720061006300650073002000540065007300740020004100700070005c00520075007300740059007500440069007200740079004400610065006d006f006e002e00650078006500220020002f0073007400610072007400750070000000",
+      "registry_type": "REG_SZ",
+      "trace_type": "RegistryValue"
+    },
+    {
+      "path": "HKLM\\SYSTEM\\CurrentControlSet\\Services\\SharedAccess\\Parameters\\FirewallPolicy\\FirewallRules\\{9A775428-17C2-437C-88C8-233FF5F36E57}",
+      "registry_bytes_hex": "760032002e00330033007c0041006300740069006f006e003d0041006c006c006f0077007c004100630074006900760065003d0054005200550045007c004400690072003d0049006e007c004100700070003d0043003a005c00500072006f006700720061006d002000460069006c00650073005c0052007500730074005900750020004400690072007400790020005400720061006300650073002000540065007300740020004100700070005c00520075007300740059007500440069007200740079004400610065006d006f006e002e006500780065007c004e0061006d0065003d00520075007300740059007500200044006900720074007900200054007200610063006500730020004400610065006d006f006e007c000000",
+      "registry_type": "REG_SZ",
+      "trace_type": "RegistryValue"
+    },
+    {
+      "exists": true,
+      "path": "HKLM\\SOFTWARE\\RustYu Fixture Labs\\RustYu Dirty Traces",
+      "trace_type": "RegistryKey"
+    },
+    {
+      "path": "HKLM\\SOFTWARE\\RustYu Fixture Labs\\RustYu Dirty Traces\\InstallRoot",
+      "registry_bytes_hex": "43003a005c00500072006f006700720061006d002000460069006c00650073005c0052007500730074005900750020004400690072007400790020005400720061006300650073002000540065007300740020004100700070000000",
+      "registry_type": "REG_SZ",
+      "trace_type": "RegistryValue"
+    },
+    {
+      "path": "C:\\ProgramData\\RustYu Dirty Traces\\cache\\index.bin",
+      "sha256": "585716a8d4dd768ff2796da1290a4708aadab901a6a5ea6e6b1e139e8a575906",
+      "size": 56,
+      "trace_type": "File"
+    },
+    {
+      "path": "C:\\ProgramData\\RustYu Dirty Traces\\register-extra.log",
+      "sha256": "4bc0e9c7682b1ea2ad747ca34318f080a5994217ba12c047726ab19d4dd414b8",
+      "size": 1081,
+      "trace_type": "File"
+    },
+    {
+      "path": "C:\\ProgramData\\RustYu Dirty Traces\\telemetry\\pending.json",
+      "sha256": "3dff4670d360a0a9014b0aaff14ff93579081781b50e8f9a1f9b7d3907878a4b",
+      "size": 37,
+      "trace_type": "File"
+    },
+    {
+      "path": "C:\\ProgramData\\RustYu Dirty Traces\\traces-manifest.json",
+      "sha256": "58e2ead7af1b7a3f52bad6b45e4b117cf84a29cec02c06596655eb06a66932f0",
+      "size": 710,
+      "trace_type": "File"
+    },
+    {
+      "path": "C:\\Users\\11885\\AppData\\Local\\RustYu Dirty Traces\\leftover-user-state.json",
+      "sha256": "400f5a104ca6830d10fec29f8625902cae33c855db2bc15b7676c74884d29f19",
+      "size": 66,
+      "trace_type": "AppData"
+    }
+  ],
+  "label": "after-dry-run"
+}

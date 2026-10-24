@@ -1,0 +1,73 @@
+{
+  "items": [
+    {
+      "path": "C:\\Program Files\\RustYu Dirty Traces Test App\\logs\\daemon-heartbeat.log",
+      "state": "Restored"
+    },
+    {
+      "path": "C:\\Program Files\\RustYu Dirty Traces Test App\\logs\\service-heartbeat.log",
+      "state": "Restored"
+    },
+    {
+      "path": "C:\\Program Files\\RustYu Dirty Traces Test App\\RustYuDirtyDaemon.exe",
+      "state": "Restored"
+    },
+    {
+      "path": "C:\\Program Files\\RustYu Dirty Traces Test App\\RustYuDirtyService.exe",
+      "state": "Restored"
+    },
+    {
+      "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\RustYuDirtyDaemon.exe\\(Default)",
+      "state": "Restored"
+    },
+    {
+      "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\RustYuDirtyDaemon.exe\\Path",
+      "state": "Restored"
+    },
+    {
+      "path": "HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\App Paths\\RustYuDirtyDaemon.exe\\(Default)",
+      "state": "Restored"
+    },
+    {
+      "path": "HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\App Paths\\RustYuDirtyDaemon.exe\\Path",
+      "state": "Restored"
+    },
+    {
+      "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run\\RustYuDirtyTraces",
+      "state": "Restored"
+    },
+    {
+      "path": "HKLM\\SYSTEM\\CurrentControlSet\\Services\\SharedAccess\\Parameters\\FirewallPolicy\\FirewallRules\\{9A775428-17C2-437C-88C8-233FF5F36E57}",
+      "state": "Restored"
+    },
+    {
+      "path": "HKLM\\SOFTWARE\\RustYu Fixture Labs\\RustYu Dirty Traces",
+      "state": "Restored"
+    },
+    {
+      "path": "HKLM\\SOFTWARE\\RustYu Fixture Labs\\RustYu Dirty Traces\\InstallRoot",
+      "state": "Restored"
+    },
+    {
+      "path": "C:\\ProgramData\\RustYu Dirty Traces\\cache\\index.bin",
+      "state": "Restored"
+    },
+    {
+      "path": "C:\\ProgramData\\RustYu Dirty Traces\\register-extra.log",
+      "state": "Restored"
+    },
+    {
+      "path": "C:\\ProgramData\\RustYu Dirty Traces\\telemetry\\pending.json",
+      "state": "RestoreFailed"
+    },
+    {
+      "path": "C:\\ProgramData\\RustYu Dirty Traces\\traces-manifest.json",
+      "state": "Restored"
+    },
+    {
+      "path": "C:\\Users\\11885\\AppData\\Local\\RustYu Dirty Traces\\leftover-user-state.json",
+      "state": "Restored"
+    }
+  ],
+  "session_id": "9fd3b9bc-9025-4578-8928-f3bd5f5509bb"
+}

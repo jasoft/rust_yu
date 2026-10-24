@@ -1,0 +1,195 @@
+{
+  "id": "9fd3b9bc-9025-4578-8928-f3bd5f5509bb",
+  "created_at": "2026-10-24T18:46:09.533038300Z",
+  "reason": "RustYu Dirty Traces Test App · 卸载残留清理",
+  "status": "restore_failed",
+  "items": [
+    {
+      "trace_id": "e2f6a912-eea1-4dcb-98c2-5071ccaf6020",
+      "original_path": "C:\\Program Files\\RustYu Dirty Traces Test App\\logs\\daemon-heartbeat.log",
+      "trace_type": "file",
+      "kind": "file",
+      "payload": "items/00000/payload",
+      "bytes": 29,
+      "fingerprint": "5c27643feeacfa4646168fb639df4a9a974635296fde3713d19950db540c64bf",
+      "state": "restored",
+      "error": null
+    },
+    {
+      "trace_id": "4a170b4a-3de4-45f8-80a3-1bfcde5d73cb",
+      "original_path": "C:\\Program Files\\RustYu Dirty Traces Test App\\logs\\service-heartbeat.log",
+      "trace_type": "file",
+      "kind": "file",
+      "payload": "items/00001/payload",
+      "bytes": 53,
+      "fingerprint": "36eb33f00e2a53b23fb4c724b53701b256321ccc41e4cfa7125c84581572e025",
+      "state": "restored",
+      "error": null
+    },
+    {
+      "trace_id": "34a221d7-44f9-4d0b-b9de-f0f6b937e267",
+      "original_path": "C:\\Program Files\\RustYu Dirty Traces Test App\\RustYuDirtyDaemon.exe",
+      "trace_type": "file",
+      "kind": "file",
+      "payload": "items/00002/payload",
+      "bytes": 150528,
+      "fingerprint": "219ec9a89cf991aa1a3364aed3d7d9f71cf7da465bb32ec9ff7a695c1df9d151",
+      "state": "restored",
+      "error": null
+    },
+    {
+      "trace_id": "9fd6bd63-779b-4925-9de8-976540b9db72",
+      "original_path": "C:\\Program Files\\RustYu Dirty Traces Test App\\RustYuDirtyService.exe",
+      "trace_type": "file",
+      "kind": "file",
+      "payload": "items/00003/payload",
+      "bytes": 126464,
+      "fingerprint": "b5ac8010b3f23c19bb074322abbb82ba99239ff8aa8b372bf4b0387538af0831",
+      "state": "restored",
+      "error": null
+    },
+    {
+      "trace_id": "5584eeaa-c6dd-4e1f-a856-9961309ce043",
+      "original_path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\RustYuDirtyDaemon.exe\\(Default)",
+      "trace_type": "registry_value",
+      "kind": "registry_value",
+      "payload": "items/00004/registry.json",
+      "bytes": 136,
+      "fingerprint": "0ce2c587cb7266c3a5a1ec4f31887e69e5b4622d5d9d1627d7011ed0f50a77af",
+      "state": "restored",
+      "error": null
+    },
+    {
+      "trace_id": "a82733d9-2bb6-469e-aab1-dbacd30be586",
+      "original_path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\RustYuDirtyDaemon.exe\\Path",
+      "trace_type": "registry_value",
+      "kind": "registry_value",
+      "payload": "items/00005/registry.json",
+      "bytes": 92,
+      "fingerprint": "f5d6d03e45f87497cf9cf4b514df491203eb6e46e125f708047a6ee14c983c9b",
+      "state": "restored",
+      "error": null
+    },
+    {
+      "trace_id": "ffb7c75a-c30b-43c3-b70c-fc1c038cd7fb",
+      "original_path": "HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\App Paths\\RustYuDirtyDaemon.exe\\(Default)",
+      "trace_type": "registry_value",
+      "kind": "registry_value",
+      "payload": "items/00006/registry.json",
+      "bytes": 136,
+      "fingerprint": "0ce2c587cb7266c3a5a1ec4f31887e69e5b4622d5d9d1627d7011ed0f50a77af",
+      "state": "restored",
+      "error": null
+    },
+    {
+      "trace_id": "7ce95668-9868-469d-bc08-8d88cf283322",
+      "original_path": "HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\App Paths\\RustYuDirtyDaemon.exe\\Path",
+      "trace_type": "registry_value",
+      "kind": "registry_value",
+      "payload": "items/00007/registry.json",
+      "bytes": 92,
+      "fingerprint": "f5d6d03e45f87497cf9cf4b514df491203eb6e46e125f708047a6ee14c983c9b",
+      "state": "restored",
+      "error": null
+    },
+    {
+      "trace_id": "ae4af174-8a57-4127-bffd-cd380eb1a9a5",
+      "original_path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run\\RustYuDirtyTraces",
+      "trace_type": "registry_value",
+      "kind": "registry_value",
+      "payload": "items/00008/registry.json",
+      "bytes": 158,
+      "fingerprint": "c33e3d1f6bd074ded0602797c1b949f2e320ad533e5275caab4681bce5fd3667",
+      "state": "restored",
+      "error": null
+    },
+    {
+      "trace_id": "7e6660ab-5c31-4e95-a508-99c950a4ebdc",
+      "original_path": "HKLM\\SYSTEM\\CurrentControlSet\\Services\\SharedAccess\\Parameters\\FirewallPolicy\\FirewallRules\\{9A775428-17C2-437C-88C8-233FF5F36E57}",
+      "trace_type": "registry_value",
+      "kind": "registry_value",
+      "payload": "items/00009/registry.json",
+      "bytes": 286,
+      "fingerprint": "f8ecdb33044e73729e047748f78be71fe8c0efa16ed6178baa97e684ba118734",
+      "state": "restored",
+      "error": null
+    },
+    {
+      "trace_id": "a09c0e23-cdf4-4844-9cd7-993c25c6181a",
+      "original_path": "HKLM\\SOFTWARE\\RustYu Fixture Labs\\RustYu Dirty Traces",
+      "trace_type": "registry_key",
+      "kind": "registry_key",
+      "payload": "items/00010/registry.json",
+      "bytes": 110,
+      "fingerprint": "c65ead581d8cc0821c61f48a670a83b67e332d37919699d6b7920b89c8e4620d",
+      "state": "restored",
+      "error": null
+    },
+    {
+      "trace_id": "fc699931-7f7a-48c5-bcfc-2cc2ec774048",
+      "original_path": "HKLM\\SOFTWARE\\RustYu Fixture Labs\\RustYu Dirty Traces\\InstallRoot",
+      "trace_type": "registry_value",
+      "kind": "registry_value",
+      "payload": "items/00011/registry.json",
+      "bytes": 92,
+      "fingerprint": "f5d6d03e45f87497cf9cf4b514df491203eb6e46e125f708047a6ee14c983c9b",
+      "state": "restored",
+      "error": null
+    },
+    {
+      "trace_id": "cb6d398c-4680-4a8f-a3cc-9f50ca154436",
+      "original_path": "C:\\ProgramData\\RustYu Dirty Traces\\cache\\index.bin",
+      "trace_type": "file",
+      "kind": "file",
+      "payload": "items/00012/payload",
+      "bytes": 56,
+      "fingerprint": "585716a8d4dd768ff2796da1290a4708aadab901a6a5ea6e6b1e139e8a575906",
+      "state": "restored",
+      "error": null
+    },
+    {
+      "trace_id": "20e9eef5-7b0a-4a91-b825-738cceb6763f",
+      "original_path": "C:\\ProgramData\\RustYu Dirty Traces\\register-extra.log",
+      "trace_type": "file",
+      "kind": "file",
+      "payload": "items/00013/payload",
+      "bytes": 1081,
+      "fingerprint": "4bc0e9c7682b1ea2ad747ca34318f080a5994217ba12c047726ab19d4dd414b8",
+      "state": "restored",
+      "error": null
+    },
+    {
+      "trace_id": "844be12d-71b4-43eb-9029-7bce2a5f3d08",
+      "original_path": "C:\\ProgramData\\RustYu Dirty Traces\\telemetry\\pending.json",
+      "trace_type": "file",
+      "kind": "file",
+      "payload": "items/00014/payload",
+      "bytes": 37,
+      "fingerprint": "3dff4670d360a0a9014b0aaff14ff93579081781b50e8f9a1f9b7d3907878a4b",
+      "state": "restore_failed",
+      "error": "其他错误: 恢复目标已存在，为避免覆盖用户新内容而跳过: C:\\ProgramData\\RustYu Dirty Traces\\telemetry\\pending.json"
+    },
+    {
+      "trace_id": "f60fd651-38b6-422f-a448-931c05cf4aab",
+      "original_path": "C:\\ProgramData\\RustYu Dirty Traces\\traces-manifest.json",
+      "trace_type": "file",
+      "kind": "file",
+      "payload": "items/00015/payload",
+      "bytes": 710,
+      "fingerprint": "58e2ead7af1b7a3f52bad6b45e4b117cf84a29cec02c06596655eb06a66932f0",
+      "state": "restored",
+      "error": null
+    },
+    {
+      "trace_id": "3b6e7e29-a02d-4bb6-81e4-70747713d674",
+      "original_path": "C:\\Users\\11885\\AppData\\Local\\RustYu Dirty Traces\\leftover-user-state.json",
+      "trace_type": "appdata",
+      "kind": "file",
+      "payload": "items/00016/payload",
+      "bytes": 66,
+      "fingerprint": "400f5a104ca6830d10fec29f8625902cae33c855db2bc15b7676c74884d29f19",
+      "state": "restored",
+      "error": null
+    }
+  ]
+}

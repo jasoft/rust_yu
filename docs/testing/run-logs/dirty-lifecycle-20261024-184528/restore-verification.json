@@ -1,0 +1,24 @@
+{
+  "conflict_paths": [
+    "C:\\ProgramData\\RustYu Dirty Traces\\telemetry\\pending.json"
+  ],
+  "entries": [
+    "OK  file-sha256 C:\\Program Files\\RustYu Dirty Traces Test App\\logs\\daemon-heartbeat.log",
+    "OK  file-sha256 C:\\Program Files\\RustYu Dirty Traces Test App\\logs\\service-heartbeat.log",
+    "OK  file-sha256 C:\\Program Files\\RustYu Dirty Traces Test App\\RustYuDirtyDaemon.exe",
+    "OK  file-sha256 C:\\Program Files\\RustYu Dirty Traces Test App\\RustYuDirtyService.exe",
+    "OK  registry HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\RustYuDirtyDaemon.exe\\(Default) [REG_SZ]",
+    "OK  registry HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\RustYuDirtyDaemon.exe\\Path [REG_SZ]",
+    "OK  registry HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\App Paths\\RustYuDirtyDaemon.exe\\(Default) [REG_SZ]",
+    "OK  registry HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\App Paths\\RustYuDirtyDaemon.exe\\Path [REG_SZ]",
+    "OK  registry HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run\\RustYuDirtyTraces [REG_SZ]",
+    "OK  registry HKLM\\SYSTEM\\CurrentControlSet\\Services\\SharedAccess\\Parameters\\FirewallPolicy\\FirewallRules\\{9A775428-17C2-437C-88C8-233FF5F36E57} [REG_SZ]",
+    "OK  registry-key HKLM\\SOFTWARE\\RustYu Fixture Labs\\RustYu Dirty Traces",
+    "OK  registry HKLM\\SOFTWARE\\RustYu Fixture Labs\\RustYu Dirty Traces\\InstallRoot [REG_SZ]",
+    "OK  file-sha256 C:\\ProgramData\\RustYu Dirty Traces\\cache\\index.bin",
+    "OK  file-sha256 C:\\ProgramData\\RustYu Dirty Traces\\register-extra.log",
+    "CONFLICT-EXPECTED FAIL file C:\\ProgramData\\RustYu Dirty Traces\\telemetry\\pending.json: expected=Some(\"3dff4670d360a0a9014b0aaff14ff93579081781b50e8f9a1f9b7d3907878a4b\") actual=Some(\"f7532962f033a55cbf2f75ef80a299f8fb112052399d2227efcc77ab2602a641\")（后写入的用户数据不覆盖）",
+    "OK  file-sha256 C:\\ProgramData\\RustYu Dirty Traces\\traces-manifest.json",
+    "OK  file-sha256 C:\\Users\\11885\\AppData\\Local\\RustYu Dirty Traces\\leftover-user-state.json"
+  ]
+}
