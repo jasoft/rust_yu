@@ -1,0 +1,11 @@
+run-id: evidence-chain-fix-20261025-030451
+date: 2026-10-25T03:04:51+08:00
+host check:
+host: x86_64-pc-windows-msvc
+release: 1.99.1
+dirty_fixture_workflow: exit=0 | test result: ok. 7 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.46s
+service_task_backup_gate: exit=0 | test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+round 1: exit=0 | test result: ok. 248 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 68.15s
+round 2: exit=0 | test result: ok. 248 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 66.15s
+round 3: exit=0 | test result: ok. 248 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 66.55s
+PARALLEL-ROUNDS-FAILED: 0/3

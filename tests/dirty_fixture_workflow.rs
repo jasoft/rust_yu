@@ -169,11 +169,17 @@ struct EvidenceDir(PathBuf);
 
 impl EvidenceDir {
     fn new(run_id: &str) -> Self {
-        let dir = repository_root()
-            .join("docs")
-            .join("testing")
-            .join("run-logs")
-            .join(run_id);
+        Self::at(
+            repository_root()
+                .join("docs")
+                .join("testing")
+                .join("run-logs")
+                .join(run_id),
+        )
+    }
+
+    /// 在指定目录建证据目录（负例测试用临时目录，不污染 run-logs）。
+    fn at(dir: PathBuf) -> Self {
         std::fs::create_dir_all(&dir)
             .unwrap_or_else(|error| panic!("证据目录创建失败（不得继续删除）: {error}"));
         Self(dir)
@@ -193,35 +199,122 @@ impl EvidenceDir {
     }
 }
 
-fn file_sha256(path: &Path) -> Option<String> {
-    let bytes = std::fs::read(path).ok()?;
+/// 文件 SHA256。读取失败是硬错误（拟删项必须可读），不做任何静默回退。
+fn file_sha256(path: &Path) -> Result<String, String> {
+    let bytes = std::fs::read(path)
+        .map_err(|error| format!("读取拟删文件失败 {} : {error}", path.display()))?;
     let digest = Sha256::digest(&bytes);
-    Some(format!("{digest:x}"))
+    Ok(format!("{digest:x}"))
 }
 
-fn read_registry_value_raw(trace_path: &str) -> Option<(String, Vec<u8>)> {
+fn read_registry_value_raw(trace_path: &str) -> Result<(String, Vec<u8>), String> {
     let upper = trace_path.to_uppercase();
-    let (hive_str, rest) = upper.split_once('\\')?;
-    let (key_path, value_display) = rest.rsplit_once('\\')?;
+    let (hive_str, rest) = upper
+        .split_once('\\')
+        .ok_or_else(|| format!("注册表值路径缺少 hive: {trace_path}"))?;
+    let (key_path, value_display) = rest
+        .rsplit_once('\\')
+        .ok_or_else(|| format!("注册表值路径缺少键/值边界: {trace_path}"))?;
     let value_name = match value_display {
         "(DEFAULT)" => String::new(),
         other => other.to_string(),
     };
-    // 键路径在大小写规范化中丢失原大小写——注册表打开不区分大小写，可接受
     let hive = match hive_str {
         "HKLM" => winreg::enums::HKEY_LOCAL_MACHINE,
         "HKCU" => winreg::enums::HKEY_CURRENT_USER,
-        _ => return None,
+        other => return Err(format!("不支持的 hive {other}: {trace_path}")),
     };
+    // 键路径在大小写规范化中丢失原大小写——注册表打开不区分大小写，可接受
     let key = winreg::RegKey::predef(hive)
         .open_subkey(key_path.to_lowercase().as_str())
-        .ok()?;
-    let raw: winreg::RegValue = key.get_raw_value(&value_name).ok()?;
-    Some((format!("{:?}", raw.vtype), raw.bytes))
+        .map_err(|error| format!("打开注册表键失败 {trace_path} : {error}"))?;
+    let raw: winreg::RegValue = key
+        .get_raw_value(&value_name)
+        .map_err(|error| format!("读取注册表值失败 {trace_path} : {error}"))?;
+    Ok((format!("{:?}", raw.vtype), raw.bytes))
+}
+
+/// 递归快照目录树：条目名、类型、文件哈希与大小。目录项的读取错误同样
+/// 是硬错误——把"读目录失败"当缺失会掩盖越界/权限异常。
+fn snapshot_directory_tree(path: &Path) -> Result<serde_json::Value, String> {
+    let metadata = std::fs::symlink_metadata(path)
+        .map_err(|error| format!("读取目录元数据失败 {} : {error}", path.display()))?;
+    if metadata.file_type().is_symlink() {
+        return Err(format!(
+            "目录候选是重解析点，快照拒绝跟随: {}",
+            path.display()
+        ));
+    }
+    if !metadata.is_dir() {
+        let digest = file_sha256(path)?;
+        return Ok(serde_json::json!({
+            "kind": "file", "sha256": digest, "size": metadata.len(),
+        }));
+    }
+    let mut entries = std::fs::read_dir(path)
+        .map_err(|error| format!("读取目录失败 {} : {error}", path.display()))?;
+    let mut children = Vec::new();
+    let mut sorted: Vec<std::fs::DirEntry> = Vec::new();
+    while let Some(entry) = entries
+        .next()
+        .transpose()
+        .map_err(|error| format!("枚举目录项失败 {} : {error}", path.display()))?
+    {
+        sorted.push(entry);
+    }
+    sorted.sort_by_key(|entry| entry.file_name());
+    for entry in sorted {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let child = snapshot_directory_tree(&entry.path())?;
+        children.push(serde_json::json!({ "name": name, "entry": child }));
+    }
+    Ok(serde_json::json!({ "kind": "dir", "children": children }))
+}
+
+/// 递归快照注册表键：全部值的原始类型/字节 + 子键树（深度上限防失控）。
+fn snapshot_registry_key_tree(trace_path: &str) -> Result<serde_json::Value, String> {
+    fn snapshot_key(hive: winreg::HKEY, subkey: &str, depth: usize) -> Result<serde_json::Value, String> {
+        if depth > 8 {
+            return Err(format!("注册表键树深度超过上限: {subkey}"));
+        }
+        let key = winreg::RegKey::predef(hive)
+            .open_subkey(subkey)
+            .map_err(|error| format!("打开注册表键失败 {subkey} : {error}"))?;
+        let mut values = Vec::new();
+        for result in key.enum_values() {
+            let (name, raw) = result
+                .map_err(|error| format!("枚举注册表值失败 {subkey} : {error}"))?;
+            values.push(serde_json::json!({
+                "name": name,
+                "type": format!("{:?}", raw.vtype),
+                "bytes_hex": raw.bytes.iter().map(|b| format!("{b:02x}")).collect::<String>(),
+            }));
+        }
+        let mut subkeys = Vec::new();
+        for result in key.enum_keys() {
+            let child = result
+                .map_err(|error| format!("枚举子键失败 {subkey} : {error}"))?;
+            let child_tree = snapshot_key(hive, &format!("{subkey}\\{child}"), depth + 1)?;
+            subkeys.push(serde_json::json!({ "name": child, "tree": child_tree }));
+        }
+        Ok(serde_json::json!({ "values": values, "subkeys": subkeys }))
+    }
+
+    let upper = trace_path.to_uppercase();
+    let (hive_str, subkey) = upper
+        .split_once('\\')
+        .ok_or_else(|| format!("注册表键路径缺少 hive: {trace_path}"))?;
+    let hive = match hive_str {
+        "HKLM" => winreg::enums::HKEY_LOCAL_MACHINE,
+        "HKCU" => winreg::enums::HKEY_CURRENT_USER,
+        other => return Err(format!("不支持的 hive {other}: {trace_path}")),
+    };
+    snapshot_key(hive, &subkey.to_lowercase(), 0)
 }
 
 /// 独立快照：不信任备份模块自身的 payload，测试侧直接读取文件字节哈希
-/// 与注册表原始类型/字节。持久化失败即 panic——不得在无证据情况下删除。
+/// 与注册表原始类型/字节。任何拟删项读取失败（含目录/键树枚举失败）
+/// 立即整批中止——没有完整证据就不得继续删除。
 fn capture_independent_snapshot(
     label: &str,
     traces: &[Trace],
@@ -237,29 +330,43 @@ fn capture_independent_snapshot(
             match trace.trace_type {
                 TraceType::File | TraceType::AppData | TraceType::Shortcut => {
                     let path = Path::new(&trace.path);
-                    item["sha256"] = match file_sha256(path) {
-                        Some(digest) => serde_json::json!(digest),
-                        None => serde_json::json!(null),
-                    };
-                    item["size"] = path
-                        .metadata()
-                        .map(|meta| serde_json::json!(meta.len()))
-                        .unwrap_or(serde_json::json!(null));
-                }
-                TraceType::RegistryValue => {
-                    match read_registry_value_raw(&trace.path) {
-                        Some((vtype, bytes)) => {
-                            item["registry_type"] = serde_json::json!(vtype);
-                            item["registry_bytes_hex"] =
-                                serde_json::json!(bytes.iter().map(|b| format!("{b:02x}")).collect::<String>());
-                        }
-                        None => {
-                            item["registry_type"] = serde_json::json!(null);
-                        }
+                    if !path.exists() {
+                        panic!("拟删除候选不存在，快照中止（不得静默跳过）: {}", trace.path);
+                    }
+                    // 目录候选取递归树快照；文件候选取哈希
+                    let metadata = std::fs::symlink_metadata(path)
+                        .unwrap_or_else(|error| panic!("读取候选元数据失败 {}: {error}", trace.path));
+                    // 重解析点（junction/symlink）必须在分派前拒绝：
+                    // is_dir() 对 junction 为 false，若先走哈希分支会得到
+                    // "拒绝访问"而非明确的越界原因
+                    if metadata.file_type().is_symlink() {
+                        panic!(
+                            "候选是重解析点（junction/symlink），快照中止（不得继续删除）: {}",
+                            trace.path
+                        );
+                    }
+                    if metadata.is_dir() {
+                        let tree = snapshot_directory_tree(path)
+                            .unwrap_or_else(|error| panic!("{error}（快照中止，不得继续删除）"));
+                        item["directory_tree"] = tree;
+                    } else {
+                        let digest = file_sha256(path)
+                            .unwrap_or_else(|error| panic!("{error}（快照中止，不得继续删除）"));
+                        item["sha256"] = serde_json::json!(digest);
+                        item["size"] = serde_json::json!(metadata.len());
                     }
                 }
+                TraceType::RegistryValue => {
+                    let (vtype, bytes) = read_registry_value_raw(&trace.path)
+                        .unwrap_or_else(|error| panic!("{error}（快照中止，不得继续删除）"));
+                    item["registry_type"] = serde_json::json!(vtype);
+                    item["registry_bytes_hex"] =
+                        serde_json::json!(bytes.iter().map(|b| format!("{b:02x}")).collect::<String>());
+                }
                 TraceType::RegistryKey => {
-                    item["exists"] = serde_json::json!(true);
+                    let tree = snapshot_registry_key_tree(&trace.path)
+                        .unwrap_or_else(|error| panic!("{error}（快照中止，不得继续删除）"));
+                    item["registry_tree"] = tree;
                 }
                 _ => {}
             }
@@ -285,11 +392,14 @@ fn assert_snapshots_identical(before: &serde_json::Value, after: &serde_json::Va
     }
 }
 
-/// 恢复后按独立快照逐项核验（冲突豁免清单里的路径跳过并记录）。
+/// 恢复后按独立快照逐项核验。读不到就是失败——不存在"快照时已缺失"
+/// 的幂等放行（capture 阶段已保证全部候选可读且存在）。冲突豁免清单
+/// 中的路径按 CONFLICT 记录（后写入的用户数据不覆盖）。
 fn verify_restored_against_snapshot(
     snapshot: &serde_json::Value,
     conflict_paths: &[String],
     evidence: &EvidenceDir,
+    report_name: &str,
 ) {
     let items = snapshot["items"].as_array().expect("快照结构完整");
     let mut report = Vec::new();
@@ -300,50 +410,56 @@ fn verify_restored_against_snapshot(
             .any(|conflict| conflict.eq_ignore_ascii_case(&path));
         let entry = match item["trace_type"].as_str().unwrap_or_default() {
             "File" | "AppData" | "Shortcut" => {
-                let expected = item["sha256"].as_str();
-                match (expected, file_sha256(Path::new(&path))) {
-                    (Some(expected), Some(actual)) if expected == actual => {
-                        format!("OK  file-sha256 {path}")
+                if item.get("directory_tree").is_some() {
+                    // 目录候选：按递归树结构核验（在对应恢复阶段调用时点，
+                    // 树内容必须与快照完全一致）
+                    match snapshot_directory_tree(Path::new(&path)) {
+                        Ok(actual) => {
+                            if actual == item["directory_tree"] {
+                                format!("OK  dir-tree {path}")
+                            } else {
+                                format!("FAIL dir-tree {path}: 快照 {:?} 实际 {actual:?}", item["directory_tree"])
+                            }
+                        }
+                        Err(error) => format!("FAIL dir-tree {path}: {error}"),
                     }
-                    (None, None) => format!("MISS file {path}（快照时已缺失，幂等）"),
-                    (expected, actual) => {
-                        format!("FAIL file {path}: expected={expected:?} actual={actual:?}")
+                } else {
+                    let expected = item["sha256"].as_str().expect("快照必有哈希");
+                    match file_sha256(Path::new(&path)) {
+                        Ok(actual) if actual == expected => format!("OK  file-sha256 {path}"),
+                        Ok(actual) => {
+                            format!("FAIL file {path}: expected={expected} actual={actual}")
+                        }
+                        Err(error) => format!("FAIL file {path}: {error}"),
                     }
                 }
             }
             "RegistryValue" => {
-                let expected_type = item["registry_type"].as_str();
-                let expected_hex = item["registry_bytes_hex"].as_str();
-                match (expected_type, read_registry_value_raw(&path)) {
-                    (Some(expected_type), Some((actual_type, actual_bytes))) => {
+                let expected_type = item["registry_type"].as_str().expect("快照必有类型");
+                let expected_hex = item["registry_bytes_hex"].as_str().expect("快照必有字节");
+                match read_registry_value_raw(&path) {
+                    Ok((actual_type, actual_bytes)) => {
                         let actual_hex: String =
                             actual_bytes.iter().map(|b| format!("{b:02x}")).collect();
-                        if expected_type == actual_type
-                            && expected_hex == Some(actual_hex.as_str())
-                        {
+                        if expected_type == actual_type && expected_hex == actual_hex {
                             format!("OK  registry {path} [{actual_type}]")
                         } else {
-                            format!(
-                                "FAIL registry {path}: type {expected_type:?} vs {actual_type:?}"
-                            )
+                            format!("FAIL registry {path}: type/bytes 不匹配")
                         }
                     }
-                    (None, None) => format!("MISS registry {path}（快照时已缺失）"),
-                    (expected, actual) => {
-                        format!("FAIL registry {path}: {expected:?} vs {actual:?}")
+                    Err(error) => format!("FAIL registry {path}: {error}"),
+                }
+            }
+            "RegistryKey" => match snapshot_registry_key_tree(&path) {
+                Ok(actual) => {
+                    if actual == item["registry_tree"] {
+                        format!("OK  registry-tree {path}")
+                    } else {
+                        format!("FAIL registry-tree {path}: 树内容与快照不一致（实际 {actual:?}）")
                     }
                 }
-            }
-            "RegistryKey" => {
-                if registry_key_exists(
-                    "HKLM",
-                    path.trim_start_matches(r"HKLM\"),
-                ) {
-                    format!("OK  registry-key {path}")
-                } else {
-                    format!("FAIL registry-key {path} 未恢复")
-                }
-            }
+                Err(error) => format!("FAIL registry-tree {path}: {error}"),
+            },
             other => format!("SKIP {other} {path}"),
         };
         if conflict && entry.starts_with("FAIL") {
@@ -354,14 +470,12 @@ fn verify_restored_against_snapshot(
     }
     let text = report.join("\n");
     evidence.write_json(
-        "restore-verification.json",
+        report_name,
         &serde_json::json!({ "entries": report, "conflict_paths": conflict_paths }),
     );
-    println!("[verify]\n{text}");
+    println!("[verify:{report_name}]\n{text}");
     assert!(
-        report.iter().all(|line| {
-            line.starts_with("OK") || line.starts_with("MISS") || line.starts_with("CONFLICT")
-        }),
+        report.iter().all(|line| line.starts_with("OK") || line.starts_with("CONFLICT")),
         "恢复核验存在失败项:\n{text}"
     );
 }
@@ -640,6 +754,12 @@ async fn inno_dirty_fixture_full_cleanup_and_restore_workflow() {
             }
         }
     }
+    // 在设置隔离 env 之前抓默认存储会话快照（收尾时对比，验证隔离未失效）
+    let default_sessions_before: Vec<String> = list_sessions()
+        .expect("应能列出默认存储会话")
+        .into_iter()
+        .map(|session| session.id)
+        .collect();
     let storage_root = std::env::temp_dir().join(format!("rust-yu-workflow-storage-{}", uuid::Uuid::new_v4()));
     let _env_restore = EnvRestore(std::env::var_os("RUST_YU_STORAGE_DIR"));
     std::env::set_var("RUST_YU_STORAGE_DIR", &storage_root);
@@ -738,6 +858,9 @@ async fn inno_dirty_fixture_full_cleanup_and_restore_workflow() {
         println!("[round2-candidate] {:?} {}", trace.trace_type, trace.path);
     }
 
+    // 轮 2 会话与快照传出（供依赖顺序恢复与逐会话核验）
+    let mut round2_backup_id: Option<String> = None;
+    let mut round2_snapshot: Option<serde_json::Value> = None;
     if !round2_deletable.is_empty() {
         // 目录候选同样走：重解析点边界（partition 内）→ 只读 dry-run → 快照 → 备份+删除
         let dir_snapshot = capture_independent_snapshot("before-round2", &round2_deletable, &evidence);
@@ -760,6 +883,10 @@ async fn inno_dirty_fixture_full_cleanup_and_restore_workflow() {
                 result.path, result.error
             );
         }
+        round2_backup_id = round2_results
+            .iter()
+            .find_map(|result| result.backup_id.clone());
+        round2_snapshot = Some(dir_snapshot);
         evidence.write_json(
             "cleanup-round-2.json",
             &serde_json::json!({ "results": round2_results.iter().map(|r| serde_json::json!({
@@ -797,7 +924,32 @@ async fn inno_dirty_fixture_full_cleanup_and_restore_workflow() {
         "未完成项：环境变量应仍在（精确归属规则待实现）"
     );
 
-    // ---- 恢复冲突负例：清理后同路径写入"后来的用户数据"，恢复不得覆盖 ----
+    // ---- 按依赖顺序恢复全部会话：先轮 2 目录会话（目录为空时恢复成功，
+    //      且此刻树内容与轮 2 快照一致），后轮 1 内容会话（文件写入已恢复
+    //      的目录）。若顺序颠倒，轮 1 恢复重建的父目录会让轮 2 的空目录
+    //      被"不覆盖"语义误判为恢复失败。 ----
+    let mut restore_reports: Vec<(String, Vec<rust_yu_lib::modules::backup::BackupItem>)> = Vec::new();
+    if let (Some(session_id), Some(snapshot)) = (&round2_backup_id, &round2_snapshot) {
+        let restore2 = restore_session(session_id).expect("轮 2 会话恢复不应失败");
+        for item in &restore2.session.items {
+            println!("[restore-round2] kind={:?} state={:?}", item.kind, item.state);
+        }
+        assert!(
+            restore2.session.items.iter().all(|item| matches!(
+                item.state,
+                rust_yu_lib::modules::backup::BackupItemState::Restored
+            )),
+            "轮 2 目录会话（无冲突注入）必须全部恢复成功"
+        );
+        restore_reports.push((
+            session_id.clone(),
+            restore2.session.items.clone(),
+        ));
+        // 此刻目录树与轮 2 快照逐项一致（文件尚未恢复，目录应为空）
+        verify_restored_against_snapshot(snapshot, &[], &evidence, "restore-verification-round2.json");
+    }
+
+    // ---- 恢复冲突负例：内容会话恢复前，同路径写入"后来的用户数据" ----
     let conflict_path = PathBuf::from(
         std::env::var("ProgramData").unwrap_or_default() + r"\RustYu Dirty Traces\telemetry\pending.json",
     );
@@ -808,7 +960,7 @@ async fn inno_dirty_fixture_full_cleanup_and_restore_workflow() {
         .expect("应能写入后来的用户数据");
     let conflict_paths = vec![conflict_path.to_string_lossy().into_owned()];
 
-    // ---- 恢复 ----
+    // ---- 轮 1 内容会话恢复（无冲突的其余项构成完整字节恢复正例） ----
     let backup_id = results
         .iter()
         .find_map(|result| result.backup_id.clone())
@@ -823,18 +975,21 @@ async fn inno_dirty_fixture_full_cleanup_and_restore_workflow() {
         b"later-user-data".to_vec(),
         "恢复不得覆盖后写入的用户数据"
     );
+    restore_reports.push((backup_id.clone(), restore.session.items.clone()));
     evidence.write_json(
         "restore-result.json",
         &serde_json::json!({
-            "session_id": backup_id,
-            "items": restore.session.items.iter().map(|i| serde_json::json!({
-                "path": i.original_path, "state": format!("{:?}", i.state),
+            "sessions": restore_reports.iter().map(|(id, items)| serde_json::json!({
+                "session_id": id,
+                "items": items.iter().map(|i| serde_json::json!({
+                    "path": i.original_path, "state": format!("{:?}", i.state),
+                })).collect::<Vec<_>>(),
             })).collect::<Vec<_>>(),
         }),
     );
 
     // ---- 按独立快照逐项核验（非存在性；冲突项豁免并记录） ----
-    verify_restored_against_snapshot(&snapshot, &conflict_paths, &evidence);
+    verify_restored_against_snapshot(&snapshot, &conflict_paths, &evidence, "restore-verification-round1.json");
     // 冲突路径的恢复项应为失败态而非静默跳过
     assert!(
         restore.session.items.iter().any(|item| {
@@ -846,21 +1001,65 @@ async fn inno_dirty_fixture_full_cleanup_and_restore_workflow() {
         }),
         "冲突路径的恢复项必须显式 RestoreFailed，不得静默跳过"
     );
+    // 无冲突完整恢复正例：除冲突项外必须全部 Restored（完整字节恢复）
+    let non_conflict_restored = restore
+        .session
+        .items
+        .iter()
+        .filter(|item| !item.original_path.eq_ignore_ascii_case(conflict_paths[0].as_str()))
+        .all(|item| matches!(item.state, rust_yu_lib::modules::backup::BackupItemState::Restored));
+    assert!(
+        non_conflict_restored,
+        "除冲突项外，轮 1 会话必须全部完整恢复（无冲突正例）"
+    );
 
-    // ---- 备份 manifest 副本归档到证据目录（隔离根随后按成功收尾清理） ----
-    let manifest_source = storage_root.join("backups").join(&backup_id).join("manifest.json");
-    if let Ok(content) = std::fs::read_to_string(&manifest_source) {
-        let _ = std::fs::write(
-            evidence.path().join("backup-manifest.json"),
-            content,
+    // ---- 归档全部会话 manifest：读取/写入/读回验证必须全部成功，
+    //      之后才允许清理唯一存储；任一失败即保留存储并中止 ----
+    let mut sessions_to_archive = vec![("round1", backup_id.clone())];
+    if let Some(id2) = &round2_backup_id {
+        sessions_to_archive.push(("round2", id2.clone()));
+    }
+    for (label, session_id) in &sessions_to_archive {
+        let source = storage_root
+            .join("backups")
+            .join(session_id)
+            .join("manifest.json");
+        let content = std::fs::read_to_string(&source).unwrap_or_else(|error| {
+            panic!("读取 {label} 会话 manifest 失败（保留存储排查）: {error}")
+        });
+        let dest = evidence.path().join(format!("backup-manifest-{label}.json"));
+        std::fs::write(&dest, &content).unwrap_or_else(|error| {
+            panic!("归档 {label} manifest 失败（保留存储排查）: {error}")
+        });
+        let read_back = std::fs::read_to_string(&dest)
+            .unwrap_or_else(|error| panic!("读回验证 {label} manifest 失败: {error}"));
+        assert_eq!(
+            read_back, content,
+            "{label} manifest 归档读回内容不一致"
         );
     }
 
     // ---- 清场：清测试冲突文件与夹具足迹；证据目录保留 ----
     let _ = std::fs::remove_file(&conflict_path);
     reset_fixture();
-    let _ = std::fs::remove_dir_all(&storage_root);
-    let _ = list_sessions(); // 触达一次默认存储，确保未写入（隔离根已清）
+    // 全部 manifest 已验证归档，才允许清理唯一隔离存储
+    std::fs::remove_dir_all(&storage_root)
+        .expect("清理隔离存储应成功（证据已全部归档）");
+    // 显式恢复环境变量后再做默认存储前后对比（不再用隔离根调用任何 API）
+    drop(_env_restore);
+    let default_after: Vec<String> = list_sessions()
+        .expect("应能列出默认存储会话")
+        .into_iter()
+        .map(|session| session.id)
+        .collect();
+    let leaked: Vec<String> = default_after
+        .into_iter()
+        .filter(|id| !default_sessions_before.contains(id))
+        .collect();
+    assert!(
+        leaked.is_empty(),
+        "默认用户存储出现了新会话（隔离失效）: {leaked:?}"
+    );
     println!("[evidence] 完成，证据保留于 {}", evidence.path().display());
 }
 
@@ -953,4 +1152,97 @@ fn reparse_check_rejects_junction_pointing_outside_fixture_tree() {
     assert!(find_reparse_escalations(&normal).is_empty());
 
     let _ = std::fs::remove_dir_all(&root);
+}
+
+// ---------- 可控失败注入负例：证据链任何环节失败都必须中止，不得继续删除 ----------
+
+fn temp_evidence(label: &str) -> EvidenceDir {
+    EvidenceDir::at(
+        std::env::temp_dir().join(format!("rust-yu-evidence-neg-{}-{}", label, uuid::Uuid::new_v4())),
+    )
+}
+
+#[test]
+#[should_panic(expected = "拟删除候选不存在")]
+fn snapshot_capture_aborts_when_candidate_missing() {
+    let evidence = temp_evidence("missing");
+    let missing = Trace::new(
+        "Demo".to_string(),
+        TraceType::File,
+        std::env::temp_dir().join(format!("rust-yu-no-such-{}.txt", uuid::Uuid::new_v4())).to_string_lossy().into_owned(),
+    );
+    capture_independent_snapshot("neg-missing", std::slice::from_ref(&missing), &evidence);
+}
+
+#[test]
+#[should_panic(expected = "重解析点")]
+fn snapshot_capture_aborts_on_junction_directory_candidate() {
+    let base = std::env::temp_dir().join(format!("rust-yu-neg-junc-{}", uuid::Uuid::new_v4()));
+    let outside = base.join("outside");
+    std::fs::create_dir_all(&outside).expect("应能创建外部目录");
+    let junction = base.join("link");
+    let (ok, text) = run_powershell(&format!(
+        "New-Item -ItemType Junction -Path '{}' -Target '{}' | Out-Null; if ($?) {{ exit 0 }} else {{ exit 1 }}",
+        junction.display(),
+        outside.display()
+    ));
+    assert!(ok, "创建 junction 应成功: {text}");
+
+    let evidence = temp_evidence("junction");
+    let trace = Trace::new(
+        "Demo".to_string(),
+        TraceType::File,
+        junction.to_string_lossy().into_owned(),
+    );
+    let _ = capture_independent_snapshot("neg-junction", std::slice::from_ref(&trace), &evidence);
+    // 若未 panic（快照跟随了 junction），清理并让 should_panic 判失败
+}
+
+#[test]
+#[should_panic(expected = "证据目录创建失败")]
+fn evidence_persistence_failure_aborts_before_any_deletion() {
+    // 用一个已存在的文件路径作为目录父级，使 create_dir_all 必然失败
+    let blocker = std::env::temp_dir().join(format!("rust-yu-neg-block-{}.txt", uuid::Uuid::new_v4()));
+    std::fs::write(&blocker, b"not a dir").expect("应能写入阻断文件");
+    let _ = EvidenceDir::at(blocker.join("child"));
+}
+
+#[test]
+#[should_panic(expected = "恢复核验存在失败项")]
+fn restore_verification_fails_when_restored_file_is_missing() {
+    let base = std::env::temp_dir().join(format!("rust-yu-neg-verify-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&base).expect("应能创建目录");
+    let file = base.join("data.txt");
+    std::fs::write(&file, b"payload").expect("应能写入文件");
+    let trace = Trace::new(
+        "Demo".to_string(),
+        TraceType::File,
+        file.to_string_lossy().into_owned(),
+    );
+    let evidence = temp_evidence("verify-miss");
+    let snapshot = capture_independent_snapshot("neg-verify", std::slice::from_ref(&trace), &evidence);
+    // 模拟"恢复失败后文件缺失"：删除后核验必须 FAIL 并 panic
+    std::fs::remove_file(&file).expect("应能删除文件");
+    verify_restored_against_snapshot(&snapshot, &[], &evidence, "neg-verify-report.json");
+}
+
+#[test]
+#[should_panic(expected = "恢复核验存在失败项")]
+fn restore_verification_fails_on_registry_value_mismatch() {
+    // HKCU 测试值：快照后修改值内容，核验必须失败（字节级不一致）
+    let suffix = uuid::Uuid::new_v4().to_string();
+    let base = format!(r"Software\rust-yu-test\{suffix}");
+    let hive = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER);
+    let (key, _) = hive.create_subkey(&base).expect("应能创建测试键");
+    key.set_value("Watched", &"original-value").expect("应能写入值");
+
+    let trace = Trace::new(
+        "Demo".to_string(),
+        TraceType::RegistryValue,
+        format!(r"HKCU\{base}\Watched"),
+    );
+    let evidence = temp_evidence("reg-mismatch");
+    let snapshot = capture_independent_snapshot("neg-reg", std::slice::from_ref(&trace), &evidence);
+    key.set_value("Watched", &"tampered-value").expect("应能篡改值");
+    verify_restored_against_snapshot(&snapshot, &[], &evidence, "neg-reg-report.json");
 }
