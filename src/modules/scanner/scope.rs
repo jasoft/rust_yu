@@ -60,7 +60,66 @@ impl ScanIdentity {
     }
 
     pub fn from_program(program: &InstalledProgram) -> Self {
-        Self::from_name(&program.name)
+        let mut identity = Self::from_name(&program.name);
+        let Some(location) = program.install_location.as_deref() else {
+            return identity;
+        };
+        let path = Path::new(location.trim().trim_matches('"'));
+        if !path.is_absolute()
+            || path
+                .components()
+                .any(|part| matches!(part, std::path::Component::ParentDir))
+            || is_protected_install_location(path)
+            || crate::modules::common::utils::is_system_critical_path(location)
+        {
+            return identity;
+        }
+        let Some(leaf) = path.file_name().and_then(|name| name.to_str()) else {
+            return identity;
+        };
+        let alias = compact_identifier(leaf);
+        // 显示名可能带发行标签，AppData/厂商键仍沿用私有标识。不能只凭
+        // InstallLocation 的目录名扩大匹配：必须同时得到 ARP 键名和图标
+        // 程序名的精确佐证；Helper/Runtime 等通用组件绝不能扩散成身份。
+        if alias.len() < 6
+            || GENERIC_SUFFIXES.contains(&alias.as_str())
+            || [
+                "helper",
+                "runtime",
+                "shared",
+                "common",
+                "browser",
+                "service",
+                "resources",
+                "programs",
+                "components",
+            ]
+            .contains(&alias.as_str())
+            || !compact_identifier(&program.name).starts_with(&alias)
+            || identity.aliases.contains(&alias)
+        {
+            return identity;
+        }
+        let arp_alias = program
+            .uninstall_registry_key_path
+            .as_deref()
+            .and_then(|key| Path::new(key).file_name())
+            .and_then(|name| name.to_str())
+            .map(compact_identifier);
+        let icon_alias = program
+            .icon_path
+            .as_deref()
+            .and_then(|icon| Path::new(icon.trim().trim_matches('"')).file_stem())
+            .and_then(|name| name.to_str())
+            .map(compact_identifier);
+        if arp_alias.as_deref() == Some(alias.as_str())
+            && icon_alias.as_deref() == Some(alias.as_str())
+        {
+            // 这里只补名称候选，不提升已有置信度或绕过共享/备份/确认闸门。
+            // 不依赖目录仍存在，卸载前缓存也必须能发现卸载后的用户数据。
+            identity.aliases.push(alias);
+        }
+        identity
     }
 
     pub fn display_name(&self) -> &str {
