@@ -96,6 +96,13 @@ fn delete_registry_value(hkey: winreg::HKEY, path: &str) -> Result<(), Uninstall
     }
 
     let (value_name, key_path) = (parts[0], parts[1]);
+    // 扫描器路径里默认值以展示名 `(Default)` 结尾，真实值名是空串；
+    // 直接按字面量删除会静默失败（NotFound 被幂等吞掉）且默认值残留。
+    let value_name = if value_name.eq_ignore_ascii_case("(Default)") {
+        ""
+    } else {
+        value_name
+    };
 
     // 同一批次清理中，父键可能已先于值痕迹被删除（例如先删除了整个厂商键）。
     // 此时值已随键一起消失，必须视为幂等成功，否则整次清理会被误报为失败。

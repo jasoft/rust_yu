@@ -87,9 +87,16 @@ async fn clean_traces_with_authorization(
     let mut results = Vec::new();
 
     for trace in traces {
+        // 共享"应用值容器"（Run/App Paths/Environment/FirewallRules）里的应用
+        // 私有值允许值级删除（键本体保留）：这类值先经 safety 的归属重校验，
+        // 证据不足时仍然拒绝，防止共享键中他人值被误删。
+        let shared_container_value = safety::is_shared_application_value_container(&trace);
+
         // 扫描器之外的旧快照、导入报告或手工调用也必须经过同一层
         // 共享区域保护，避免历史错误候选绕过新的扫描范围规则。
-        if crate::modules::scanner::scope::is_protected_shared_path(Path::new(&trace.path)) {
+        if !shared_container_value
+            && crate::modules::scanner::scope::is_protected_shared_path(Path::new(&trace.path))
+        {
             tracing::warn!(path = %trace.path, "跳过受保护共享区域中的残留候选");
             results.push(failed_result(
                 &trace,
@@ -99,8 +106,13 @@ async fn clean_traces_with_authorization(
             continue;
         }
 
-        // 安全检查
-        if let Err(e) = safety::pre_delete_check(&trace) {
+        // 安全检查：共享容器值走归属重校验，其余目标走原有临界项检查
+        let safety_outcome = if shared_container_value {
+            safety::revalidate_shared_value_ownership(&trace)
+        } else {
+            safety::pre_delete_check(&trace)
+        };
+        if let Err(e) = safety_outcome {
             tracing::warn!("跳过关键系统项: {}", e);
             results.push(failed_result(
                 &trace,
