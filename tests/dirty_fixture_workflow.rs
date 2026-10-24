@@ -536,11 +536,16 @@ async fn inno_dirty_workflow_inner() {
     let mut unexpected_leftovers = Vec::new();
     for trace in &remaining_deletable {
         if empty_dir_allowance.contains(&normalize_path_key(&trace.path)) {
-            let entries: Vec<String> = std::fs::read_dir(&trace.path)
-                .into_iter()
-                .flatten()
-                .flatten()
-                .map(|entry| entry.path().to_string_lossy().into_owned())
+            let entries = std::fs::read_dir(&trace.path)
+                .unwrap_or_else(|error| panic!("读取残留目录 {} 失败: {error}", trace.path));
+            let entries: Vec<String> = entries
+                .map(|entry| {
+                    entry
+                        .unwrap_or_else(|error| panic!("读取 {} 目录项失败: {error}", trace.path))
+                        .path()
+                        .to_string_lossy()
+                        .into_owned()
+                })
                 .collect();
             assert!(
                 entries.is_empty(),
@@ -589,11 +594,16 @@ async fn inno_dirty_workflow_inner() {
     // dry-run 与备份才能删）。安装目录本体没有目录级 trace，按当前行为
     // 记录为已知残留：若存在则必须为空目录，显式目录候选待产品实现。
     if Path::new(INSTALL_DIR).exists() {
-        let leftovers: Vec<String> = std::fs::read_dir(INSTALL_DIR)
-            .into_iter()
-            .flatten()
-            .flatten()
-            .map(|entry| entry.path().to_string_lossy().into_owned())
+        let entries = std::fs::read_dir(INSTALL_DIR)
+            .unwrap_or_else(|error| panic!("读取安装目录 {INSTALL_DIR} 失败: {error}"));
+        let leftovers: Vec<String> = entries
+            .map(|entry| {
+                entry
+                    .unwrap_or_else(|error| panic!("读取 {INSTALL_DIR} 目录项失败: {error}"))
+                    .path()
+                    .to_string_lossy()
+                    .into_owned()
+            })
             .collect();
         assert!(
             leftovers.is_empty(),

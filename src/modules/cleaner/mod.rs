@@ -159,24 +159,17 @@ async fn clean_traces_with_authorization(
             TraceType::File | TraceType::AppData => filesystem::delete_file_trace(&trace).await,
             TraceType::Shortcut => shortcuts::delete_shortcut_trace(&trace).await,
             TraceType::ScheduledTask | TraceType::Service => {
-                let candidate = trace.clone();
-                match tokio::task::spawn_blocking(move || {
-                    crate::modules::system_integration::remove_trace(&candidate)
-                })
-                .await
-                {
-                    Ok(result) => result.map(|()| CleanResult {
-                        trace_id: trace.id.clone(),
-                        path: trace.path.clone(),
-                        success: true,
-                        error: None,
-                        bytes_freed: 0,
-                        backup_id: None,
-                    }),
-                    Err(error) => Err(UninstallerError::Other(format!(
-                        "系统集成清理任务失败: {error}"
-                    ))),
-                }
+                // 生产备份安全闸：服务/计划任务目前没有配置级备份与恢复
+                // 能力（backup::requires_backup=false，备份模块没有这两种
+                // payload）。在实现可恢复的配置级备份之前，清理公共入口对
+                // 这类目标默认拒绝实际删除：扫描与 dry-run 仍会展示候选，
+                // 这里如实返回"未支持"而不是伪造成功，两个授权入口
+                // （SafeDefaults / UserReviewed）一致生效；备份准备失败时
+                // 同样不会让此类目标被删除。
+                Err(UninstallerError::Other(
+                    "服务/计划任务尚不支持配置级备份与恢复，已拒绝删除（待实现可恢复备份）"
+                        .to_string(),
+                ))
             }
             _ => {
                 results.push(failed_result(
