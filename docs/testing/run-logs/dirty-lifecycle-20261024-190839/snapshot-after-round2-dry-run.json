@@ -1,0 +1,37 @@
+{
+  "captured_at": "2026-10-24T19:09:52.192822+00:00",
+  "items": [
+    {
+      "directory_tree": {
+        "children": [
+          {
+            "entry": {
+              "children": [],
+              "kind": "dir"
+            },
+            "name": "cache"
+          },
+          {
+            "entry": {
+              "children": [],
+              "kind": "dir"
+            },
+            "name": "telemetry"
+          }
+        ],
+        "kind": "dir"
+      },
+      "path": "C:\\ProgramData\\RustYu Dirty Traces",
+      "trace_type": "File"
+    },
+    {
+      "directory_tree": {
+        "children": [],
+        "kind": "dir"
+      },
+      "path": "C:\\Users\\11885\\AppData\\Local\\RustYu Dirty Traces",
+      "trace_type": "AppData"
+    }
+  ],
+  "label": "after-round2-dry-run"
+}

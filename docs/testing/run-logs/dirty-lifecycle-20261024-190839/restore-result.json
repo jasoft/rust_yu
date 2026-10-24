@@ -1,0 +1,90 @@
+{
+  "sessions": [
+    {
+      "items": [
+        {
+          "path": "C:\\ProgramData\\RustYu Dirty Traces",
+          "state": "Restored"
+        },
+        {
+          "path": "C:\\Users\\11885\\AppData\\Local\\RustYu Dirty Traces",
+          "state": "Restored"
+        }
+      ],
+      "session_id": "e41b4131-cc34-4a96-9f16-e363f2af9493"
+    },
+    {
+      "items": [
+        {
+          "path": "C:\\Program Files\\RustYu Dirty Traces Test App\\logs\\daemon-heartbeat.log",
+          "state": "Restored"
+        },
+        {
+          "path": "C:\\Program Files\\RustYu Dirty Traces Test App\\logs\\service-heartbeat.log",
+          "state": "Restored"
+        },
+        {
+          "path": "C:\\Program Files\\RustYu Dirty Traces Test App\\RustYuDirtyDaemon.exe",
+          "state": "Restored"
+        },
+        {
+          "path": "C:\\Program Files\\RustYu Dirty Traces Test App\\RustYuDirtyService.exe",
+          "state": "Restored"
+        },
+        {
+          "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\RustYuDirtyDaemon.exe\\(Default)",
+          "state": "Restored"
+        },
+        {
+          "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\RustYuDirtyDaemon.exe\\Path",
+          "state": "Restored"
+        },
+        {
+          "path": "HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\App Paths\\RustYuDirtyDaemon.exe\\(Default)",
+          "state": "Restored"
+        },
+        {
+          "path": "HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\App Paths\\RustYuDirtyDaemon.exe\\Path",
+          "state": "Restored"
+        },
+        {
+          "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run\\RustYuDirtyTraces",
+          "state": "Restored"
+        },
+        {
+          "path": "HKLM\\SYSTEM\\CurrentControlSet\\Services\\SharedAccess\\Parameters\\FirewallPolicy\\FirewallRules\\{7D43C80F-9FB6-47B3-B439-BA2B25E6AED7}",
+          "state": "Restored"
+        },
+        {
+          "path": "HKLM\\SOFTWARE\\RustYu Fixture Labs\\RustYu Dirty Traces",
+          "state": "Restored"
+        },
+        {
+          "path": "HKLM\\SOFTWARE\\RustYu Fixture Labs\\RustYu Dirty Traces\\InstallRoot",
+          "state": "Restored"
+        },
+        {
+          "path": "C:\\ProgramData\\RustYu Dirty Traces\\cache\\index.bin",
+          "state": "Restored"
+        },
+        {
+          "path": "C:\\ProgramData\\RustYu Dirty Traces\\register-extra.log",
+          "state": "Restored"
+        },
+        {
+          "path": "C:\\ProgramData\\RustYu Dirty Traces\\telemetry\\pending.json",
+          "state": "RestoreFailed"
+        },
+        {
+          "path": "C:\\ProgramData\\RustYu Dirty Traces\\traces-manifest.json",
+          "state": "Restored"
+        },
+        {
+          "path": "C:\\Users\\11885\\AppData\\Local\\RustYu Dirty Traces\\leftover-user-state.json",
+          "state": "Restored"
+        }
+      ],
+      "session_id": "6cf40ce9-f837-40ba-a2b0-bdbd6d1eccfa"
+    }
+  ]
+}

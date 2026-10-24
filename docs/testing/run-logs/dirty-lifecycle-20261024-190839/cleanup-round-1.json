@@ -1,0 +1,106 @@
+{
+  "results": [
+    {
+      "backup_id": "6cf40ce9-f837-40ba-a2b0-bdbd6d1eccfa",
+      "error": null,
+      "path": "C:\\Program Files\\RustYu Dirty Traces Test App\\logs\\daemon-heartbeat.log",
+      "success": true
+    },
+    {
+      "backup_id": "6cf40ce9-f837-40ba-a2b0-bdbd6d1eccfa",
+      "error": null,
+      "path": "C:\\Program Files\\RustYu Dirty Traces Test App\\logs\\service-heartbeat.log",
+      "success": true
+    },
+    {
+      "backup_id": "6cf40ce9-f837-40ba-a2b0-bdbd6d1eccfa",
+      "error": null,
+      "path": "C:\\Program Files\\RustYu Dirty Traces Test App\\RustYuDirtyDaemon.exe",
+      "success": true
+    },
+    {
+      "backup_id": "6cf40ce9-f837-40ba-a2b0-bdbd6d1eccfa",
+      "error": null,
+      "path": "C:\\Program Files\\RustYu Dirty Traces Test App\\RustYuDirtyService.exe",
+      "success": true
+    },
+    {
+      "backup_id": "6cf40ce9-f837-40ba-a2b0-bdbd6d1eccfa",
+      "error": null,
+      "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\RustYuDirtyDaemon.exe\\(Default)",
+      "success": true
+    },
+    {
+      "backup_id": "6cf40ce9-f837-40ba-a2b0-bdbd6d1eccfa",
+      "error": null,
+      "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\RustYuDirtyDaemon.exe\\Path",
+      "success": true
+    },
+    {
+      "backup_id": "6cf40ce9-f837-40ba-a2b0-bdbd6d1eccfa",
+      "error": null,
+      "path": "HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\App Paths\\RustYuDirtyDaemon.exe\\(Default)",
+      "success": true
+    },
+    {
+      "backup_id": "6cf40ce9-f837-40ba-a2b0-bdbd6d1eccfa",
+      "error": null,
+      "path": "HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\App Paths\\RustYuDirtyDaemon.exe\\Path",
+      "success": true
+    },
+    {
+      "backup_id": "6cf40ce9-f837-40ba-a2b0-bdbd6d1eccfa",
+      "error": null,
+      "path": "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run\\RustYuDirtyTraces",
+      "success": true
+    },
+    {
+      "backup_id": "6cf40ce9-f837-40ba-a2b0-bdbd6d1eccfa",
+      "error": null,
+      "path": "HKLM\\SYSTEM\\CurrentControlSet\\Services\\SharedAccess\\Parameters\\FirewallPolicy\\FirewallRules\\{7D43C80F-9FB6-47B3-B439-BA2B25E6AED7}",
+      "success": true
+    },
+    {
+      "backup_id": "6cf40ce9-f837-40ba-a2b0-bdbd6d1eccfa",
+      "error": null,
+      "path": "HKLM\\SOFTWARE\\RustYu Fixture Labs\\RustYu Dirty Traces",
+      "success": true
+    },
+    {
+      "backup_id": "6cf40ce9-f837-40ba-a2b0-bdbd6d1eccfa",
+      "error": null,
+      "path": "HKLM\\SOFTWARE\\RustYu Fixture Labs\\RustYu Dirty Traces\\InstallRoot",
+      "success": true
+    },
+    {
+      "backup_id": "6cf40ce9-f837-40ba-a2b0-bdbd6d1eccfa",
+      "error": null,
+      "path": "C:\\ProgramData\\RustYu Dirty Traces\\cache\\index.bin",
+      "success": true
+    },
+    {
+      "backup_id": "6cf40ce9-f837-40ba-a2b0-bdbd6d1eccfa",
+      "error": null,
+      "path": "C:\\ProgramData\\RustYu Dirty Traces\\register-extra.log",
+      "success": true
+    },
+    {
+      "backup_id": "6cf40ce9-f837-40ba-a2b0-bdbd6d1eccfa",
+      "error": null,
+      "path": "C:\\ProgramData\\RustYu Dirty Traces\\telemetry\\pending.json",
+      "success": true
+    },
+    {
+      "backup_id": "6cf40ce9-f837-40ba-a2b0-bdbd6d1eccfa",
+      "error": null,
+      "path": "C:\\ProgramData\\RustYu Dirty Traces\\traces-manifest.json",
+      "success": true
+    },
+    {
+      "backup_id": "6cf40ce9-f837-40ba-a2b0-bdbd6d1eccfa",
+      "error": null,
+      "path": "C:\\Users\\11885\\AppData\\Local\\RustYu Dirty Traces\\leftover-user-state.json",
+      "success": true
+    }
+  ]
+}

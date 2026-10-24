@@ -1,0 +1,30 @@
+{
+  "id": "e41b4131-cc34-4a96-9f16-e363f2af9493",
+  "created_at": "2026-10-24T19:09:52.201002200Z",
+  "reason": "RustYu Dirty Traces Test App · 卸载残留清理",
+  "status": "restored",
+  "items": [
+    {
+      "trace_id": "50d42dd7-d7eb-4eb3-9f3b-a9d6d60d6852",
+      "original_path": "C:\\ProgramData\\RustYu Dirty Traces",
+      "trace_type": "file",
+      "kind": "directory",
+      "payload": "items/00000/payload",
+      "bytes": 0,
+      "fingerprint": "c1385e61bc36a339921f29842a6c413327f4fe5616f075062fd35be19bdc8256",
+      "state": "restored",
+      "error": null
+    },
+    {
+      "trace_id": "88a2e87d-94c9-4eb8-a6f6-4ca4c5eb24de",
+      "original_path": "C:\\Users\\11885\\AppData\\Local\\RustYu Dirty Traces",
+      "trace_type": "appdata",
+      "kind": "directory",
+      "payload": "items/00001/payload",
+      "bytes": 0,
+      "fingerprint": "3f39d5c348e5b79d06e842c114e6cc571583bbf44e4b0ebfda1a01ec05745d43",
+      "state": "restored",
+      "error": null
+    }
+  ]
+}

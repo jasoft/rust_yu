@@ -1,0 +1,171 @@
+﻿**********************
+Windows PowerShell 脚本开始
+开始时间: 20261025030838
+用户名: MAIN-PC\11885
+RunAs 用户: MAIN-PC\11885
+配置名称: 
+计算机: MAIN-PC (Microsoft Windows NT 10.0.26300.0)
+主机应用程序: C:\WINDOWS\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Users\11885\AppData\Local\Temp\Run-DirtyWorkflowElevated.ps1
+进程 ID: 19716
+PSVersion: 5.1.26100.9711
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.9711
+BuildVersion: 10.0.26100.9711
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+已启动脚本，输出文件为 C:\Users\11885\AppData\Local\Temp\dirty-workflow-result-20261025-030838.txt
+rustc host: x86_64-pc-windows-msvc
+warning: unused import: `ListProgramsQuery`
+ --> src\application\uninstall\production.rs:4:79
+  |
+4 | use crate::modules::lister::models::{InstallSourceSelector, InstalledProgram, ListProgramsQuery};
+  |                                                                               ^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `rust-yu` (lib) generated 1 warning (run `cargo fix --lib -p rust-yu` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.73s
+     Running tests\dirty_fixture_workflow.rs (target\x86_64-pc-windows-msvc\debug\deps\dirty_fixture_workflow-861bf40274
+ceaeab.exe)
+
+running 1 test
+[evidence] E:\Projects\rust_yu\docs\testing\run-logs\dirty-lifecycle-20261024-190839
+[allowlist] 防防火火墙墙规规则则安安装装差差集集: 1 条条
+[trace] Service conf=High service://RustYuDirtyTraces
+[trace] ScheduledTask conf=High task://\RustYuDirtyTracesStartTask
+[trace] File conf=High C:\Program Files\RustYu Dirty Traces Test App\logs\daemon-heartbeat.log
+[trace] File conf=High C:\Program Files\RustYu Dirty Traces Test App\logs\service-heartbeat.log
+[trace] File conf=High C:\Program Files\RustYu Dirty Traces Test App\RustYuDirtyDaemon.exe
+[trace] File conf=High C:\Program Files\RustYu Dirty Traces Test App\RustYuDirtyService.exe
+[trace] RegistryValue conf=High HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\RustYuDirtyDaemon.exe\(Default)
+[trace] RegistryValue conf=High HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\RustYuDirtyDaemon.exe\Path
+[trace] RegistryValue conf=High HKLM\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths\RustYuDirtyDaemon.e
+xe\(Default)
+[trace] RegistryValue conf=High HKLM\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths\RustYuDirtyDaemon.e
+xe\Path
+[trace] RegistryValue conf=High HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run\RustYuDirtyTraces
+[trace] RegistryValue conf=High HKLM\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\FirewallRu
+les\{7D43C80F-9FB6-47B3-B439-BA2B25E6AED7}
+[trace] RegistryValue conf=High HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment\RUSTYU_DIRTY_TRACES_HO
+ME
+[trace] RegistryKey conf=Medium HKLM\SOFTWARE\RustYu Fixture Labs\RustYu Dirty Traces
+[trace] RegistryValue conf=Medium HKLM\SOFTWARE\RustYu Fixture Labs\RustYu Dirty Traces\InstallRoot
+[trace] File conf=Medium C:\ProgramData\RustYu Dirty Traces\cache\index.bin
+[trace] File conf=Medium C:\ProgramData\RustYu Dirty Traces\register-extra.log
+[trace] File conf=Medium C:\ProgramData\RustYu Dirty Traces\telemetry\pending.json
+[trace] File conf=Medium C:\ProgramData\RustYu Dirty Traces\traces-manifest.json
+[trace] AppData conf=Medium C:\Users\11885\AppData\Local\RustYu Dirty Traces\leftover-user-state.json
+[deferred] Service service://RustYuDirtyTraces（（无无配配置置备备份份恢恢复复/精精确确归归属属规规则则待待实实现现））
+[deferred] ScheduledTask task://\RustYuDirtyTracesStartTask（（无无配配置置备备份份恢恢复复/精精确确归归属属规规则则待待实实现现））
+[deferred] RegistryValue HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment\RUSTYU_DIRTY_TRACES_HOME（（无无
+配配置置备备份份恢恢复复/精精确确归归属属规规则则待待实实现现））
+[allowlist] 可可删删除除 17 项项；；未未完完成成 3 项项
+[dry-run] plan items=17 eligible=17 unsupported=0
+[clean] success=true backup=Some("6cf40ce9-f837-40ba-a2b0-bdbd6d1eccfa") path=C:\Program Files\RustYu Dirty Traces Test
+App\logs\daemon-heartbeat.log error=None
+[clean] success=true backup=Some("6cf40ce9-f837-40ba-a2b0-bdbd6d1eccfa") path=C:\Program Files\RustYu Dirty Traces Test
+App\logs\service-heartbeat.log error=None
+[clean] success=true backup=Some("6cf40ce9-f837-40ba-a2b0-bdbd6d1eccfa") path=C:\Program Files\RustYu Dirty Traces Test
+App\RustYuDirtyDaemon.exe error=None
+[clean] success=true backup=Some("6cf40ce9-f837-40ba-a2b0-bdbd6d1eccfa") path=C:\Program Files\RustYu Dirty Traces Test
+App\RustYuDirtyService.exe error=None
+[clean] success=true backup=Some("6cf40ce9-f837-40ba-a2b0-bdbd6d1eccfa") path=HKLM\SOFTWARE\Microsoft\Windows\CurrentVer
+sion\App Paths\RustYuDirtyDaemon.exe\(Default) error=None
+[clean] success=true backup=Some("6cf40ce9-f837-40ba-a2b0-bdbd6d1eccfa") path=HKLM\SOFTWARE\Microsoft\Windows\CurrentVer
+sion\App Paths\RustYuDirtyDaemon.exe\Path error=None
+[clean] success=true backup=Some("6cf40ce9-f837-40ba-a2b0-bdbd6d1eccfa") path=HKLM\SOFTWARE\WOW6432Node\Microsoft\Window
+s\CurrentVersion\App Paths\RustYuDirtyDaemon.exe\(Default) error=None
+[clean] success=true backup=Some("6cf40ce9-f837-40ba-a2b0-bdbd6d1eccfa") path=HKLM\SOFTWARE\WOW6432Node\Microsoft\Window
+s\CurrentVersion\App Paths\RustYuDirtyDaemon.exe\Path error=None
+[clean] success=true backup=Some("6cf40ce9-f837-40ba-a2b0-bdbd6d1eccfa") path=HKLM\SOFTWARE\Microsoft\Windows\CurrentVer
+sion\Run\RustYuDirtyTraces error=None
+[clean] success=true backup=Some("6cf40ce9-f837-40ba-a2b0-bdbd6d1eccfa") path=HKLM\SYSTEM\CurrentControlSet\Services\Sha
+redAccess\Parameters\FirewallPolicy\FirewallRules\{7D43C80F-9FB6-47B3-B439-BA2B25E6AED7} error=None
+[clean] success=true backup=Some("6cf40ce9-f837-40ba-a2b0-bdbd6d1eccfa") path=HKLM\SOFTWARE\RustYu Fixture Labs\RustYu D
+irty Traces error=None
+[clean] success=true backup=Some("6cf40ce9-f837-40ba-a2b0-bdbd6d1eccfa") path=HKLM\SOFTWARE\RustYu Fixture Labs\RustYu D
+irty Traces\InstallRoot error=None
+[clean] success=true backup=Some("6cf40ce9-f837-40ba-a2b0-bdbd6d1eccfa") path=C:\ProgramData\RustYu Dirty Traces\cache\i
+ndex.bin error=None
+[clean] success=true backup=Some("6cf40ce9-f837-40ba-a2b0-bdbd6d1eccfa") path=C:\ProgramData\RustYu Dirty Traces\registe
+r-extra.log error=None
+[clean] success=true backup=Some("6cf40ce9-f837-40ba-a2b0-bdbd6d1eccfa") path=C:\ProgramData\RustYu Dirty Traces\telemet
+ry\pending.json error=None
+[clean] success=true backup=Some("6cf40ce9-f837-40ba-a2b0-bdbd6d1eccfa") path=C:\ProgramData\RustYu Dirty Traces\traces-
+manifest.json error=None
+[clean] success=true backup=Some("6cf40ce9-f837-40ba-a2b0-bdbd6d1eccfa") path=C:\Users\11885\AppData\Local\RustYu Dirty
+Traces\leftover-user-state.json error=None
+test inno_dirty_fixture_full_cleanup_and_restore_workflow has been running for over 60 seconds
+[deferred] Service service://RustYuDirtyTraces（（无无配配置置备备份份恢恢复复/精精确确归归属属规规则则待待实实现现））
+[deferred] ScheduledTask task://\RustYuDirtyTracesStartTask（（无无配配置置备备份份恢恢复复/精精确确归归属属规规则则待待实实现现））
+[deferred] RegistryValue HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment\RUSTYU_DIRTY_TRACES_HOME（（无无
+配配置置备备份份恢恢复复/精精确确归归属属规规则则待待实实现现））
+[round2] 显显式式目目录录候候选选 2 项项；；deferred 3 项项
+[round2-candidate] File C:\ProgramData\RustYu Dirty Traces
+[round2-candidate] AppData C:\Users\11885\AppData\Local\RustYu Dirty Traces
+[round2-clean] success=true path=C:\ProgramData\RustYu Dirty Traces error=None
+[round2-clean] success=true path=C:\Users\11885\AppData\Local\RustYu Dirty Traces error=None
+[final] Service service://RustYuDirtyTraces
+[final] ScheduledTask task://\RustYuDirtyTracesStartTask
+[final] RegistryValue HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment\RUSTYU_DIRTY_TRACES_HOME
+[deferred] Service service://RustYuDirtyTraces（（无无配配置置备备份份恢恢复复/精精确确归归属属规规则则待待实实现现））
+[deferred] ScheduledTask task://\RustYuDirtyTracesStartTask（（无无配配置置备备份份恢恢复复/精精确确归归属属规规则则待待实实现现））
+[deferred] RegistryValue HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment\RUSTYU_DIRTY_TRACES_HOME（（无无
+配配置置备备份份恢恢复复/精精确确归归属属规规则则待待实实现现））
+[restore-round2] kind=Directory state=Restored
+[restore-round2] kind=Directory state=Restored
+[verify:restore-verification-round2.json]
+OK  dir-tree C:\ProgramData\RustYu Dirty Traces
+OK  dir-tree C:\Users\11885\AppData\Local\RustYu Dirty Traces
+[restore] kind=File state=Restored
+[restore] kind=File state=Restored
+[restore] kind=File state=Restored
+[restore] kind=File state=Restored
+[restore] kind=RegistryValue state=Restored
+[restore] kind=RegistryValue state=Restored
+[restore] kind=RegistryValue state=Restored
+[restore] kind=RegistryValue state=Restored
+[restore] kind=RegistryValue state=Restored
+[restore] kind=RegistryValue state=Restored
+[restore] kind=RegistryKey state=Restored
+[restore] kind=RegistryValue state=Restored
+[restore] kind=File state=Restored
+[restore] kind=File state=Restored
+[restore] kind=File state=RestoreFailed
+[restore] kind=File state=Restored
+[restore] kind=File state=Restored
+[verify:restore-verification-round1.json]
+OK  file-sha256 C:\Program Files\RustYu Dirty Traces Test App\logs\daemon-heartbeat.log
+OK  file-sha256 C:\Program Files\RustYu Dirty Traces Test App\logs\service-heartbeat.log
+OK  file-sha256 C:\Program Files\RustYu Dirty Traces Test App\RustYuDirtyDaemon.exe
+OK  file-sha256 C:\Program Files\RustYu Dirty Traces Test App\RustYuDirtyService.exe
+OK  registry HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\RustYuDirtyDaemon.exe\(Default) [REG_SZ]
+OK  registry HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\RustYuDirtyDaemon.exe\Path [REG_SZ]
+OK  registry HKLM\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths\RustYuDirtyDaemon.exe\(Default) [REG_S
+Z]
+OK  registry HKLM\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths\RustYuDirtyDaemon.exe\Path [REG_SZ]
+OK  registry HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run\RustYuDirtyTraces [REG_SZ]
+OK  registry HKLM\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\FirewallRules\{7D43C80F-9FB6-
+47B3-B439-BA2B25E6AED7} [REG_SZ]
+OK  registry-tree HKLM\SOFTWARE\RustYu Fixture Labs\RustYu Dirty Traces
+OK  registry HKLM\SOFTWARE\RustYu Fixture Labs\RustYu Dirty Traces\InstallRoot [REG_SZ]
+OK  file-sha256 C:\ProgramData\RustYu Dirty Traces\cache\index.bin
+OK  file-sha256 C:\ProgramData\RustYu Dirty Traces\register-extra.log
+CONFLICT-EXPECTED FAIL file C:\ProgramData\RustYu Dirty Traces\telemetry\pending.json: expected=3dff4670d360a0a9014b0aaf
+f14ff93579081781b50e8f9a1f9b7d3907878a4b actual=f7532962f033a55cbf2f75ef80a299f8fb112052399d2227efcc77ab2602a641（（后后写写入入
+的的用用户户数数据据不不覆覆盖盖））
+OK  file-sha256 C:\ProgramData\RustYu Dirty Traces\traces-manifest.json
+OK  file-sha256 C:\Users\11885\AppData\Local\RustYu Dirty Traces\leftover-user-state.json
+[evidence] 完完成成，，证证据据保保留留于于 E:\Projects\rust_yu\docs\testing\run-logs\dirty-lifecycle-20261024-190839
+test inno_dirty_fixture_full_cleanup_and_restore_workflow ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 101.62s
+TEST-EXIT-CODE: 0
+RUN-ID: 20261025-030838
+**********************
+Windows PowerShell 脚本结束
+结束时间: 20261025031021
+**********************
