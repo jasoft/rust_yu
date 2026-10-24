@@ -446,6 +446,10 @@ fn expected_fixture_file_paths() -> Vec<String> {
         format!(r"{program_data}\RustYu Dirty Traces\telemetry\pending.json"),
         format!(r"{program_data}\RustYu Dirty Traces\traces-manifest.json"),
         format!(r"{local_app_data}\RustYu Dirty Traces\leftover-user-state.json"),
+        // 轮 1 文件清理后留下的空父目录：复扫会以 File trace 报出，
+        // 作为显式目录候选进入轮 2（同一套归属/dry-run/备份通道）。
+        format!(r"{program_data}\RustYu Dirty Traces"),
+        format!(r"{local_app_data}\RustYu Dirty Traces"),
     ]
     .into_iter()
     .map(|path| normalize_path_key(&path))
