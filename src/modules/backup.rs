@@ -154,6 +154,11 @@ impl BackupPreparation {
             .iter()
             .find(|item| item.trace_id == trace.id)
             .ok_or_else(|| UninstallerError::NotFound("备份项目不存在".to_string()))?;
+        // 源文件未变不代表备份可恢复：载荷可能在准备后被截断、丢失或
+        // 篡改。必须读回真实载荷并与准备时指纹比较，不能只信 Ready。
+        if item.state == BackupItemState::Ready {
+            validate_payload_integrity(&session_directory(&self.session_id)?, item)?;
+        }
         let current = inspect_trace(trace)?;
 
         let matches_snapshot = match item.state {
@@ -902,6 +907,9 @@ fn copy_directory(source: &Path, destination: &Path) -> Result<(), UninstallerEr
 }
 
 fn restore_item(session_dir: &Path, item: &BackupItem) -> Result<(), UninstallerError> {
+    // 恢复前同样校验原始指纹；复制损坏载荷后再与损坏载荷自身比对会产生
+    // 假成功，且可能把错误内容写回系统，因此校验必须在任何目标写入之前。
+    validate_payload_integrity(session_dir, item)?;
     let payload = item
         .payload
         .as_deref()
@@ -915,6 +923,63 @@ fn restore_item(session_dir: &Path, item: &BackupItem) -> Result<(), Uninstaller
         BackupItemKind::RegistryKey => restore_registry_key(&payload_path),
         BackupItemKind::RegistryValue => restore_registry_value(&payload_path),
     }
+}
+
+/// 删除与恢复共用的载荷完整性闸门。目录必须对整棵树算指纹，注册表键
+/// 必须比较完整节点树，不能用“备份仍有的内容都存在”这种子集校验。
+fn validate_payload_integrity(
+    session_dir: &Path,
+    item: &BackupItem,
+) -> Result<(), UninstallerError> {
+    let expected = item.fingerprint.as_deref().ok_or_else(|| {
+        UninstallerError::Other("备份缺少完整性指纹，已拒绝删除或恢复".to_string())
+    })?;
+    let actual = match item.kind {
+        BackupItemKind::File | BackupItemKind::Directory => {
+            let relative = item.payload.as_deref().ok_or_else(|| {
+                UninstallerError::Other("备份项目缺少载荷文件".to_string())
+            })?;
+            let path = safe_payload_path(session_dir, relative)?;
+            let metadata = fs::symlink_metadata(&path)?;
+            let kind_matches = match item.kind {
+                BackupItemKind::File => metadata.is_file(),
+                BackupItemKind::Directory => metadata.is_dir(),
+                _ => false,
+            };
+            if metadata.file_type().is_symlink() || !kind_matches {
+                return Err(UninstallerError::Other(
+                    "备份载荷类型改变，已拒绝删除或恢复".to_string(),
+                ));
+            }
+            filesystem_fingerprint(&path)?
+        }
+        BackupItemKind::RegistryKey => {
+            let payload = read_json_payload::<RegistryKeyPayload>(session_dir, item)?;
+            let (hive, key_path) = parse_registry_key_path(&item.original_path)?;
+            if payload.hive != hive || payload.key_path != key_path {
+                return Err(UninstallerError::Other(
+                    "备份注册表键目标改变，已拒绝删除或恢复".to_string(),
+                ));
+            }
+            hash_serializable(&payload.root)?
+        }
+        BackupItemKind::RegistryValue => {
+            let payload = read_json_payload::<RegistryValuePayload>(session_dir, item)?;
+            let (hive, key_path, value_name) = parse_registry_value_path(&item.original_path)?;
+            if payload.hive != hive || payload.key_path != key_path || payload.value_name != value_name {
+                return Err(UninstallerError::Other(
+                    "备份注册表值目标改变，已拒绝删除或恢复".to_string(),
+                ));
+            }
+            hash_bytes_with_type(payload.value.value_type, &payload.value.bytes)
+        }
+    };
+    if actual != expected {
+        return Err(UninstallerError::Other(
+            "备份载荷完整性校验失败，已拒绝删除或恢复".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 fn restore_file(payload: &Path, destination: &Path) -> Result<(), UninstallerError> {
@@ -1744,15 +1809,168 @@ mod tests {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let root = temporary_root(label);
-        let previous = std::env::var_os("RUST_YU_STORAGE_DIR");
-        std::env::set_var("RUST_YU_STORAGE_DIR", &root);
-        let result = test(&root);
-        match previous {
-            Some(value) => std::env::set_var("RUST_YU_STORAGE_DIR", value),
-            None => std::env::remove_var("RUST_YU_STORAGE_DIR"),
+        // 负例会故意 panic；必须先恢复进程环境再释放共享锁，避免后续
+        // 并行测试继承已被删除的临时存储路径。
+        struct StorageScope {
+            previous: Option<std::ffi::OsString>,
+            root: PathBuf,
         }
-        let _ = fs::remove_dir_all(root);
-        result
+        impl Drop for StorageScope {
+            fn drop(&mut self) {
+                match self.previous.take() {
+                    Some(value) => std::env::set_var("RUST_YU_STORAGE_DIR", value),
+                    None => std::env::remove_var("RUST_YU_STORAGE_DIR"),
+                }
+                // root 仅由 temporary_root 生成于系统临时目录的 UUID 子目录。
+                let _ = fs::remove_dir_all(&self.root);
+            }
+        }
+        let scope = StorageScope {
+            previous: std::env::var_os("RUST_YU_STORAGE_DIR"),
+            root,
+        };
+        std::env::set_var("RUST_YU_STORAGE_DIR", &scope.root);
+        test(&scope.root)
+    }
+
+    #[test]
+    fn deletion_validation_rejects_corrupt_or_missing_file_payload() {
+        with_storage_root("payload-integrity", |root| {
+            fs::create_dir_all(root).expect("测试根目录应可创建");
+            let source = root.join("source.txt");
+            fs::write(&source, b"original").expect("测试源文件应可写入");
+            let trace = Trace::new(
+                "Demo".to_string(),
+                TraceType::File,
+                source.to_string_lossy().into_owned(),
+            );
+            let preparation = prepare_for_traces(std::slice::from_ref(&trace), "integrity")
+                .expect("备份准备应成功")
+                .expect("应有备份会话");
+            let session = super::get_session(preparation.session_id()).expect("应能读取会话");
+            let relative = session.items[0].payload.as_ref().expect("应有备份载荷");
+            let payload = root.join("backups").join(preparation.session_id()).join(relative);
+            assert!(preparation.validate_trace(&trace).is_ok());
+
+            // 同长度篡改、截断和丢失均不得凭“源文件未变化”被放行删除。
+            for replacement in [Some(&b"tampered"[..]), Some(&b""[..]), None] {
+                match replacement {
+                    Some(bytes) => fs::write(&payload, bytes).expect("应能模拟载荷损坏"),
+                    None => fs::remove_file(&payload).expect("应能模拟载荷丢失"),
+                }
+                assert!(
+                    preparation.validate_trace(&trace).is_err(),
+                    "备份载荷损坏或丢失时必须拒绝删除，即使源数据完全未变"
+                );
+                assert_eq!(fs::read(&source).expect("源数据应仍可读"), b"original");
+            }
+            fs::write(&payload, b"original").expect("应能恢复测试载荷");
+            assert!(preparation.validate_trace(&trace).is_ok());
+
+            // 仅移除本测试创建的源文件，验证损坏备份不会被复制回目标；
+            // 修复载荷后，失败会话仍可重试并恢复原始字节。
+            fs::remove_file(&source).expect("应能移除临时夹具源文件");
+            fs::write(&payload, b"tampered").expect("应能模拟载荷损坏");
+            let rejected = restore_session(preparation.session_id()).expect("应返回逐项失败");
+            assert!(!rejected.success);
+            assert!(!source.exists(), "完整性校验失败不得先写回损坏内容");
+            fs::write(&payload, b"original").expect("应能修复临时载荷");
+            let restored = restore_session(preparation.session_id()).expect("失败会话应可重试");
+            assert!(restored.success);
+            assert_eq!(fs::read(&source).expect("应恢复原始字节"), b"original");
+        });
+    }
+
+    #[test]
+    fn deletion_validation_rejects_directory_payload_missing_a_child() {
+        with_storage_root("directory-payload-integrity", |root| {
+            let source = root.join("source-directory");
+            fs::create_dir_all(&source).expect("应能创建夹具目录");
+            fs::write(source.join("keep.txt"), b"keep").expect("应能创建夹具文件");
+            fs::write(source.join("lost.txt"), b"original").expect("应能创建夹具文件");
+            let trace = Trace::new(
+                "Demo".to_string(),
+                TraceType::File,
+                source.to_string_lossy().into_owned(),
+            );
+            let preparation = prepare_for_traces(std::slice::from_ref(&trace), "integrity")
+                .expect("目录备份应成功")
+                .expect("应有会话");
+            let session = super::get_session(preparation.session_id()).expect("应有会话");
+            let payload = root.join("backups").join(preparation.session_id()).join(
+                session.items[0].payload.as_ref().expect("应有载荷目录"),
+            );
+            fs::remove_file(payload.join("lost.txt")).expect("仅移除备份中的测试子文件");
+            assert!(preparation.validate_trace(&trace).is_err());
+            assert_eq!(fs::read(source.join("lost.txt")).expect("源文件须保留"), b"original");
+        });
+    }
+
+    #[test]
+    fn deletion_validation_rejects_incomplete_registry_payload() {
+        with_storage_root("registry-payload-integrity", |root| {
+            struct RegistryFixture(String);
+            impl Drop for RegistryFixture {
+                fn drop(&mut self) {
+                    let _ = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER)
+                        .delete_subkey_all(&self.0);
+                }
+            }
+            let fixture = RegistryFixture(format!(
+                "Software\\RustYu\\BackupIntegrityTest\\{}",
+                uuid::Uuid::new_v4()
+            ));
+            let (key, _) = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER)
+                .create_subkey(&fixture.0).expect("应能创建 UUID 测试键");
+            key.set_value("Keep", &"original").expect("应能写入测试值");
+            let trace = Trace::new(
+                "Demo".to_string(),
+                TraceType::RegistryKey,
+                format!("HKCU\\{}", fixture.0),
+            );
+            let value_trace = Trace::new(
+                "Demo".to_string(),
+                TraceType::RegistryValue,
+                format!("HKCU\\{}\\Keep", fixture.0),
+            );
+            let preparation = prepare_for_traces(&[trace.clone(), value_trace.clone()], "integrity")
+                .expect("注册表备份应成功").expect("应有会话");
+            let session = super::get_session(preparation.session_id()).expect("应有会话");
+            let payload = root.join("backups").join(preparation.session_id()).join(
+                session.items[0].payload.as_ref().expect("应有注册表载荷"),
+            );
+            let mut snapshot: serde_json::Value = serde_json::from_slice(
+                &fs::read(&payload).expect("应能读取载荷"),
+            ).expect("载荷应为 JSON");
+            // 空树仍是有效 JSON，子集式校验会误报成功，必须比较完整指纹。
+            snapshot["root"]["values"] = serde_json::json!([]);
+            fs::write(&payload, serde_json::to_vec(&snapshot).expect("应能序列化"))
+                .expect("应能模拟载荷丢项");
+            assert!(preparation.validate_trace(&trace).is_err());
+            assert_eq!(key.get_value::<String, _>("Keep").expect("源值须保留"), "original");
+
+            let value_payload = root.join("backups").join(preparation.session_id()).join(
+                session.items[1].payload.as_ref().expect("应有值载荷"),
+            );
+            let original_value: serde_json::Value = serde_json::from_slice(
+                &fs::read(&value_payload).expect("应能读取值载荷"),
+            ).expect("应为 JSON");
+            for damage in ["bytes", "type", "target"] {
+                let mut damaged = original_value.clone();
+                match damage {
+                    "bytes" => damaged["value"]["bytes"] = serde_json::json!([0]),
+                    "type" => damaged["value"]["value_type"] =
+                        serde_json::json!(winreg::enums::REG_DWORD as u32),
+                    _ => damaged["key_path"] = serde_json::json!(format!("{}\\Redirect", fixture.0)),
+                }
+                fs::write(&value_payload, serde_json::to_vec(&damaged).expect("应能序列化"))
+                    .expect("应能模拟值载荷损坏");
+                assert!(preparation.validate_trace(&value_trace).is_err(), "{damage}");
+            }
+            assert!(!restore_session(preparation.session_id()).expect("应返回失败状态").success);
+            assert_eq!(key.get_value::<String, _>("Keep").expect("源值须保留"), "original");
+            assert!(key.open_subkey("Redirect").is_err(), "损坏载荷不得先写入其他目标");
+        });
     }
 
     #[test]
