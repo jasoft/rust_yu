@@ -859,3 +859,94 @@ async fn inno_dirty_fixture_full_cleanup_and_restore_workflow() {
     let _ = list_sessions(); // 触达一次默认存储，确保未写入（隔离根已清）
     println!("[evidence] 完成，证据保留于 {}", evidence.path().display());
 }
+
+// ---------- 无破坏性负例：白名单与重解析点闸门必须能拒绝越界候选 ----------
+
+fn sample_allowlist() -> FixtureAllowlist {
+    FixtureAllowlist {
+        files: vec![normalize_path_key(r"C:\Program Files\Demo App\a.txt")],
+        registry_keys: vec![normalize_path_key(r"HKLM\SOFTWARE\Demo Vendor\Demo App")],
+        registry_values: vec![(
+            normalize_path_key(r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run"),
+            "DemoApp".to_string(),
+        )],
+        firewall_rule_names: vec!["{11111111-2222-3333-4444-555555555555}".to_string()],
+    }
+}
+
+#[test]
+fn allowlist_rejects_unrelated_candidates() {
+    let allowlist = sample_allowlist();
+
+    // 同容器（FirewallRules）但不在安装差集内的无关规则 GUID：必须整批拒绝
+    let stranger_rule = Trace::new(
+        "Demo App".to_string(),
+        TraceType::RegistryValue,
+        r"HKLM\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\FirewallRules\{99999999-8888-7777-6666-555555555555}".to_string(),
+    );
+    assert!(classify_trace(&stranger_rule, &allowlist).is_err());
+
+    // 白名单外的文件路径：拒绝
+    let stranger_file = Trace::new(
+        "Demo App".to_string(),
+        TraceType::File,
+        r"C:\Program Files\Other App\b.txt".to_string(),
+    );
+    assert!(classify_trace(&stranger_file, &allowlist).is_err());
+
+    // Run 容器里他人的值：拒绝
+    let stranger_run = Trace::new(
+        "Demo App".to_string(),
+        TraceType::RegistryValue,
+        r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run\OtherVendor".to_string(),
+    );
+    assert!(classify_trace(&stranger_run, &allowlist).is_err());
+
+    // 白名单内的候选：放行
+    let owned = Trace::new(
+        "Demo App".to_string(),
+        TraceType::File,
+        r"C:\Program Files\Demo App\a.txt".to_string(),
+    );
+    assert_eq!(classify_trace(&owned, &allowlist), Ok(true));
+}
+
+#[test]
+fn reparse_check_rejects_junction_pointing_outside_fixture_tree() {
+    // junction 不需要管理员权限即可创建；仅验证预检拒绝，不删除任何数据
+    let root = std::env::temp_dir().join(format!(
+        "rust-yu-reparse-test-{}",
+        uuid::Uuid::new_v4()
+    ));
+    let outside = root.join("outside");
+    std::fs::create_dir_all(&outside).expect("应能创建外部目录");
+    std::fs::write(outside.join("payload.txt"), b"x").expect("应能写入外部文件");
+
+    let junction = root.join("inside-junction");
+    let (ok, text) = run_powershell(&format!(
+        "New-Item -ItemType Junction -Path '{}' -Target '{}' | Out-Null; if ($?) {{ exit 0 }} else {{ exit 1 }}",
+        junction.display(),
+        outside.display()
+    ));
+    assert!(ok, "创建测试 junction 应成功: {text}");
+
+    let traces = vec![Trace::new(
+        "Demo App".to_string(),
+        TraceType::File,
+        junction.join("payload.txt").to_string_lossy().into_owned(),
+    )];
+    let violations = find_reparse_escalations(&traces);
+    assert!(
+        !violations.is_empty(),
+        "含 junction 的候选必须被重解析点预检拒绝"
+    );
+
+    let normal = vec![Trace::new(
+        "Demo App".to_string(),
+        TraceType::File,
+        outside.join("payload.txt").to_string_lossy().into_owned(),
+    )];
+    assert!(find_reparse_escalations(&normal).is_empty());
+
+    let _ = std::fs::remove_dir_all(&root);
+}
