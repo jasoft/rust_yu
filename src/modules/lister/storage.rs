@@ -29,6 +29,10 @@ pub const CACHE_SCHEMA_VERSION: u32 = 10;
 pub const DEFAULT_CACHE_TTL_SECONDS: i64 = 86_400;
 
 #[cfg(test)]
+// 统一互斥锁：凡是测试中改写 RUST_YU_STORAGE_DIR（或依赖它定位备份/存储）
+// 的代码都必须先拿这把锁——包括 startup 模块（其 TEST_STARTUP_ENV_LOCK 是
+// 本锁的别名）。历史上 startup 用过独立的锁，与 cleaner/backup 并行时互相
+// 偷换全局存储目录，造成随机失败；禁止再引入第三把锁。
 pub(crate) static TEST_STORAGE_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[derive(Debug, Clone)]
