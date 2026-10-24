@@ -3,27 +3,35 @@
 //! 前置：管理员 PowerShell + 已构建的 inno-dirty 夹具安装包。
 //! 运行：`cargo test --test dirty_fixture_workflow -- --ignored --nocapture`
 //!
-//! 覆盖链路：安装夹具 → 执行其"脏卸载器"（只删 ARP 键）→ RustYu 扫描残留
-//! → **夹具精确归属白名单预检（任一越界即整批失败，绝不删除）**
-//! → clean_reviewed_traces（备份 + 删除）→ 复扫断言 → restore_session
-//! → 核验文件/注册表内容恢复 → Reset 清场。
+//! 覆盖链路（全部带独立证据）：
+//! 安装夹具 → 脏卸载 → 扫描 → **白名单预检**（越界整批拒绝）→
+//! **独立快照**（文件 SHA256 / 注册表原始类型与字节，落 run-id 证据目录；
+//! 快照写入失败即中止——证据持久化失败不得继续删除）→
+//! **只读 dry-run**（plan_for_traces 前后快照零修改）→
+//! 清理轮 1（备份+删除，文件/注册表）→ 复扫 → **显式目录候选**（空目录
+//! 走同一套归属/重解析点边界/dry-run/备份通道，不恢复隐式父链）→
+//! 清理轮 2 → 终扫 → **恢复冲突负例**（后写入的用户数据不被覆盖）→
+//! 恢复 → **按独立快照逐项核验**（非存在性）→ 证据归档 → Reset 清场。
 //!
-//! 安全闸门：
-//! - RUST_YU_STORAGE_DIR 指向本测试的 UUID 独立目录，备份与会话全部隔离，
-//!   绝不落入真实用户存储；
-//! - 服务与计划任务目前没有配置级备份/恢复（requires_backup=false），
-//!   在实现之前**拒绝删除**并列为未完成项，不把不可恢复的破坏当作成功；
-//! - Session Manager\Environment 中的应用变量按当前精确归属规则同样拒删，
-//!   列为未完成项（待"别名+用途后缀"精确规则落地）。
+//! 未完成项（如实保留，不因测试通过而消失）：
+//! - 服务/计划任务：无配置级备份恢复能力，生产清理入口已默认拒删
+//!   （tests/service_task_backup_gate.rs 回归），本测试保持 deferred；
+//! - Session Manager\Environment 应用变量：精确归属规则待实现，拒删；
+//! - 安装目录本体空壳：无目录级 trace 产出，待显式目录候选扩展。
+//!
+//! 证据：docs/testing/run-logs/dirty-lifecycle-<run-id>/（快照、dry-run
+//! 对比、清理与恢复结果、备份 manifest 副本）。测试成功不删证据目录；
+//! 失败时隔离存储根同样保留。
 
 #![cfg(windows)]
 
-use rust_yu_lib::modules::backup::restore_session;
+use rust_yu_lib::modules::backup::{list_sessions, plan_for_traces, restore_session};
 use rust_yu_lib::modules::cleaner::clean_reviewed_traces;
 use rust_yu_lib::modules::lister;
 use rust_yu_lib::modules::lister::models::{InstallSourceSelector, ListProgramsQuery};
 use rust_yu_lib::modules::scanner;
 use rust_yu_lib::modules::scanner::models::{Trace, TraceType};
+use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -33,6 +41,8 @@ const SERVICE_NAME: &str = "RustYuDirtyTraces";
 const TASK_NAME: &str = "RustYuDirtyTracesStartTask";
 const ARP_SUBKEY: &str =
     r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\rust_yu_dirty_traces_is1";
+
+// ---------- 基础设施 ----------
 
 fn repository_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf()
@@ -119,7 +129,6 @@ fn install_fixture() {
     );
 }
 
-/// 执行夹具自带的"脏卸载器"：只删除 ARP 键，其余痕迹全部保留。
 fn run_dirty_uninstaller() {
     let arp_key = "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\rust_yu_dirty_traces_is1";
     let (ok, text) = run_powershell(&format!(
@@ -153,13 +162,216 @@ fn find_installed_fixture_program() -> rust_yu_lib::modules::lister::models::Ins
         .unwrap_or_else(|| panic!("夹具 {APP_NAME} 应出现在已安装列表"))
 }
 
-// ---------- 夹具精确归属白名单：任一越界即整批失败，绝不删除 ----------
+// ---------- 证据目录与独立快照 ----------
+
+/// run-id 证据目录：所有快照/结果/manifest 副本持久化于此，测试成功不删。
+struct EvidenceDir(PathBuf);
+
+impl EvidenceDir {
+    fn new(run_id: &str) -> Self {
+        let dir = repository_root()
+            .join("docs")
+            .join("testing")
+            .join("run-logs")
+            .join(run_id);
+        std::fs::create_dir_all(&dir)
+            .unwrap_or_else(|error| panic!("证据目录创建失败（不得继续删除）: {error}"));
+        Self(dir)
+    }
+
+    fn write_json(&self, name: &str, value: &serde_json::Value) -> PathBuf {
+        let path = self.0.join(name);
+        let content = serde_json::to_string_pretty(value)
+            .unwrap_or_else(|error| panic!("证据序列化失败（不得继续删除）: {error}"));
+        std::fs::write(&path, content)
+            .unwrap_or_else(|error| panic!("证据写入失败 {path:?}（不得继续删除）: {error}"));
+        path
+    }
+
+    fn path(&self) -> &PathBuf {
+        &self.0
+    }
+}
+
+fn file_sha256(path: &Path) -> Option<String> {
+    let bytes = std::fs::read(path).ok()?;
+    let digest = Sha256::digest(&bytes);
+    Some(format!("{digest:x}"))
+}
+
+fn read_registry_value_raw(trace_path: &str) -> Option<(String, Vec<u8>)> {
+    let upper = trace_path.to_uppercase();
+    let (hive_str, rest) = upper.split_once('\\')?;
+    let (key_path, value_display) = rest.rsplit_once('\\')?;
+    let value_name = match value_display {
+        "(DEFAULT)" => String::new(),
+        other => other.to_string(),
+    };
+    // 键路径在大小写规范化中丢失原大小写——注册表打开不区分大小写，可接受
+    let hive = match hive_str {
+        "HKLM" => winreg::enums::HKEY_LOCAL_MACHINE,
+        "HKCU" => winreg::enums::HKEY_CURRENT_USER,
+        _ => return None,
+    };
+    let key = winreg::RegKey::predef(hive)
+        .open_subkey(key_path.to_lowercase().as_str())
+        .ok()?;
+    let raw: winreg::RegValue = key.get_raw_value(&value_name).ok()?;
+    Some((format!("{:?}", raw.vtype), raw.bytes))
+}
+
+/// 独立快照：不信任备份模块自身的 payload，测试侧直接读取文件字节哈希
+/// 与注册表原始类型/字节。持久化失败即 panic——不得在无证据情况下删除。
+fn capture_independent_snapshot(
+    label: &str,
+    traces: &[Trace],
+    evidence: &EvidenceDir,
+) -> serde_json::Value {
+    let items: Vec<serde_json::Value> = traces
+        .iter()
+        .map(|trace| {
+            let mut item = serde_json::json!({
+                "path": trace.path,
+                "trace_type": format!("{:?}", trace.trace_type),
+            });
+            match trace.trace_type {
+                TraceType::File | TraceType::AppData | TraceType::Shortcut => {
+                    let path = Path::new(&trace.path);
+                    item["sha256"] = match file_sha256(path) {
+                        Some(digest) => serde_json::json!(digest),
+                        None => serde_json::json!(null),
+                    };
+                    item["size"] = path
+                        .metadata()
+                        .map(|meta| serde_json::json!(meta.len()))
+                        .unwrap_or(serde_json::json!(null));
+                }
+                TraceType::RegistryValue => {
+                    match read_registry_value_raw(&trace.path) {
+                        Some((vtype, bytes)) => {
+                            item["registry_type"] = serde_json::json!(vtype);
+                            item["registry_bytes_hex"] =
+                                serde_json::json!(bytes.iter().map(|b| format!("{b:02x}")).collect::<String>());
+                        }
+                        None => {
+                            item["registry_type"] = serde_json::json!(null);
+                        }
+                    }
+                }
+                TraceType::RegistryKey => {
+                    item["exists"] = serde_json::json!(true);
+                }
+                _ => {}
+            }
+            item
+        })
+        .collect();
+    let snapshot = serde_json::json!({
+        "label": label,
+        "captured_at": chrono::Utc::now().to_rfc3339(),
+        "items": items,
+    });
+    evidence.write_json(&format!("snapshot-{label}.json"), &snapshot);
+    snapshot
+}
+
+/// 断言 dry-run 前后快照零修改（只读性验证）。
+fn assert_snapshots_identical(before: &serde_json::Value, after: &serde_json::Value) {
+    let before_items = before["items"].as_array().expect("快照结构完整");
+    let after_items = after["items"].as_array().expect("快照结构完整");
+    assert_eq!(before_items.len(), after_items.len(), "dry-run 不得增删候选");
+    for (b, a) in before_items.iter().zip(after_items.iter()) {
+        assert_eq!(b, a, "dry-run 产生了修改: {b} -> {a}");
+    }
+}
+
+/// 恢复后按独立快照逐项核验（冲突豁免清单里的路径跳过并记录）。
+fn verify_restored_against_snapshot(
+    snapshot: &serde_json::Value,
+    conflict_paths: &[String],
+    evidence: &EvidenceDir,
+) {
+    let items = snapshot["items"].as_array().expect("快照结构完整");
+    let mut report = Vec::new();
+    for item in items {
+        let path = item["path"].as_str().expect("路径存在").to_string();
+        let conflict = conflict_paths
+            .iter()
+            .any(|conflict| conflict.eq_ignore_ascii_case(&path));
+        let entry = match item["trace_type"].as_str().unwrap_or_default() {
+            "File" | "AppData" | "Shortcut" => {
+                let expected = item["sha256"].as_str();
+                match (expected, file_sha256(Path::new(&path))) {
+                    (Some(expected), Some(actual)) if expected == actual => {
+                        format!("OK  file-sha256 {path}")
+                    }
+                    (None, None) => format!("MISS file {path}（快照时已缺失，幂等）"),
+                    (expected, actual) => {
+                        format!("FAIL file {path}: expected={expected:?} actual={actual:?}")
+                    }
+                }
+            }
+            "RegistryValue" => {
+                let expected_type = item["registry_type"].as_str();
+                let expected_hex = item["registry_bytes_hex"].as_str();
+                match (expected_type, read_registry_value_raw(&path)) {
+                    (Some(expected_type), Some((actual_type, actual_bytes))) => {
+                        let actual_hex: String =
+                            actual_bytes.iter().map(|b| format!("{b:02x}")).collect();
+                        if expected_type == actual_type
+                            && expected_hex == Some(actual_hex.as_str())
+                        {
+                            format!("OK  registry {path} [{actual_type}]")
+                        } else {
+                            format!(
+                                "FAIL registry {path}: type {expected_type:?} vs {actual_type:?}"
+                            )
+                        }
+                    }
+                    (None, None) => format!("MISS registry {path}（快照时已缺失）"),
+                    (expected, actual) => {
+                        format!("FAIL registry {path}: {expected:?} vs {actual:?}")
+                    }
+                }
+            }
+            "RegistryKey" => {
+                if registry_key_exists(
+                    "HKLM",
+                    path.trim_start_matches(r"HKLM\"),
+                ) {
+                    format!("OK  registry-key {path}")
+                } else {
+                    format!("FAIL registry-key {path} 未恢复")
+                }
+            }
+            other => format!("SKIP {other} {path}"),
+        };
+        if conflict && entry.starts_with("FAIL") {
+            report.push(format!("CONFLICT-EXPECTED {entry}（后写入的用户数据不覆盖）"));
+        } else {
+            report.push(entry);
+        }
+    }
+    let text = report.join("\n");
+    evidence.write_json(
+        "restore-verification.json",
+        &serde_json::json!({ "entries": report, "conflict_paths": conflict_paths }),
+    );
+    println!("[verify]\n{text}");
+    assert!(
+        report.iter().all(|line| {
+            line.starts_with("OK") || line.starts_with("MISS") || line.starts_with("CONFLICT")
+        }),
+        "恢复核验存在失败项:\n{text}"
+    );
+}
+
+// ---------- 夹具精确归属白名单 ----------
 
 fn normalize_path_key(path: &str) -> String {
     path.trim_end_matches('\\').to_lowercase()
 }
 
-/// 读取防火墙规则容器 (值名 => 规则数据) 的当前快照。
 fn read_firewall_rule_snapshot() -> std::collections::HashMap<String, String> {
     let script = r#"
 $k = Get-Item 'HKLM:\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\FirewallRules'
@@ -178,23 +390,18 @@ $out -join "`n"
     snapshot
 }
 
-/// 夹具归属白名单：静态已知痕迹 + 安装前后防火墙规则差集（精确 GUID）。
 struct FixtureAllowlist {
     files: Vec<String>,
     registry_keys: Vec<String>,
     registry_values: Vec<(String, String)>,
-    /// 安装前后差集得到的夹具防火墙规则值名（GUID），均已核验 Name/App 归属
     firewall_rule_names: Vec<String>,
 }
 
 impl FixtureAllowlist {
-    /// 在"Reset 之后、安装之前"取防火墙基线。
     fn capture_firewall_baseline() -> std::collections::HashMap<String, String> {
         read_firewall_rule_snapshot()
     }
 
-    /// 安装完成后计算差集并核验每条规则的 Name 与 App 路径归属；
-    /// 差集为空或多条规则都视为夹具异常，直接失败。
     fn from_baseline(baseline: &std::collections::HashMap<String, String>) -> Self {
         let current = read_firewall_rule_snapshot();
         let added: Vec<(String, String)> = current
@@ -203,9 +410,6 @@ impl FixtureAllowlist {
             .map(|(name, data)| (name.clone(), data.clone()))
             .collect();
         println!("[allowlist] 防火墙规则安装差集: {} 条", added.len());
-        for (name, data) in &added {
-            println!("[allowlist] +rule {name}: {data}");
-        }
         assert_eq!(
             added.len(),
             1,
@@ -228,7 +432,6 @@ impl FixtureAllowlist {
     }
 }
 
-/// 夹具已知会留下的文件/AppData 残留（小写规范化后精确相等）。
 fn expected_fixture_file_paths() -> Vec<String> {
     let install_dir = INSTALL_DIR.to_string();
     let program_data = std::env::var("ProgramData").unwrap_or_default();
@@ -243,31 +446,12 @@ fn expected_fixture_file_paths() -> Vec<String> {
         format!(r"{program_data}\RustYu Dirty Traces\telemetry\pending.json"),
         format!(r"{program_data}\RustYu Dirty Traces\traces-manifest.json"),
         format!(r"{local_app_data}\RustYu Dirty Traces\leftover-user-state.json"),
-        // 文件清理后留下的空父目录（复扫会以 File trace 形态报出）。
-        // 安全复核决定：空目录不隐式删除，须作为显式目录候选经归属/
-        // dry-run/备份后清理（产品待实现）；白名单收录避免误判越界。
-        format!(r"{program_data}\RustYu Dirty Traces"),
-        format!(r"{local_app_data}\RustYu Dirty Traces"),
     ]
     .into_iter()
     .map(|path| normalize_path_key(&path))
     .collect()
 }
 
-/// 复扫时允许残留的"空目录"已知集合（normalize 后小写）。
-fn expected_post_cleanup_empty_directories() -> Vec<String> {
-    let program_data = std::env::var("ProgramData").unwrap_or_default();
-    let local_app_data = std::env::var("LOCALAPPDATA").unwrap_or_default();
-    [
-        format!(r"{program_data}\RustYu Dirty Traces"),
-        format!(r"{local_app_data}\RustYu Dirty Traces"),
-    ]
-    .into_iter()
-    .map(|path| normalize_path_key(&path))
-    .collect()
-}
-
-/// 夹具已知的注册表键残留（键 trace，小写精确）。
 fn expected_fixture_registry_keys() -> Vec<String> {
     [r"HKLM\SOFTWARE\RustYu Fixture Labs\RustYu Dirty Traces".to_string()]
         .into_iter()
@@ -275,8 +459,6 @@ fn expected_fixture_registry_keys() -> Vec<String> {
         .collect()
 }
 
-/// 夹具已知的注册表值残留：(键路径小写, 值展示名)。防火墙规则值名是动态
-/// GUID，按容器键前缀特判；Environment 值当前按精确规则拒删（deferred）。
 fn expected_fixture_registry_values() -> Vec<(String, String)> {
     [
         (
@@ -310,8 +492,8 @@ fn expected_fixture_registry_values() -> Vec<(String, String)> {
 }
 
 /// 按夹具白名单对单个 trace 做归属分类。
-/// Ok(true)=白名单内；Ok(false)=白名单外的已知 deferred 类（Service/ScheduledTask/
-/// Environment——仍要求精确匹配夹具名字）；Err(())=越界候选（整批禁止删除）。
+/// Ok(true)=白名单内；Ok(false)=白名单内但当前策略拒删（Service/Task/
+/// Environment）；Err(())=越界候选（整批禁止删除）。
 fn classify_trace(trace: &Trace, allowlist: &FixtureAllowlist) -> Result<bool, ()> {
     let normalized = normalize_path_key(&trace.path);
     match trace.trace_type {
@@ -340,8 +522,6 @@ fn classify_trace(trace: &Trace, allowlist: &FixtureAllowlist) -> Result<bool, (
             {
                 return Ok(true);
             }
-            // 防火墙规则：只认安装差集里核验过 Name/App 归属的精确 GUID，
-            // 绝不接受"位于容器内"这种宽泛证据
             if key_path.ends_with(r"\firewallrules")
                 && allowlist
                     .firewall_rule_names
@@ -350,7 +530,6 @@ fn classify_trace(trace: &Trace, allowlist: &FixtureAllowlist) -> Result<bool, (
             {
                 return Ok(true);
             }
-            // Environment 应用变量：已知夹具痕迹，但当前精确规则下拒删（deferred）
             if key_path.ends_with(r"\session manager\environment")
                 && value_name.eq_ignore_ascii_case("RUSTYU_DIRTY_TRACES_HOME")
             {
@@ -376,8 +555,6 @@ fn classify_trace(trace: &Trace, allowlist: &FixtureAllowlist) -> Result<bool, (
     }
 }
 
-/// 文件/AppData 目标及其全部祖先必须不含重解析点（junction/symlink），
-/// 防止"文本路径在夹具根内、实际解析跳到夹具外"的越界删除。
 fn find_reparse_escalations(traces: &[Trace]) -> Vec<String> {
     let mut violations = Vec::new();
     for trace in traces {
@@ -389,7 +566,11 @@ fn find_reparse_escalations(traces: &[Trace]) -> Vec<String> {
         while let Some(candidate) = current {
             if let Ok(metadata) = std::fs::symlink_metadata(candidate) {
                 if metadata.file_type().is_symlink() {
-                    violations.push(format!("{} 路径链含重解析点: {}", trace.path, candidate.display()));
+                    violations.push(format!(
+                        "{} 路径链含重解析点: {}",
+                        trace.path,
+                        candidate.display()
+                    ));
                     break;
                 }
             }
@@ -399,10 +580,10 @@ fn find_reparse_escalations(traces: &[Trace]) -> Vec<String> {
     violations
 }
 
-/// 按夹具白名单对扫描结果做逐项归属预检 + 重解析点预检。
-/// 返回 (可删除集合, 未完成集合)；出现任何白名单之外或含重解析点的候选
-/// 直接 panic，整批不进入清理——宁可失败也不删除未确认归属的目标。
-fn partition_traces_by_fixture_allowlist(traces: &[Trace], allowlist: &FixtureAllowlist) -> (Vec<Trace>, Vec<Trace>) {
+fn partition_traces_by_fixture_allowlist(
+    traces: &[Trace],
+    allowlist: &FixtureAllowlist,
+) -> (Vec<Trace>, Vec<Trace>) {
     let reparse_violations = find_reparse_escalations(traces);
     assert!(
         reparse_violations.is_empty(),
@@ -431,39 +612,40 @@ fn partition_traces_by_fixture_allowlist(traces: &[Trace], allowlist: &FixtureAl
     (deletable, deferred)
 }
 
+// ---------- 主流程 ----------
+
 #[tokio::test]
 #[ignore = "需要管理员 PowerShell 与已构建的 inno-dirty 夹具安装包"]
 async fn inno_dirty_fixture_full_cleanup_and_restore_workflow() {
     assert_admin();
 
-    // ---- 安全闸门：备份/会话写入 UUID 独立存储目录，与真实用户存储隔离 ----
-    let storage_root = std::env::temp_dir().join(format!(
-        "rust-yu-workflow-storage-{}",
-        uuid::Uuid::new_v4()
-    ));
-    let previous_storage = std::env::var_os("RUST_YU_STORAGE_DIR");
+    let run_id = format!(
+        "dirty-lifecycle-{}",
+        chrono::Utc::now().format("%Y%m%d-%H%M%S")
+    );
+    let evidence = EvidenceDir::new(&run_id);
+    println!("[evidence] {}", evidence.path().display());
+
+    // 隔离存储（RAII：仅恢复 env；根目录留给成功收尾清理，失败时保留为证据）
+    struct EnvRestore(Option<std::ffi::OsString>);
+    impl Drop for EnvRestore {
+        fn drop(&mut self) {
+            match self.0.take() {
+                Some(value) => std::env::set_var("RUST_YU_STORAGE_DIR", value),
+                None => std::env::remove_var("RUST_YU_STORAGE_DIR"),
+            }
+        }
+    }
+    let storage_root = std::env::temp_dir().join(format!("rust-yu-workflow-storage-{}", uuid::Uuid::new_v4()));
+    let _env_restore = EnvRestore(std::env::var_os("RUST_YU_STORAGE_DIR"));
     std::env::set_var("RUST_YU_STORAGE_DIR", &storage_root);
 
-    let result = inno_dirty_workflow_inner().await;
-
-    match previous_storage {
-        Some(value) => std::env::set_var("RUST_YU_STORAGE_DIR", value),
-        None => std::env::remove_var("RUST_YU_STORAGE_DIR"),
-    }
-    let _ = std::fs::remove_dir_all(&storage_root);
-    result
-}
-
-async fn inno_dirty_workflow_inner() {
     reset_fixture();
-    // 安装前取防火墙规则基线：安装后用精确差集确定夹具创建的规则 GUID
     let firewall_baseline = FixtureAllowlist::capture_firewall_baseline();
     install_fixture();
     let allowlist = FixtureAllowlist::from_baseline(&firewall_baseline);
 
-    // 卸载前先通过真实 lister 拿到程序档案（含安装目录），供卸载后关联扫描
     let program = find_installed_fixture_program();
-    // Inno 写入的 InstallLocation 可能带尾部反斜杠，比较前统一规范化
     let listed_location = program
         .install_location
         .as_deref()
@@ -475,7 +657,7 @@ async fn inno_dirty_workflow_inner() {
 
     run_dirty_uninstaller();
 
-    // ---- RustYu 扫描残留（真实 workflow 的扫描入口） ----
+    // ---- 扫描与白名单预检 ----
     let traces = scanner::scan_all_traces_for_program(&program, None)
         .await
         .expect("残留扫描不应失败")
@@ -486,21 +668,31 @@ async fn inno_dirty_workflow_inner() {
         println!("[trace] {:?} conf={:?} {}", trace.trace_type, trace.confidence, trace.path);
     });
     assert!(!traces.is_empty(), "脏卸载后应扫描出残留");
-
-    // ---- 夹具精确归属预检：任一越界即整批失败（此断言之后才允许删除） ----
     let (deletable, deferred) = partition_traces_by_fixture_allowlist(&traces, &allowlist);
-    println!("[allowlist] 可删除 {} 项；未完成（拒删待能力补齐）{} 项", deletable.len(), deferred.len());
-    deferred.iter().for_each(|trace| {
-        println!("[deferred] {:?} {}（无配置备份恢复/精确归属规则待实现）", trace.trace_type, trace.path);
-    });
+    println!("[allowlist] 可删除 {} 项；未完成 {} 项", deletable.len(), deferred.len());
     assert!(!deletable.is_empty(), "白名单内应存在可删除残留");
 
-    // ---- 备份 + 清理（UserReviewed：卸载结果页确认后的真实清理入口） ----
+    // ---- 独立快照（先于一切删除；持久化失败即中止） ----
+    let snapshot = capture_independent_snapshot("before-cleanup", &deletable, &evidence);
+
+    // ---- 只读 dry-run：计划生成前后快照必须零修改 ----
+    let plan = plan_for_traces(&deletable);
+    println!(
+        "[dry-run] plan items={} eligible={} unsupported={}",
+        plan.items.len(),
+        plan.eligible_count,
+        plan.unsupported_count
+    );
+    assert_eq!(plan.items.len(), deletable.len(), "dry-run 应覆盖全部候选");
+    assert!(plan.eligible_count >= 1, "dry-run 应存在可备份项");
+    let snapshot_after_dry = capture_independent_snapshot("after-dry-run", &deletable, &evidence);
+    assert_snapshots_identical(&snapshot, &snapshot_after_dry);
+
+    // ---- 清理轮 1：备份 + 删除（文件/注册表） ----
     let results = clean_reviewed_traces(deletable.clone(), true)
         .await
         .expect("reviewed 清理不应整体失败");
-    assert_eq!(results.len(), deletable.len(), "每个待删残留都应有清理结果");
-
+    assert_eq!(results.len(), deletable.len());
     let mut failures = Vec::new();
     for result in &results {
         println!(
@@ -517,102 +709,102 @@ async fn inno_dirty_workflow_inner() {
         failures.len(),
         failures.join("\n")
     );
+    evidence.write_json(
+        "cleanup-round-1.json",
+        &serde_json::json!({ "results": results.iter().map(|r| serde_json::json!({
+            "path": r.path, "success": r.success, "backup_id": r.backup_id, "error": r.error,
+        })).collect::<Vec<_>>() }),
+    );
 
-    // ---- 复扫：残留只剩"未完成"集合（服务/任务/环境变量），其余必须消失 ----
+    // ---- 复扫：空目录作为显式目录候选进入轮 2 ----
     let remaining = scanner::scan_all_traces_for_program(&program, None)
         .await
         .expect("复扫不应失败")
         .into_iter()
         .filter(|trace| trace.exists)
         .collect::<Vec<Trace>>();
-    remaining.iter().for_each(|trace| {
-        println!("[remaining] {:?} {}", trace.trace_type, trace.path);
-    });
-    let (remaining_deletable, remaining_deferred) =
+    let (round2_deletable, remaining_deferred) =
         partition_traces_by_fixture_allowlist(&remaining, &allowlist);
-    // 空父目录不再隐式清理：复扫允许恰好剩这两个已知空目录（须确为空），
-    // 其余可删除残留必须全部消失。
-    let empty_dir_allowance = expected_post_cleanup_empty_directories();
-    let mut unexpected_leftovers = Vec::new();
-    for trace in &remaining_deletable {
-        if empty_dir_allowance.contains(&normalize_path_key(&trace.path)) {
-            let entries = std::fs::read_dir(&trace.path)
-                .unwrap_or_else(|error| panic!("读取残留目录 {} 失败: {error}", trace.path));
-            let entries: Vec<String> = entries
-                .map(|entry| {
-                    entry
-                        .unwrap_or_else(|error| panic!("读取 {} 目录项失败: {error}", trace.path))
-                        .path()
-                        .to_string_lossy()
-                        .into_owned()
-                })
-                .collect();
-            assert!(
-                entries.is_empty(),
-                "允许残留的目录必须为空目录，实际仍有内容: {entries:?}"
-            );
-            println!("[deferred] 空目录 {}（显式目录候选待实现）", trace.path);
-        } else {
-            unexpected_leftovers.push(trace.path.clone());
-        }
-    }
-    assert!(
-        unexpected_leftovers.is_empty(),
-        "可删除残留清理后复扫应消失，仍剩 {:?}",
-        unexpected_leftovers
+    println!(
+        "[round2] 显式目录候选 {} 项；deferred {} 项",
+        round2_deletable.len(),
+        remaining_deferred.len()
     );
-    // 复扫残留必须全部属于 deferred（未删除项）；个别 deferred（如环境变量
-    // 值）在安装目录消失后不再被扫描产出，其"原样保留"由下方直接读取注册表
-    // 断言兜底，不因扫描器不再报告而放宽。
-    let deferred_paths: Vec<String> = deferred
-        .iter()
-        .map(|trace| normalize_path_key(&trace.path))
-        .collect();
-    for trace in &remaining_deferred {
-        assert!(
-            deferred_paths.contains(&normalize_path_key(&trace.path)),
-            "复扫出现了非 deferred 的保留项: {}",
-            trace.path
+    for trace in &round2_deletable {
+        println!("[round2-candidate] {:?} {}", trace.trace_type, trace.path);
+    }
+
+    if !round2_deletable.is_empty() {
+        // 目录候选同样走：重解析点边界（partition 内）→ 只读 dry-run → 快照 → 备份+删除
+        let dir_snapshot = capture_independent_snapshot("before-round2", &round2_deletable, &evidence);
+        let dir_plan = plan_for_traces(&round2_deletable);
+        let dir_snapshot_after = capture_independent_snapshot("after-round2-dry-run", &round2_deletable, &evidence);
+        assert_snapshots_identical(&dir_snapshot, &dir_snapshot_after);
+        assert_eq!(dir_plan.items.len(), round2_deletable.len());
+
+        let round2_results = clean_reviewed_traces(round2_deletable.clone(), true)
+            .await
+            .expect("目录候选清理不应整体失败");
+        for result in &round2_results {
+            println!(
+                "[round2-clean] success={} path={} error={:?}",
+                result.success, result.path, result.error
+            );
+            assert!(
+                result.success,
+                "显式目录候选清理应成功: {} => {:?}",
+                result.path, result.error
+            );
+        }
+        evidence.write_json(
+            "cleanup-round-2.json",
+            &serde_json::json!({ "results": round2_results.iter().map(|r| serde_json::json!({
+                "path": r.path, "success": r.success, "error": r.error,
+            })).collect::<Vec<_>>() }),
         );
     }
+
+    // ---- 终扫：只剩 deferred（服务/任务；环境变量由直接读取断言） ----
+    let final_traces = scanner::scan_all_traces_for_program(&program, None)
+        .await
+        .expect("终扫不应失败")
+        .into_iter()
+        .filter(|trace| trace.exists)
+        .collect::<Vec<Trace>>();
+    final_traces.iter().for_each(|trace| {
+        println!("[final] {:?} {}", trace.trace_type, trace.path);
+    });
+    let (final_deletable, final_deferred) =
+        partition_traces_by_fixture_allowlist(&final_traces, &allowlist);
     assert!(
-        !remaining_deferred.is_empty(),
-        "拒删的服务/任务应至少在复扫中保持可见"
+        final_deletable.is_empty(),
+        "两轮清理后终扫应无白名单内残留: {:?}",
+        final_deletable.iter().map(|t| t.path.clone()).collect::<Vec<_>>()
     );
-    // 服务/任务未删除：仍存在（未完成项不谎报成功）
-    assert!(service_exists(), "未完成项：服务应仍在（未删除）");
-    assert!(task_exists(), "未完成项：计划任务应仍在（未删除）");
+    assert!(!final_deferred.is_empty(), "未完成项应保持可见");
+    assert!(service_exists(), "未完成项：服务应仍在（生产闸拒删）");
+    assert!(task_exists(), "未完成项：计划任务应仍在（生产闸拒删）");
     assert!(
         registry_value_exists(
             "HKLM",
             r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment",
             "RUSTYU_DIRTY_TRACES_HOME"
         ),
-        "未完成项：环境变量应仍在（当前精确规则拒删）"
+        "未完成项：环境变量应仍在（精确归属规则待实现）"
     );
-    // 空父目录不再被隐式清理（安全复核：目录必须作为显式候选经过归属、
-    // dry-run 与备份才能删）。安装目录本体没有目录级 trace，按当前行为
-    // 记录为已知残留：若存在则必须为空目录，显式目录候选待产品实现。
-    if Path::new(INSTALL_DIR).exists() {
-        let entries = std::fs::read_dir(INSTALL_DIR)
-            .unwrap_or_else(|error| panic!("读取安装目录 {INSTALL_DIR} 失败: {error}"));
-        let leftovers: Vec<String> = entries
-            .map(|entry| {
-                entry
-                    .unwrap_or_else(|error| panic!("读取 {INSTALL_DIR} 目录项失败: {error}"))
-                    .path()
-                    .to_string_lossy()
-                    .into_owned()
-            })
-            .collect();
-        assert!(
-            leftovers.is_empty(),
-            "安装目录若残留必须是空目录，实际仍有内容: {leftovers:?}"
-        );
-        println!("[deferred] 空安装目录 {INSTALL_DIR}（显式目录候选待实现）");
-    }
 
-    // ---- 恢复：备份会话应能把文件与注册表内容还原 ----
+    // ---- 恢复冲突负例：清理后同路径写入"后来的用户数据"，恢复不得覆盖 ----
+    let conflict_path = PathBuf::from(
+        std::env::var("ProgramData").unwrap_or_default() + r"\RustYu Dirty Traces\telemetry\pending.json",
+    );
+    if let Some(parent) = conflict_path.parent() {
+        std::fs::create_dir_all(parent).expect("应能重建冲突目录");
+    }
+    std::fs::write(&conflict_path, b"later-user-data")
+        .expect("应能写入后来的用户数据");
+    let conflict_paths = vec![conflict_path.to_string_lossy().into_owned()];
+
+    // ---- 恢复 ----
     let backup_id = results
         .iter()
         .find_map(|result| result.backup_id.clone())
@@ -621,120 +813,49 @@ async fn inno_dirty_workflow_inner() {
     for item in &restore.session.items {
         println!("[restore] kind={:?} state={:?}", item.kind, item.state);
     }
-    assert!(
-        restore.session.items.iter().all(|item| item.state == rust_yu_lib::modules::backup::BackupItemState::Restored),
-        "恢复后所有可备份项应为 Restored 状态:\n{:?}",
-        restore.session.items
+    // 冲突文件必须保持"后来的用户数据"（不覆盖）
+    assert_eq!(
+        std::fs::read(&conflict_path).unwrap_or_default(),
+        b"later-user-data".to_vec(),
+        "恢复不得覆盖后写入的用户数据"
+    );
+    evidence.write_json(
+        "restore-result.json",
+        &serde_json::json!({
+            "session_id": backup_id,
+            "items": restore.session.items.iter().map(|i| serde_json::json!({
+                "path": i.original_path, "state": format!("{:?}", i.state),
+            })).collect::<Vec<_>>(),
+        }),
     );
 
-    let daemon_exe = Path::new(INSTALL_DIR).join("RustYuDirtyDaemon.exe");
-    assert!(daemon_exe.is_file(), "恢复后守护进程 exe 应回到原位");
+    // ---- 按独立快照逐项核验（非存在性；冲突项豁免并记录） ----
+    verify_restored_against_snapshot(&snapshot, &conflict_paths, &evidence);
+    // 冲突路径的恢复项应为失败态而非静默跳过
     assert!(
-        registry_key_exists("HKLM", r"SOFTWARE\RustYu Fixture Labs\RustYu Dirty Traces"),
-        "恢复后厂商键应回到原位"
-    );
-    assert!(
-        registry_value_exists(
-            "HKLM",
-            r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
-            "RustYuDirtyTraces"
-        ),
-        "恢复后 HKLM Run 启动值应回到原位"
+        restore.session.items.iter().any(|item| {
+            item.original_path.eq_ignore_ascii_case(conflict_paths[0].as_str())
+                && matches!(
+                    item.state,
+                    rust_yu_lib::modules::backup::BackupItemState::RestoreFailed
+                )
+        }),
+        "冲突路径的恢复项必须显式 RestoreFailed，不得静默跳过"
     );
 
-    // ---- 清场：未完成项与测试足迹由夹具 Reset 统一清理 ----
-    reset_fixture();
-}
-
-// ---------- 无破坏性负例：白名单与重解析点闸门必须能拒绝越界候选 ----------
-
-fn sample_allowlist() -> FixtureAllowlist {
-    FixtureAllowlist {
-        files: vec![normalize_path_key(r"C:\Program Files\Demo App\a.txt")],
-        registry_keys: vec![normalize_path_key(r"HKLM\SOFTWARE\Demo Vendor\Demo App")],
-        registry_values: vec![(
-            normalize_path_key(r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run"),
-            "DemoApp".to_string(),
-        )],
-        firewall_rule_names: vec!["{11111111-2222-3333-4444-555555555555}".to_string()],
+    // ---- 备份 manifest 副本归档到证据目录（隔离根随后按成功收尾清理） ----
+    let manifest_source = storage_root.join("backups").join(&backup_id).join("manifest.json");
+    if let Ok(content) = std::fs::read_to_string(&manifest_source) {
+        let _ = std::fs::write(
+            evidence.path().join("backup-manifest.json"),
+            content,
+        );
     }
-}
 
-#[test]
-fn allowlist_rejects_unrelated_candidates() {
-    let allowlist = sample_allowlist();
-
-    // 同容器（FirewallRules）但不在安装差集内的无关规则 GUID：必须整批拒绝
-    let stranger_rule = Trace::new(
-        "Demo App".to_string(),
-        TraceType::RegistryValue,
-        r"HKLM\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\FirewallRules\{99999999-8888-7777-6666-555555555555}".to_string(),
-    );
-    assert!(classify_trace(&stranger_rule, &allowlist).is_err());
-
-    // 白名单外的文件路径：拒绝
-    let stranger_file = Trace::new(
-        "Demo App".to_string(),
-        TraceType::File,
-        r"C:\Program Files\Other App\b.txt".to_string(),
-    );
-    assert!(classify_trace(&stranger_file, &allowlist).is_err());
-
-    // Run 容器里他人的值：拒绝
-    let stranger_run = Trace::new(
-        "Demo App".to_string(),
-        TraceType::RegistryValue,
-        r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run\OtherVendor".to_string(),
-    );
-    assert!(classify_trace(&stranger_run, &allowlist).is_err());
-
-    // 白名单内的候选：放行
-    let owned = Trace::new(
-        "Demo App".to_string(),
-        TraceType::File,
-        r"C:\Program Files\Demo App\a.txt".to_string(),
-    );
-    assert_eq!(classify_trace(&owned, &allowlist), Ok(true));
-}
-
-#[test]
-fn reparse_check_rejects_junction_pointing_outside_fixture_tree() {
-    // junction 不需要管理员权限即可创建；仅验证预检拒绝，不删除任何数据
-    let root = std::env::temp_dir().join(format!(
-        "rust-yu-reparse-test-{}",
-        uuid::Uuid::new_v4()
-    ));
-    let outside = root.join("outside");
-    std::fs::create_dir_all(&outside).expect("应能创建外部目录");
-    std::fs::write(outside.join("payload.txt"), b"x").expect("应能写入外部文件");
-
-    let junction = root.join("inside-junction");
-    let (ok, text) = run_powershell(&format!(
-        "New-Item -ItemType Junction -Path '{}' -Target '{}' | Out-Null; if ($?) {{ exit 0 }} else {{ exit 1 }}",
-        junction.display(),
-        outside.display()
-    ));
-    assert!(ok, "创建测试 junction 应成功: {text}");
-
-    // 文本路径位于"夹具目录"下，但路径链含 junction：预检必须拒绝
-    let traces = vec![Trace::new(
-        "Demo App".to_string(),
-        TraceType::File,
-        junction.join("payload.txt").to_string_lossy().into_owned(),
-    )];
-    let violations = find_reparse_escalations(&traces);
-    assert!(
-        !violations.is_empty(),
-        "含 junction 的候选必须被重解析点预检拒绝"
-    );
-
-    // 普通路径（无重解析点）应通过
-    let normal = vec![Trace::new(
-        "Demo App".to_string(),
-        TraceType::File,
-        outside.join("payload.txt").to_string_lossy().into_owned(),
-    )];
-    assert!(find_reparse_escalations(&normal).is_empty());
-
-    let _ = std::fs::remove_dir_all(&root);
+    // ---- 清场：清测试冲突文件与夹具足迹；证据目录保留 ----
+    let _ = std::fs::remove_file(&conflict_path);
+    reset_fixture();
+    let _ = std::fs::remove_dir_all(&storage_root);
+    let _ = list_sessions(); // 触达一次默认存储，确保未写入（隔离根已清）
+    println!("[evidence] 完成，证据保留于 {}", evidence.path().display());
 }
