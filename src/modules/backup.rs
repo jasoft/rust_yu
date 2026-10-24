@@ -276,7 +276,17 @@ pub fn plan_for_traces(traces: &[Trace]) -> BackupPlan {
                 eligible: false,
                 reason: Some("该系统集成痕迹当前没有可验证的文件/注册表备份".to_string()),
             }
-        } else if let Err(error) = safety::pre_delete_check(trace) {
+        } else {
+            // 与 cleaner 的清理闸门保持同一套分流：共享应用值容器（Run/
+            // App Paths/Environment/FirewallRules）里的值只做归属重校验，
+            // 不按 is_critical 临界项整段拒绝——否则扫描器标记 critical 的
+            // 应用私有值永远无法进入备份，也就永远无法被安全删除。
+            let safety_result = if safety::is_shared_application_value_container(trace) {
+                safety::revalidate_shared_value_ownership(trace)
+            } else {
+                safety::pre_delete_check(trace)
+            };
+            if let Err(error) = safety_result {
             BackupPlanItem {
                 trace_id: trace.id.clone(),
                 path: trace.path.clone(),
@@ -327,6 +337,7 @@ pub fn plan_for_traces(traces: &[Trace]) -> BackupPlan {
                     eligible: false,
                     reason: Some(error.to_string()),
                 },
+            }
             }
         };
 
@@ -1758,6 +1769,46 @@ mod tests {
             Some(&b"complete"[..])
         );
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn shared_container_value_plan_uses_ownership_review_not_critical_gate() {
+        // 扫描器会把共享分支里的值标记 is_critical；备份计划必须走归属
+        // 重校验而非临界项整段拒绝，否则应用私有值永远进不了备份
+        let suffix = uuid::Uuid::new_v4().to_string();
+        let base = format!(r"Software\rust-yu-test\{suffix}\Microsoft\Windows\CurrentVersion\Run");
+        let hive = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER);
+        let (key, _) = hive.create_subkey(&base).expect("应能创建测试 Run 容器键");
+        key.set_value("DemoApp", &r#""C:\Program Files\Demo App\demo.exe""#)
+            .expect("应能写入自有值");
+        key.set_value("Stranger", &"totally different program")
+            .expect("应能写入他人值");
+
+        let mut owned = Trace::new(
+            "Demo App".to_string(),
+            TraceType::RegistryValue,
+            format!(r"HKCU\{base}\DemoApp"),
+        );
+        owned.is_critical = true;
+        let plan = plan_for_traces(std::slice::from_ref(&owned));
+        assert_eq!(
+            plan.eligible_count, 1,
+            "归属明确的应用值即使被标记 critical 也应可备份"
+        );
+
+        let mut stranger = Trace::new(
+            "Demo App".to_string(),
+            TraceType::RegistryValue,
+            format!(r"HKCU\{base}\Stranger"),
+        );
+        stranger.is_critical = true;
+        let stranger_plan = plan_for_traces(std::slice::from_ref(&stranger));
+        assert_eq!(
+            stranger_plan.eligible_count, 0,
+            "共享容器中他人的值不得进入备份计划"
+        );
+
+        let _ = hive.delete_subkey_all(&base);
     }
 
     #[test]
