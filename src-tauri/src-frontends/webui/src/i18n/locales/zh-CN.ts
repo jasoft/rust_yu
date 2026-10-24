@@ -1083,6 +1083,8 @@ const zhCN = {
   "developer.fixture.xplorer.description": "用于验证 Windows Installer 软件枚举和 MSI 卸载流程。",
   "developer.fixture.legacy.name": "Rust Yu Legacy Inno 测试夹具",
   "developer.fixture.legacy.description": "用于验证派生卸载进程等待、安装目录残留和个人数据残留扫描。",
+  "developer.fixture.inno_dirty.name": "脏卸载验证：Inno 全痕迹夹具",
+  "developer.fixture.inno_dirty.description": "安装真实 Inno 安装包并注册运行中服务、计划任务、防火墙规则、启动项、环境变量和常驻进程；其卸载器只清理自身文件与卸载键，用来验证服务、进程、任务和注册表残留的发现与清理。",
   "developer.fixture.deep_machine.name": "深度分析：机器级完整夹具",
   "developer.fixture.deep_machine.description": "已知真值覆盖 Program Files、ProgramData、HKLM、公共快捷方式、服务和计划任务。",
   "developer.fixture.deep_user.name": "深度分析：当前用户完整夹具",

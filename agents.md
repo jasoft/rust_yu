@@ -125,6 +125,9 @@
 - 这个 legacy 测试夹具会把 `UninstallString` 和 `QuietUninstallString` 都包装为 `SpawnUninstallHelper.exe -> UninstallWorker.ps1 -> unins000.exe` 的进程链，用来验证 application workflow 的 Job Object 等待路径
 - 这个 legacy 测试夹具卸载后应保留 `C:\Program Files\RustYu Legacy Test App\logs\leftover.log` 和 `%LocalAppData%\RustYuLegacyTest\Data\leftover-user-profile.json`，便于验证安装目录与 AppData 残留扫描
 - tools\test\Verify-InnoLegacyFixture.ps1 默认验证夹具结构和安装包；传入 `-RunLifecycle` 时需要管理员 PowerShell，会安装夹具、检查卸载命令是否走 spawn wrapper，并调用 application workflow 集成测试验证 `waitforjobs`
+- .resources\inno-dirty-traces\ 是"脏卸载"夹具：安装包注册运行中的 Windows 服务（RustYuDirtyTraces）、常驻进程（RustYuDirtyDaemon）、计划任务、防火墙规则、HKLM Run 启动项、App Paths、环境变量和厂商键；其自带卸载器只清理未标记 `uninsneveruninstall` 的文件和 ARP 卸载键，其余全部残留。`Build-DirtyTracesFixture.ps1` 构建（校验 x64 rustc 与产物 PE 架构），`Reset-DirtyTracesFixture.ps1` 全量清理（需管理员）
+- tools\test\Verify-DirtyTracesFixture.ps1 默认验证夹具结构；`-RunLifecycle`（需管理员）完整走一遍：重置 → 静默安装 → 断言痕迹齐全 → 执行脏卸载器 → 断言只有 ARP 键与普通文件被删、服务/进程/任务/防火墙/注册表残留保留；`-CleanAfterLifecycle` 顺带清理
+- .resources\leftover-trace-fixtures\Install-LeftoverFixtures.ps1 实现开发者工具里的 `leftover-machine` / `leftover-user` / `leftover-sparse` 夹具：安装完整足迹，其 `UninstallString` 是只删 ARP 卸载键的"脏卸载器"；`-Cleanup` 按固定键名全量清理
 
 ## 8. 任务结束前的强制交付验收
 

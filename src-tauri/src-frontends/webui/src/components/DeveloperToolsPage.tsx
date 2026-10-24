@@ -24,6 +24,7 @@ import { useProgramsStore } from "../stores/programs";
 const fixtureNameKeys: Record<string, TranslationKey> = {
   "xplorer-msi": "developer.fixture.xplorer.name",
   "legacy-inno": "developer.fixture.legacy.name",
+  "inno-dirty": "developer.fixture.inno_dirty.name",
   "deep-nsis-machine": "developer.fixture.deep_machine.name",
   "deep-nsis-user": "developer.fixture.deep_user.name",
   "deep-nsis-sparse": "developer.fixture.deep_sparse.name",
@@ -35,6 +36,7 @@ const fixtureNameKeys: Record<string, TranslationKey> = {
 const fixtureDescriptionKeys: Record<string, TranslationKey> = {
   "xplorer-msi": "developer.fixture.xplorer.description",
   "legacy-inno": "developer.fixture.legacy.description",
+  "inno-dirty": "developer.fixture.inno_dirty.description",
   "deep-nsis-machine": "developer.fixture.deep_machine.description",
   "deep-nsis-user": "developer.fixture.deep_user.description",
   "deep-nsis-sparse": "developer.fixture.deep_sparse.description",
