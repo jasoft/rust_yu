@@ -569,21 +569,19 @@ pub fn restore_session(session_id: &str) -> Result<BackupRestoreResult, Uninstal
     for index in 0..session.items.len() {
         {
             let item = &mut session.items[index];
-            if matches!(
-                item.state,
-                BackupItemState::Missing | BackupItemState::Restored
-            ) {
-                if item.state == BackupItemState::Restored && !verify_item(&session_dir, item)? {
-                    item.state = BackupItemState::RestoreFailed;
-                    item.error = Some("恢复后的目标校验失败".to_string());
-                    failed_count += 1;
-                } else if item.state == BackupItemState::Restored {
-                    restored_count += 1;
-                }
+            if item.state == BackupItemState::Missing {
+                // 备份时已经不存在的项目没有载荷，也不应伪装成可恢复项。
             } else if item.state == BackupItemState::BackupFailed {
                 failed_count += 1;
             } else {
-                match restore_item(&session_dir, item).and_then(|()| {
+                // Restored 只是历史状态，不是本次完整性证据；重验失败也要
+                // 写入该项目的失败态并继续其他项，不能直接 ? 中止整个会话。
+                let preparation = if item.state == BackupItemState::Restored {
+                    validate_restore_inputs(&session_dir, item)
+                } else {
+                    restore_item(&session_dir, item)
+                };
+                match preparation.and_then(|()| {
                     if verify_item(&session_dir, item)? {
                         Ok(())
                     } else {
@@ -916,13 +914,18 @@ fn copy_directory(source: &Path, destination: &Path) -> Result<(), UninstallerEr
     Ok(())
 }
 
-fn restore_item(session_dir: &Path, item: &BackupItem) -> Result<(), UninstallerError> {
+fn validate_restore_inputs(session_dir: &Path, item: &BackupItem) -> Result<(), UninstallerError> {
     // 恢复前同样校验原始指纹；复制损坏载荷后再与损坏载荷自身比对会产生
     // 假成功，且可能把错误内容写回系统，因此校验必须在任何目标写入之前。
     validate_payload_integrity(session_dir, item)?;
     if matches!(item.kind, BackupItemKind::File | BackupItemKind::Directory) {
         ensure_safe_parent(Path::new(&item.original_path))?;
     }
+    Ok(())
+}
+
+fn restore_item(session_dir: &Path, item: &BackupItem) -> Result<(), UninstallerError> {
+    validate_restore_inputs(session_dir, item)?;
     // 数据落位和清单持久化不是同一个系统事务。上次在两者之间失败时，
     // 只接受与准备时完整指纹一致的既有目标，不重复写入，更不能覆盖新数据。
     let current = inspect_path(item.trace_type, &item.original_path)?;
@@ -1892,6 +1895,89 @@ mod tests {
         };
         std::env::set_var("RUST_YU_STORAGE_DIR", &scope.root);
         test(&scope.root)
+    }
+
+    #[test]
+    fn restored_session_rejects_changed_file_and_directory_payloads() {
+        with_storage_root("restored-payload-recheck", |root| {
+            fs::create_dir_all(root).expect("创建临时根");
+            let file = root.join("restored.txt");
+            let directory = root.join("restored-directory");
+            let healthy = root.join("healthy.txt");
+            fs::write(&file, b"original").expect("文件原字节");
+            fs::create_dir(&directory).expect("目录夹具");
+            fs::write(directory.join("keep.txt"), b"keep").expect("保留子文件");
+            fs::write(directory.join("lost.txt"), b"original-child").expect("另一子文件");
+            fs::write(&healthy, b"healthy-original").expect("不受影响的夹具");
+            let traces = [&file, &directory, &healthy].map(|path| {
+                Trace::new(
+                    "RustYu restore recheck fixture".to_string(),
+                    TraceType::File,
+                    path.to_string_lossy().into_owned(),
+                )
+            });
+            let prepared = prepare_for_traces(&traces, "restored payload integrity")
+                .expect("备份成功")
+                .expect("存在会话");
+            fs::remove_file(&file).expect("仅清理自建文件");
+            fs::remove_dir_all(&directory).expect("仅清理自建目录");
+            fs::remove_file(&healthy).expect("仅清理健康夹具");
+            for trace in &traces {
+                record_cleanup_result(&prepared.session_id, &trace.id, true, None)
+                    .expect("记录清理结果");
+            }
+            let first = restore_session(&prepared.session_id).expect("首次恢复");
+            assert!(first.success);
+            assert!(first
+                .session
+                .items
+                .iter()
+                .all(|item| item.state == BackupItemState::Restored));
+            let session_dir = root.join("backups").join(&prepared.session_id);
+            let file_payload =
+                session_dir.join(first.session.items[0].payload.as_ref().expect("文件载荷"));
+            let directory_payload =
+                session_dir.join(first.session.items[1].payload.as_ref().expect("目录载荷"));
+            // 目标与载荷一起发生同样变化，自比对会误判；原始指纹必须始终生效。
+            fs::write(&file, b"tampered").expect("修改自建恢复目标");
+            fs::write(&file_payload, b"tampered").expect("模拟同长度载荷损坏");
+            fs::remove_file(directory.join("lost.txt")).expect("模拟恢复子文件丢失");
+            fs::remove_file(directory_payload.join("lost.txt")).expect("模拟载荷子文件丢失");
+            let rejected =
+                restore_session(&prepared.session_id).expect("返回逐项失败，继续核验健康项");
+            assert!(!rejected.success, "历史 Restored 不能绕过原始指纹核验");
+            assert_eq!(rejected.failed_count, 2);
+            assert_eq!(rejected.restored_count, 1);
+            assert!(rejected.session.items[..2]
+                .iter()
+                .all(|item| item.state == BackupItemState::RestoreFailed));
+            assert!(rejected.session.items[..2]
+                .iter()
+                .all(|item| item.error.is_some()));
+            assert_eq!(fs::read(&file).expect("不覆盖现有字节"), b"tampered");
+            assert_eq!(
+                fs::read(&healthy).expect("健康项未受影响"),
+                b"healthy-original"
+            );
+            fs::write(&file_payload, b"original").expect("修复自建载荷");
+            fs::write(directory_payload.join("lost.txt"), b"original-child").expect("补回原始载荷");
+            assert!(
+                !restore_session(&prepared.session_id)
+                    .expect("目标冲突仍需明确报告")
+                    .success
+            );
+            assert_eq!(fs::read(&file).expect("用户变动字节仍保留"), b"tampered");
+            fs::remove_file(&file).expect("仅移除自建冲突文件");
+            fs::remove_dir_all(&directory).expect("仅移除自建冲突目录");
+            let retry = restore_session(&prepared.session_id).expect("冲突解除后可重试");
+            assert!(retry.success);
+            assert_eq!(retry.restored_count, 3);
+            assert_eq!(fs::read(&file).expect("恢复原始文件字节"), b"original");
+            assert_eq!(
+                fs::read(directory.join("lost.txt")).expect("恢复原始目录子文件"),
+                b"original-child"
+            );
+        });
     }
 
     #[test]
