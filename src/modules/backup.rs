@@ -31,6 +31,7 @@ const MAX_BACKUP_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 const MAX_SESSION_BYTES: u64 = 16 * 1024 * 1024 * 1024;
 const MAX_REGISTRY_NODES: usize = 20_000;
 const MAX_REGISTRY_DEPTH: usize = 64;
+const SESSION_LOCK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -1693,9 +1694,34 @@ struct SessionLock {
 
 impl SessionLock {
     fn acquire(directory: &Path) -> Result<Self, UninstallerError> {
+        Self::acquire_with_timeout(directory, SESSION_LOCK_TIMEOUT)
+    }
+
+    fn acquire_with_timeout(
+        directory: &Path,
+        timeout: std::time::Duration,
+    ) -> Result<Self, UninstallerError> {
         let file = open_session_lock(directory, ".session.lock")?;
-        file.lock()?;
-        Ok(Self { _file: file })
+        let started = std::time::Instant::now();
+        loop {
+            match file.try_lock() {
+                Ok(()) => return Ok(Self { _file: file }),
+                Err(std::fs::TryLockError::Error(error)) => {
+                    return Err(UninstallerError::FileSystem(error));
+                }
+                Err(std::fs::TryLockError::WouldBlock) => {
+                    let remaining = timeout.saturating_sub(started.elapsed());
+                    if remaining.is_zero() {
+                        return Err(UninstallerError::Timeout(
+                            "等待备份会话清单锁超时，请稍后重试".to_string(),
+                        ));
+                    }
+                    // 仍然等待真实的独占锁，不能为超时跳过锁或改成无锁写入。
+                    // 只限制锁竞争等待；IO错误原样返回，不伪装成忙碌。
+                    std::thread::sleep(remaining.min(std::time::Duration::from_millis(20)));
+                }
+            }
+        }
     }
 }
 
@@ -1957,6 +1983,130 @@ mod tests {
         };
         std::env::set_var("RUST_YU_STORAGE_DIR", &scope.root);
         test(&scope.root)
+    }
+
+    #[test]
+    fn session_lock_timeout_preserves_manifest_and_allows_retry() {
+        with_storage_root("transaction-timeout", |root| {
+            fs::create_dir_all(root).expect("创建独占夹具根");
+            let target = root.join("original.txt");
+            fs::write(&target, b"unchanged-source").expect("写入原始夹具");
+            let trace = Trace::new(
+                "RustYu lock timeout fixture".to_string(),
+                TraceType::File,
+                target.to_string_lossy().into_owned(),
+            );
+            let prepared = prepare_for_traces(std::slice::from_ref(&trace), "lock timeout")
+                .expect("备份成功")
+                .expect("存在会话");
+            let directory = super::session_directory(&prepared.session_id).expect("会话目录");
+            let manifest = directory.join(super::MANIFEST_FILE_NAME);
+            let original = fs::read(&manifest).expect("原清单字节");
+            let held = super::open_session_lock(&directory, ".session.lock").expect("真实锁文件");
+            held.lock().expect("占有真实清单锁");
+            let (release, waiting) = std::sync::mpsc::channel::<()>();
+            let holder = std::thread::spawn(move || {
+                let _held = held;
+                // 旧实现会无限等待；仅测试看门狗在3秒后释放，保证失败测试也退出。
+                let _ = waiting.recv_timeout(std::time::Duration::from_secs(3));
+            });
+            let result = super::SessionLock::acquire_with_timeout(
+                &directory,
+                std::time::Duration::from_millis(50),
+            );
+            let _ = release.send(());
+            holder.join().expect("持锁线程已回收");
+            assert!(
+                matches!(
+                    result,
+                    Err(crate::modules::common::error::UninstallerError::Timeout(_))
+                ),
+                "锁仍被占用且等待预算耗尽时必须返回超时"
+            );
+            assert_eq!(fs::read(&manifest).expect("超时后清单"), original);
+            assert_eq!(
+                fs::read(&target).expect("超时后源文件"),
+                b"unchanged-source"
+            );
+            // 零预算也应先尝试一次，释放后可以立即成功，不能伪造忙碌。
+            let retry =
+                super::SessionLock::acquire_with_timeout(&directory, std::time::Duration::ZERO)
+                    .expect("锁释放后立即重试");
+            drop(retry);
+            record_cleanup_result(
+                &prepared.session_id,
+                &trace.id,
+                false,
+                Some("not deleted".to_string()),
+            )
+            .expect("生产入口仍可写回结果");
+        });
+    }
+
+    #[test]
+    fn backup_locks_released_after_process_termination_allow_recovery() {
+        with_storage_root("terminated-lock-holder", |root| {
+            fs::create_dir_all(root).expect("创建独占夹具根");
+            let target = root.join("interrupted.txt");
+            fs::write(&target, b"original-after-interruption").expect("写入夹具原字节");
+            let trace = Trace::new(
+                "RustYu terminated process fixture".to_string(),
+                TraceType::File,
+                target.to_string_lossy().into_owned(),
+            );
+            let prepared = prepare_for_traces(std::slice::from_ref(&trace), "process termination")
+                .expect("备份成功")
+                .expect("存在会话");
+            fs::remove_file(&target).expect("仅删除独占测试文件");
+            record_cleanup_result(&prepared.session_id, &trace.id, true, None).expect("记录删除");
+            let directory = super::session_directory(&prepared.session_id).expect("会话目录");
+            let manifest = directory.join(super::MANIFEST_FILE_NAME);
+            let original_manifest = fs::read(&manifest).expect("中断前完整清单");
+            let ready = root.join("ready");
+            let fixture =
+                serde_json::to_string(&(&prepared.session_id, &ready, root.join("never-release")))
+                    .expect("受控子进程参数");
+            let mut children = TestChildren(vec![std::process::Command::new(
+                std::env::current_exe().expect("本次测试程序"),
+            )
+            .args([
+                "--exact",
+                "modules::backup::tests::backup_result_child_process",
+            ])
+            .env("RUST_YU_INTERNAL_BACKUP_OPERATION_TEST", fixture)
+            .env("RUST_YU_INTERNAL_BACKUP_HOLD_TRANSACTION", "1")
+            .spawn()
+            .expect("启动本轮独占持锁子进程")]);
+            wait_for_test_condition(|| ready.exists(), "持锁子进程准备超时");
+            assert!(super::acquire_operation(&prepared.session_id).is_err());
+            assert!(matches!(
+                super::SessionLock::acquire_with_timeout(&directory, std::time::Duration::ZERO),
+                Err(crate::modules::common::error::UninstallerError::Timeout(_))
+            ));
+            assert!(restore_session(&prepared.session_id).is_err());
+
+            // 只强制终止本测试刚创建且持有句柄的子进程，模拟无机会执行Drop的崩溃。
+            children.0[0].kill().expect("终止本轮持锁夹具进程");
+            assert!(!children.0[0].wait().expect("回收子进程").success());
+            assert_eq!(
+                fs::read(&manifest).expect("异常退出后清单"),
+                original_manifest
+            );
+            assert!(!target.exists(), "持锁拒绝与异常退出均不能偷偷恢复文件");
+            let operation = super::acquire_operation(&prepared.session_id).expect("OS已释放操作锁");
+            let transaction =
+                super::SessionLock::acquire_with_timeout(&directory, std::time::Duration::ZERO)
+                    .expect("OS已释放清单锁");
+            drop(transaction);
+            drop(operation);
+            let result = restore_session(&prepared.session_id).expect("异常中断后允许恢复重试");
+            assert!(result.success);
+            assert_eq!(result.restored_count, 1);
+            assert_eq!(
+                fs::read(&target).expect("独立读回原字节"),
+                b"original-after-interruption"
+            );
+        });
     }
 
     #[test]
@@ -2271,6 +2421,17 @@ mod tests {
             let (session_id, ready_path, go_path): (String, PathBuf, PathBuf) =
                 serde_json::from_str(&fixture).expect("独占操作夹具参数");
             let _operation = super::acquire_operation(&session_id).expect("子进程占有操作锁");
+            let _transaction =
+                if std::env::var_os("RUST_YU_INTERNAL_BACKUP_HOLD_TRANSACTION").is_some() {
+                    Some(
+                        super::SessionLock::acquire(
+                            &super::session_directory(&session_id).expect("会话目录"),
+                        )
+                        .expect("子进程占有清单事务锁"),
+                    )
+                } else {
+                    None
+                };
             fs::write(ready_path, b"locked").expect("操作锁就绪");
             wait_for_test_condition(|| go_path.exists(), "等待操作释放屏障超时");
             return;
