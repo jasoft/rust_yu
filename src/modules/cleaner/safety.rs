@@ -296,7 +296,9 @@ fn contains_as_delimited_component(haystack: &str, needle: &str) -> bool {
         if before_ok && after_ok {
             return true;
         }
-        start = absolute + 1;
+        // 只能跳到字符边界上：find 命中位置与 needle 长度都是边界，
+        // 用 absolute+1 会在多字节字符（如中文）中间切片导致 panic
+        start = absolute + needle.len();
     }
     false
 }
@@ -529,5 +531,26 @@ mod tests {
         assert!(revalidate_shared_value_ownership(&default_trace).is_ok());
 
         let _ = hive.delete_subkey_all(&base);
+    }
+
+    #[test]
+    fn delimited_component_search_survives_multibyte_needles() {
+        // 多字节字符（中文程序名）必须既能命中，也不能在"未命中后继续搜索"
+        // 时把切片起点切进字符中间导致 panic
+        use super::contains_as_delimited_component;
+        assert!(contains_as_delimited_component(
+            r"d:\apps\中文程序\tool.exe",
+            "中文程序"
+        ));
+        // 前后粘连（非完整组件）：不命中，且不得 panic
+        assert!(!contains_as_delimited_component(
+            r"d:\apps\x中文程序y\tool.exe",
+            "中文程序"
+        ));
+        // 命中后仍有后续出现：遍历安全
+        assert!(!contains_as_delimited_component(
+            "x中文程序y z中文程序z w中文程序w",
+            "中文程序"
+        ));
     }
 }

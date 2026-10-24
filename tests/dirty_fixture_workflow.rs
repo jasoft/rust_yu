@@ -33,7 +33,6 @@ const SERVICE_NAME: &str = "RustYuDirtyTraces";
 const TASK_NAME: &str = "RustYuDirtyTracesStartTask";
 const ARP_SUBKEY: &str =
     r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\rust_yu_dirty_traces_is1";
-const FIREWALL_RULES_KEY_PREFIX: &str = r"hklm\system\currentcontrolset\services\sharedaccess\parameters\firewallpolicy\firewallrules\";
 
 fn repository_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf()
@@ -160,6 +159,75 @@ fn normalize_path_key(path: &str) -> String {
     path.trim_end_matches('\\').to_lowercase()
 }
 
+/// 读取防火墙规则容器 (值名 => 规则数据) 的当前快照。
+fn read_firewall_rule_snapshot() -> std::collections::HashMap<String, String> {
+    let script = r#"
+$k = Get-Item 'HKLM:\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\FirewallRules'
+$out = @()
+foreach ($n in $k.GetValueNames()) { $out += ($n -replace '=','==') + '=' + ([string]$k.GetValue($n)) }
+$out -join "`n"
+"#;
+    let (ok, text) = run_powershell(script);
+    assert!(ok, "读取防火墙规则应成功: {text}");
+    let mut snapshot = std::collections::HashMap::new();
+    for line in text.lines().filter(|line| !line.trim().is_empty()) {
+        if let Some((name, data)) = line.split_once('=') {
+            snapshot.insert(name.replace("==", "="), data.to_string());
+        }
+    }
+    snapshot
+}
+
+/// 夹具归属白名单：静态已知痕迹 + 安装前后防火墙规则差集（精确 GUID）。
+struct FixtureAllowlist {
+    files: Vec<String>,
+    registry_keys: Vec<String>,
+    registry_values: Vec<(String, String)>,
+    /// 安装前后差集得到的夹具防火墙规则值名（GUID），均已核验 Name/App 归属
+    firewall_rule_names: Vec<String>,
+}
+
+impl FixtureAllowlist {
+    /// 在"Reset 之后、安装之前"取防火墙基线。
+    fn capture_firewall_baseline() -> std::collections::HashMap<String, String> {
+        read_firewall_rule_snapshot()
+    }
+
+    /// 安装完成后计算差集并核验每条规则的 Name 与 App 路径归属；
+    /// 差集为空或多条规则都视为夹具异常，直接失败。
+    fn from_baseline(baseline: &std::collections::HashMap<String, String>) -> Self {
+        let current = read_firewall_rule_snapshot();
+        let added: Vec<(String, String)> = current
+            .iter()
+            .filter(|(name, _)| !baseline.contains_key(*name))
+            .map(|(name, data)| (name.clone(), data.clone()))
+            .collect();
+        println!("[allowlist] 防火墙规则安装差集: {} 条", added.len());
+        for (name, data) in &added {
+            println!("[allowlist] +rule {name}: {data}");
+        }
+        assert_eq!(
+            added.len(),
+            1,
+            "夹具应恰好新增 1 条防火墙规则（差集异常即整批失败）"
+        );
+        let (name, data) = &added[0];
+        let data_lower = data.to_lowercase();
+        assert!(
+            data_lower.contains("name=rustyu dirty traces daemon")
+                && data_lower.contains(r"app=c:\program files\rustyu dirty traces test app\rustyudirtydaemon.exe"),
+            "差集规则必须核验 Name= 与 App= 归属: {data}"
+        );
+
+        Self {
+            files: expected_fixture_file_paths(),
+            registry_keys: expected_fixture_registry_keys(),
+            registry_values: expected_fixture_registry_values(),
+            firewall_rule_names: vec![name.clone()],
+        }
+    }
+}
+
 /// 夹具已知会留下的文件/AppData 残留（小写规范化后精确相等）。
 fn expected_fixture_file_paths() -> Vec<String> {
     let install_dir = INSTALL_DIR.to_string();
@@ -198,6 +266,10 @@ fn expected_fixture_registry_values() -> Vec<(String, String)> {
             "RustYuDirtyTraces".to_string(),
         ),
         (
+            r"HKLM\SOFTWARE\RustYu Fixture Labs\RustYu Dirty Traces".to_string(),
+            "InstallRoot".to_string(),
+        ),
+        (
             r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\RustYuDirtyDaemon.exe".to_string(),
             "(Default)".to_string(),
         ),
@@ -219,65 +291,123 @@ fn expected_fixture_registry_values() -> Vec<(String, String)> {
     .collect()
 }
 
-/// 按夹具白名单对扫描结果做逐项归属预检。
-/// 返回 (可删除集合, 未完成集合)；出现任何白名单之外的候选直接 panic，
-/// 整批不进入清理——宁可失败也不删除未确认归属的目标。
-fn partition_traces_by_fixture_allowlist(traces: &[Trace]) -> (Vec<Trace>, Vec<Trace>) {
-    let files = expected_fixture_file_paths();
-    let keys = expected_fixture_registry_keys();
-    let values = expected_fixture_registry_values();
+/// 按夹具白名单对单个 trace 做归属分类。
+/// Ok(true)=白名单内；Ok(false)=白名单外的已知 deferred 类（Service/ScheduledTask/
+/// Environment——仍要求精确匹配夹具名字）；Err(())=越界候选（整批禁止删除）。
+fn classify_trace(trace: &Trace, allowlist: &FixtureAllowlist) -> Result<bool, ()> {
+    let normalized = normalize_path_key(&trace.path);
+    match trace.trace_type {
+        TraceType::File | TraceType::AppData => {
+            if allowlist.files.contains(&normalized) {
+                Ok(true)
+            } else {
+                Err(())
+            }
+        }
+        TraceType::RegistryKey => {
+            if allowlist.registry_keys.contains(&normalized) {
+                Ok(true)
+            } else {
+                Err(())
+            }
+        }
+        TraceType::RegistryValue => {
+            let Some((key_path, value_name)) = normalized.rsplit_once('\\') else {
+                return Err(());
+            };
+            if allowlist
+                .registry_values
+                .iter()
+                .any(|(key, value)| *key == key_path && value.eq_ignore_ascii_case(value_name))
+            {
+                return Ok(true);
+            }
+            // 防火墙规则：只认安装差集里核验过 Name/App 归属的精确 GUID，
+            // 绝不接受"位于容器内"这种宽泛证据
+            if key_path.ends_with(r"\firewallrules")
+                && allowlist
+                    .firewall_rule_names
+                    .iter()
+                    .any(|name| name.eq_ignore_ascii_case(value_name))
+            {
+                return Ok(true);
+            }
+            // Environment 应用变量：已知夹具痕迹，但当前精确规则下拒删（deferred）
+            if key_path.ends_with(r"\session manager\environment")
+                && value_name.eq_ignore_ascii_case("RUSTYU_DIRTY_TRACES_HOME")
+            {
+                return Ok(false);
+            }
+            Err(())
+        }
+        TraceType::Service => {
+            if normalized == format!("service://{SERVICE_NAME}").to_lowercase() {
+                Ok(false)
+            } else {
+                Err(())
+            }
+        }
+        TraceType::ScheduledTask => {
+            if normalized == format!("task://\\{TASK_NAME}").to_lowercase() {
+                Ok(false)
+            } else {
+                Err(())
+            }
+        }
+        _ => Err(()),
+    }
+}
+
+/// 文件/AppData 目标及其全部祖先必须不含重解析点（junction/symlink），
+/// 防止"文本路径在夹具根内、实际解析跳到夹具外"的越界删除。
+fn find_reparse_escalations(traces: &[Trace]) -> Vec<String> {
+    let mut violations = Vec::new();
+    for trace in traces {
+        if !matches!(trace.trace_type, TraceType::File | TraceType::AppData) {
+            continue;
+        }
+        let path = PathBuf::from(&trace.path);
+        let mut current = Some(path.as_path());
+        while let Some(candidate) = current {
+            if let Ok(metadata) = std::fs::symlink_metadata(candidate) {
+                if metadata.file_type().is_symlink() {
+                    violations.push(format!("{} 路径链含重解析点: {}", trace.path, candidate.display()));
+                    break;
+                }
+            }
+            current = candidate.parent();
+        }
+    }
+    violations
+}
+
+/// 按夹具白名单对扫描结果做逐项归属预检 + 重解析点预检。
+/// 返回 (可删除集合, 未完成集合)；出现任何白名单之外或含重解析点的候选
+/// 直接 panic，整批不进入清理——宁可失败也不删除未确认归属的目标。
+fn partition_traces_by_fixture_allowlist(traces: &[Trace], allowlist: &FixtureAllowlist) -> (Vec<Trace>, Vec<Trace>) {
+    let reparse_violations = find_reparse_escalations(traces);
+    assert!(
+        reparse_violations.is_empty(),
+        "候选路径链包含重解析点，整批禁止删除并失败:\n{}",
+        reparse_violations.join("\n")
+    );
 
     let mut deletable = Vec::new();
     let mut deferred = Vec::new();
     for trace in traces {
-        let normalized = normalize_path_key(&trace.path);
-        let allowed = match trace.trace_type {
-            TraceType::File | TraceType::AppData => files.contains(&normalized),
-            TraceType::RegistryKey => keys.contains(&normalized),
-            TraceType::RegistryValue => match normalized.rsplit_once('\\') {
-                Some((key_path, value_name)) => {
-                    // 防火墙规则值名是动态 GUID：按容器键前缀特判
-                    let firewall_rule =
-                        format!("{normalized}\\").starts_with(FIREWALL_RULES_KEY_PREFIX);
-                    // Environment 应用变量：已知夹具痕迹，但当前精确规则下拒删
-                    let environment_value = key_path.ends_with(r"\session manager\environment")
-                        && value_name.eq_ignore_ascii_case("RUSTYU_DIRTY_TRACES_HOME");
-                    values.iter().any(|(key, value)| {
-                        *key == key_path && value.eq_ignore_ascii_case(value_name)
-                    }) || firewall_rule
-                        || environment_value
-                }
-                None => false,
-            },
-            TraceType::Service => normalized == format!("service://{SERVICE_NAME}"),
-            TraceType::ScheduledTask => {
-                normalized == format!("task://\\{TASK_NAME}").to_lowercase()
+        match classify_trace(trace, allowlist) {
+            Ok(true) => deletable.push(trace.clone()),
+            Ok(false) => {
+                println!(
+                    "[deferred] {:?} {}（无配置备份恢复/精确归属规则待实现）",
+                    trace.trace_type, trace.path
+                );
+                deferred.push(trace.clone());
             }
-            _ => false,
-        };
-        assert!(
-            allowed,
-            "扫描结果包含白名单之外的候选，整批禁止删除并失败: {:?} {}",
-            trace.trace_type,
-            trace.path
-        );
-
-        // 未完成项：无配置备份恢复能力（服务/任务）或当前精确规则拒删（环境变量）
-        let deferred_item = match trace.trace_type {
-            TraceType::Service | TraceType::ScheduledTask => true,
-            TraceType::RegistryValue => {
-                let key_path = normalized
-                    .rsplit_once('\\')
-                    .map(|(key, _)| key)
-                    .unwrap_or_default();
-                key_path.ends_with(r"\session manager\environment")
-            }
-            _ => false,
-        };
-        if deferred_item {
-            deferred.push(trace.clone());
-        } else {
-            deletable.push(trace.clone());
+            Err(()) => panic!(
+                "扫描结果包含白名单之外的候选，整批禁止删除并失败: {:?} {}",
+                trace.trace_type, trace.path
+            ),
         }
     }
     (deletable, deferred)
@@ -308,7 +438,10 @@ async fn inno_dirty_fixture_full_cleanup_and_restore_workflow() {
 
 async fn inno_dirty_workflow_inner() {
     reset_fixture();
+    // 安装前取防火墙规则基线：安装后用精确差集确定夹具创建的规则 GUID
+    let firewall_baseline = FixtureAllowlist::capture_firewall_baseline();
     install_fixture();
+    let allowlist = FixtureAllowlist::from_baseline(&firewall_baseline);
 
     // 卸载前先通过真实 lister 拿到程序档案（含安装目录），供卸载后关联扫描
     let program = find_installed_fixture_program();
@@ -337,7 +470,7 @@ async fn inno_dirty_workflow_inner() {
     assert!(!traces.is_empty(), "脏卸载后应扫描出残留");
 
     // ---- 夹具精确归属预检：任一越界即整批失败（此断言之后才允许删除） ----
-    let (deletable, deferred) = partition_traces_by_fixture_allowlist(&traces);
+    let (deletable, deferred) = partition_traces_by_fixture_allowlist(&traces, &allowlist);
     println!("[allowlist] 可删除 {} 项；未完成（拒删待能力补齐）{} 项", deletable.len(), deferred.len());
     deferred.iter().for_each(|trace| {
         println!("[deferred] {:?} {}（无配置备份恢复/精确归属规则待实现）", trace.trace_type, trace.path);
@@ -378,7 +511,7 @@ async fn inno_dirty_workflow_inner() {
         println!("[remaining] {:?} {}", trace.trace_type, trace.path);
     });
     let (remaining_deletable, remaining_deferred) =
-        partition_traces_by_fixture_allowlist(&remaining);
+        partition_traces_by_fixture_allowlist(&remaining, &allowlist);
     assert!(
         remaining_deletable.is_empty(),
         "可删除残留清理后复扫应消失，仍剩 {} 项",
@@ -437,4 +570,97 @@ async fn inno_dirty_workflow_inner() {
 
     // ---- 清场：未完成项与测试足迹由夹具 Reset 统一清理 ----
     reset_fixture();
+}
+
+// ---------- 无破坏性负例：白名单与重解析点闸门必须能拒绝越界候选 ----------
+
+fn sample_allowlist() -> FixtureAllowlist {
+    FixtureAllowlist {
+        files: vec![normalize_path_key(r"C:\Program Files\Demo App\a.txt")],
+        registry_keys: vec![normalize_path_key(r"HKLM\SOFTWARE\Demo Vendor\Demo App")],
+        registry_values: vec![(
+            normalize_path_key(r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run"),
+            "DemoApp".to_string(),
+        )],
+        firewall_rule_names: vec!["{11111111-2222-3333-4444-555555555555}".to_string()],
+    }
+}
+
+#[test]
+fn allowlist_rejects_unrelated_candidates() {
+    let allowlist = sample_allowlist();
+
+    // 同容器（FirewallRules）但不在安装差集内的无关规则 GUID：必须整批拒绝
+    let stranger_rule = Trace::new(
+        "Demo App".to_string(),
+        TraceType::RegistryValue,
+        r"HKLM\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\FirewallRules\{99999999-8888-7777-6666-555555555555}".to_string(),
+    );
+    assert!(classify_trace(&stranger_rule, &allowlist).is_err());
+
+    // 白名单外的文件路径：拒绝
+    let stranger_file = Trace::new(
+        "Demo App".to_string(),
+        TraceType::File,
+        r"C:\Program Files\Other App\b.txt".to_string(),
+    );
+    assert!(classify_trace(&stranger_file, &allowlist).is_err());
+
+    // Run 容器里他人的值：拒绝
+    let stranger_run = Trace::new(
+        "Demo App".to_string(),
+        TraceType::RegistryValue,
+        r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run\OtherVendor".to_string(),
+    );
+    assert!(classify_trace(&stranger_run, &allowlist).is_err());
+
+    // 白名单内的候选：放行
+    let owned = Trace::new(
+        "Demo App".to_string(),
+        TraceType::File,
+        r"C:\Program Files\Demo App\a.txt".to_string(),
+    );
+    assert_eq!(classify_trace(&owned, &allowlist), Ok(true));
+}
+
+#[test]
+fn reparse_check_rejects_junction_pointing_outside_fixture_tree() {
+    // junction 不需要管理员权限即可创建；仅验证预检拒绝，不删除任何数据
+    let root = std::env::temp_dir().join(format!(
+        "rust-yu-reparse-test-{}",
+        uuid::Uuid::new_v4()
+    ));
+    let outside = root.join("outside");
+    std::fs::create_dir_all(&outside).expect("应能创建外部目录");
+    std::fs::write(outside.join("payload.txt"), b"x").expect("应能写入外部文件");
+
+    let junction = root.join("inside-junction");
+    let (ok, text) = run_powershell(&format!(
+        "New-Item -ItemType Junction -Path '{}' -Target '{}' | Out-Null; if ($?) {{ exit 0 }} else {{ exit 1 }}",
+        junction.display(),
+        outside.display()
+    ));
+    assert!(ok, "创建测试 junction 应成功: {text}");
+
+    // 文本路径位于"夹具目录"下，但路径链含 junction：预检必须拒绝
+    let traces = vec![Trace::new(
+        "Demo App".to_string(),
+        TraceType::File,
+        junction.join("payload.txt").to_string_lossy().into_owned(),
+    )];
+    let violations = find_reparse_escalations(&traces);
+    assert!(
+        !violations.is_empty(),
+        "含 junction 的候选必须被重解析点预检拒绝"
+    );
+
+    // 普通路径（无重解析点）应通过
+    let normal = vec![Trace::new(
+        "Demo App".to_string(),
+        TraceType::File,
+        outside.join("payload.txt").to_string_lossy().into_owned(),
+    )];
+    assert!(find_reparse_escalations(&normal).is_empty());
+
+    let _ = std::fs::remove_dir_all(&root);
 }
