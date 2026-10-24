@@ -7,7 +7,15 @@
 use crate::modules::lister::models::InstalledProgram;
 use std::path::{Path, PathBuf};
 
-const GENERIC_SUFFIXES: &[&str] = &["app", "application", "client", "software", "suite", "tool"];
+const GENERIC_SUFFIXES: &[&str] = &[
+    "app",
+    "application",
+    "client",
+    "software",
+    "suite",
+    "test",
+    "tool",
+];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScanIdentity {
@@ -21,16 +29,28 @@ impl ScanIdentity {
         let compact = compact_identifier(&display_name);
         let mut aliases = vec![compact.clone()];
 
-        // Legacy installers often omit a generic trailing "App"/"Software"
-        // suffix.  Remove only one known generic suffix, never arbitrary
-        // prefixes or substrings; this keeps RustYuLegacyTest valid without
-        // matching unrelated names such as Internet Explorer.
-        let significant = significant_tokens(&display_name);
-        if significant.len() < token_count(&display_name) {
-            let without_generic = compact_identifier(&significant.join(" "));
-            if without_generic.len() >= 6 && !aliases.contains(&without_generic) {
-                aliases.push(without_generic);
+        // Legacy installers often omit one or several generic trailing words:
+        // `RustYu Dirty Traces Test App` commonly leaves vendor keys and data
+        // directories named `RustYu Dirty Traces`.  Strip consecutive generic
+        // suffixes only — never arbitrary prefixes or substrings; each alias
+        // must stay long enough (>=6) so short unrelated names (e.g. `Foo`)
+        // can never match, and `Internet Explorer`-style names stay distinct.
+        let mut tokens = display_name
+            .split(|character: char| !character.is_ascii_alphanumeric())
+            .filter(|token| !token.is_empty())
+            .map(|token| token.to_ascii_lowercase())
+            .collect::<Vec<_>>();
+        while tokens.len() > 1
+            && tokens
+                .last()
+                .is_some_and(|token| GENERIC_SUFFIXES.contains(&token.as_str()))
+        {
+            tokens.pop();
+            let alias = compact_identifier(&tokens.join(" "));
+            if alias.len() < 6 || aliases.contains(&alias) {
+                break;
             }
+            aliases.push(alias);
         }
 
         Self {
@@ -92,28 +112,6 @@ impl ScanIdentity {
             })
         })
     }
-}
-
-fn token_count(value: &str) -> usize {
-    value
-        .split(|character: char| !character.is_ascii_alphanumeric())
-        .filter(|token| !token.is_empty())
-        .count()
-}
-
-fn significant_tokens(value: &str) -> Vec<String> {
-    let mut tokens = value
-        .split(|character: char| !character.is_ascii_alphanumeric())
-        .filter(|token| !token.is_empty())
-        .map(|token| token.to_ascii_lowercase())
-        .collect::<Vec<_>>();
-    if tokens
-        .last()
-        .is_some_and(|token| GENERIC_SUFFIXES.contains(&token.as_str()))
-    {
-        let _ = tokens.pop();
-    }
-    tokens
 }
 
 pub fn compact_identifier(value: &str) -> String {
@@ -338,6 +336,31 @@ mod tests {
         let identity = ScanIdentity::from_name("RustYu Legacy Test App");
         assert!(identity.matches_component("RustYuLegacyTest"));
         assert!(!identity.matches_component("RustYuLegacyTesting"));
+    }
+
+    #[test]
+    fn consecutive_generic_suffixes_stay_matchable() {
+        // 真实软件常用去掉多个尾部通用词的缩短名落厂商键/数据目录：
+        // "RustYu Dirty Traces Test App" 的残留键叫 "RustYu Dirty Traces"。
+        let identity = ScanIdentity::from_name("RustYu Dirty Traces Test App");
+        assert!(identity.matches_component("RustYu Dirty Traces Test App"));
+        assert!(identity.matches_component("RustYu Dirty Traces Test"));
+        assert!(identity.matches_component("RustYu Dirty Traces"));
+        // 只允许剥尾部通用词：改词、加词、换前缀都不得命中
+        assert!(!identity.matches_component("RustYu Dirty Traces Viewer"));
+        assert!(!identity.matches_component("Dirty Traces Test App"));
+        assert!(!identity.matches_component("RustYu Dirty"));
+    }
+
+    #[test]
+    fn short_aliases_after_stripping_are_rejected() {
+        // 剥完通用词后长度不足 6 的别名必须被拒绝，防止短名误报
+        let identity = ScanIdentity::from_name("Foo Test App Client");
+        assert!(identity.matches_component("Foo Test App Client"));
+        assert!(identity.matches_component("Foo Test App"));
+        // "footest"（7 位）可用，但 "foo"（3 位）不可用
+        assert!(identity.matches_component("Foo Test"));
+        assert!(!identity.matches_component("Foo"));
     }
 
     #[test]
