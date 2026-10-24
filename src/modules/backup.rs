@@ -1443,11 +1443,18 @@ fn parse_registry_value_path(
     if key_path.is_empty() {
         return Err(UninstallerError::Registry("注册表值键路径为空".to_string()));
     }
-    if utils::is_critical_registry_path(path) {
-        return Err(UninstallerError::CriticalSystemItem(
-            "关键系统注册表路径不允许备份或删除".to_string(),
-        ));
-    }
+    // 扫描器路径里默认值以展示名 `(Default)` 结尾，真实值名是空串；
+    // 不做映射会按字面量读取失败，导致默认值永远无法进入备份/恢复。
+    let value_name = if value_name.eq_ignore_ascii_case("(Default)") {
+        ""
+    } else {
+        value_name
+    };
+    // 值级备份只读取单个值做快照，不做关键路径整段拦截：防火墙规则值位于
+    // HKLM\SYSTEM 下、Run/App Paths 值位于共享分支下，它们需要可备份才能
+    // 安全删除；"是否允许删除"由 cleaner::safety 的共享容器白名单 + 归属
+    // 重校验把守，备份侧不再重复设卡（整键备份仍走 parse_registry_key_path
+    // 的关键路径检查）。
     Ok((hive, key_path.to_string(), value_name.to_string()))
 }
 

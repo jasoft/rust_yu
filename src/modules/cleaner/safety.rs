@@ -304,10 +304,12 @@ fn contains_as_delimited_component(haystack: &str, needle: &str) -> bool {
 }
 
 /// 按注册表的真实编码把值转为小写文本用于归属比对：
-/// REG_SZ/REG_EXPAND_SZ/MULTI_SZ 的字节是 UTF-16LE（绝不能按 UTF-8 解码），
-/// 数值转十进制，REG_BINARY 不产生文本证据（返回空串）。
+/// REG_SZ/EXPAND_SZ/MULTI_SZ 的字节是 UTF-16LE（绝不能按 UTF-8 解码），
+/// 且原始字节带 NUL 终止符，解码后必须剥掉，否则"数据以程序名结尾"的值
+/// （如 App Paths 的 Path）会被 NUL 卡在组件边界判定上；数值转十进制，
+/// REG_BINARY 不产生文本证据（返回空串）。
 fn decode_registry_value_text(value: &RegValue) -> String {
-    match value.vtype {
+    let text = match value.vtype {
         winreg::enums::REG_SZ
         | winreg::enums::REG_EXPAND_SZ
         | winreg::enums::REG_MULTI_SZ => {
@@ -344,7 +346,8 @@ fn decode_registry_value_text(value: &RegValue) -> String {
             number.to_string()
         }
         _ => String::new(),
-    }
+    };
+    text.trim_end_matches('\0').to_string()
 }
 
 #[cfg(test)]
