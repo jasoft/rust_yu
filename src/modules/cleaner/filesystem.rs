@@ -70,6 +70,10 @@ fn remove_with_process_release(path: &std::path::Path) -> std::io::Result<()> {
         Err(error) => is_busy(error),
     };
     if !pending(&first) {
+        // 删除成功后向上清理"空壳"父目录：真实卸载器都会移除残留的空目录
+        // 树，否则复扫会再次扫出这些空壳（只删空目录，非空即停；共享根
+        // 目录是硬边界，绝不停靠删除）
+        prune_empty_parent_directories(path);
         return first;
     }
 
@@ -86,6 +90,7 @@ fn remove_with_process_release(path: &std::path::Path) -> std::io::Result<()> {
     // 进程退出后句柄释放需要一点时间，短暂轮询等待目标真正可删
     for _ in 0..30 {
         if !path.exists() {
+            prune_empty_parent_directories(path);
             return Ok(());
         }
         std::thread::sleep(std::time::Duration::from_millis(100));
@@ -143,6 +148,49 @@ fn normalize_for_compare(path: &std::path::Path) -> String {
     }
 }
 
+/// 向上删除空的父目录链：从 start 的父目录开始，遇到非空目录或共享根
+/// 边界即停止。remove_dir 只会删除空目录（OS 原子保证），因此并发下新
+/// 创建文件只会让链路自然中断，不存在误删风险。
+fn prune_empty_parent_directories(start: &std::path::Path) {
+    let mut current = start.parent().map(std::path::Path::to_path_buf);
+    while let Some(dir) = current {
+        if is_shared_root_boundary(&dir) {
+            break;
+        }
+        match std::fs::remove_dir(&dir) {
+            Ok(()) => {
+                tracing::info!(path = %dir.display(), "已清理空父目录");
+                current = dir.parent().map(std::path::Path::to_path_buf);
+            }
+            Err(_) => break,
+        }
+    }
+}
+
+/// 空目录清理的硬边界：常见共享根与盘根绝不停靠删除。
+fn is_shared_root_boundary(dir: &std::path::Path) -> bool {
+    let normalized = normalize_for_compare(dir);
+    let mut roots: Vec<String> = vec![r"c:\".to_string()];
+    for key in [
+        "ProgramData",
+        "ProgramFiles",
+        "ProgramFiles(x86)",
+        "ProgramW6432",
+        "LOCALAPPDATA",
+        "APPDATA",
+        "USERPROFILE",
+        "SystemRoot",
+        "TEMP",
+    ] {
+        if let Ok(value) = std::env::var(key) {
+            roots.push(value);
+        }
+    }
+    roots.iter().any(|value| {
+        normalized == value.trim_end_matches('\\').to_lowercase()
+    }) || crate::modules::scanner::scope::is_protected_shared_path(dir)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{normalize_for_compare, remove_with_process_release};
@@ -174,5 +222,35 @@ mod tests {
         assert!(!file.exists());
 
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn prune_removes_empty_parent_chain_but_keeps_non_empty_and_boundary() {
+        let base = std::env::temp_dir().join(format!(
+            "rust-yu-prune-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        // 空链：a/b/c/file.txt 删文件后 a/b/c 全空应被清到 base 之下（base 非空含另一文件则保留）
+        let empty_chain_leaf = base.join("a").join("b").join("c");
+        std::fs::create_dir_all(&empty_chain_leaf).expect("应能创建空链目录");
+        let file = empty_chain_leaf.join("file.txt");
+        std::fs::write(&file, b"x").expect("应能写入文件");
+        std::fs::write(base.join("keep.txt"), b"keep").expect("应能写入保留文件");
+
+        remove_with_process_release(&file).expect("应能删除文件");
+        assert!(!empty_chain_leaf.exists(), "空叶子目录应被清理");
+        assert!(!base.join("a").exists(), "整条空链 a/b/c 应被清理");
+        assert!(base.join("keep.txt").exists(), "非空 base 及其文件必须保留");
+
+        // 边界：直接位于 TEMP 下的文件删除后绝不能尝试删除 TEMP 本身
+        let boundary_file = std::env::temp_dir().join(format!(
+            "rust-yu-prune-boundary-{}.txt",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::write(&boundary_file, b"x").expect("应能写入边界文件");
+        remove_with_process_release(&boundary_file).expect("应能删除边界文件");
+        assert!(std::env::temp_dir().is_dir(), "TEMP 共享根必须原样保留");
+
+        let _ = std::fs::remove_dir_all(base);
     }
 }
