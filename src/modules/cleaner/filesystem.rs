@@ -167,6 +167,15 @@ fn prune_empty_parent_directories(start: &std::path::Path) {
     }
 }
 
+/// 终局空目录收尾入口：目标自身已被删除时，补一次父目录链清理。
+/// 逐项删除期间 prune 只能在"当时已空"时成功；同目录最后一批文件删除
+/// 后不会再有触发点，因此清理循环结束后统一补跑。
+pub fn prune_parent_chain_if_empty(path: &std::path::Path) {
+    if !path.exists() {
+        prune_empty_parent_directories(path);
+    }
+}
+
 /// 空目录清理的硬边界：常见共享根与盘根绝不停靠删除。
 fn is_shared_root_boundary(dir: &std::path::Path) -> bool {
     let normalized = normalize_for_compare(dir);
