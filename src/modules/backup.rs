@@ -1815,6 +1815,29 @@ mod tests {
             "共享容器中他人的值不得进入备份计划"
         );
 
+        // is_shared 硬否决同样作用于备份计划：仍被其他程序共用的候选
+        // 即使归属明确也不可备份，且同键邻居值保持原样
+        let mut shared_owned = Trace::new(
+            "Demo App".to_string(),
+            TraceType::RegistryValue,
+            format!(r"HKCU\{base}\DemoApp"),
+        );
+        shared_owned.is_critical = true;
+        shared_owned.is_shared = true;
+        let shared_plan = plan_for_traces(std::slice::from_ref(&shared_owned));
+        assert_eq!(
+            shared_plan.eligible_count, 0,
+            "is_shared=true 的候选不得进入备份计划"
+        );
+        assert!(
+            key.get_raw_value("Stranger").is_ok(),
+            "备份计划不得触碰同键邻居值"
+        );
+        assert!(
+            key.get_raw_value("DemoApp").is_ok(),
+            "被拒绝的候选本身也必须原样保留"
+        );
+
         let _ = hive.delete_subkey_all(&base);
     }
 

@@ -86,18 +86,6 @@ async fn clean_traces_with_authorization(
     let backup_preparation = backup_preparation.map(Arc::new);
     let mut results = Vec::new();
 
-    // 终局空目录收尾需要文件类目标清单（traces 会被下面的循环移动）
-    let file_trace_paths: Vec<String> = traces
-        .iter()
-        .filter(|trace| {
-            matches!(
-                trace.trace_type,
-                TraceType::File | TraceType::AppData | TraceType::Shortcut
-            )
-        })
-        .map(|trace| trace.path.clone())
-        .collect();
-
     for trace in traces {
         // 共享"应用值容器"（Run/App Paths/Environment/FirewallRules）里的应用
         // 私有值允许值级删除（键本体保留）：这类值先经 safety 的归属重校验，
@@ -250,13 +238,6 @@ async fn clean_traces_with_authorization(
                 results.push(result);
             }
         }
-    }
-
-    // 终局空目录收尾：逐项删除期间 prune 只能在"当时恰好已空"时删掉父链，
-    // 同目录最后一批文件删完后不再有触发点；循环结束后对全部文件类目标
-    // 统一补跑一次（只删空目录，共享根硬边界由 prune 内部保证）。
-    for path in &file_trace_paths {
-        filesystem::prune_parent_chain_if_empty(Path::new(path));
     }
 
     Ok(results)

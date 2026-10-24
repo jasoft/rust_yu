@@ -243,6 +243,24 @@ fn expected_fixture_file_paths() -> Vec<String> {
         format!(r"{program_data}\RustYu Dirty Traces\telemetry\pending.json"),
         format!(r"{program_data}\RustYu Dirty Traces\traces-manifest.json"),
         format!(r"{local_app_data}\RustYu Dirty Traces\leftover-user-state.json"),
+        // 文件清理后留下的空父目录（复扫会以 File trace 形态报出）。
+        // 安全复核决定：空目录不隐式删除，须作为显式目录候选经归属/
+        // dry-run/备份后清理（产品待实现）；白名单收录避免误判越界。
+        format!(r"{program_data}\RustYu Dirty Traces"),
+        format!(r"{local_app_data}\RustYu Dirty Traces"),
+    ]
+    .into_iter()
+    .map(|path| normalize_path_key(&path))
+    .collect()
+}
+
+/// 复扫时允许残留的"空目录"已知集合（normalize 后小写）。
+fn expected_post_cleanup_empty_directories() -> Vec<String> {
+    let program_data = std::env::var("ProgramData").unwrap_or_default();
+    let local_app_data = std::env::var("LOCALAPPDATA").unwrap_or_default();
+    [
+        format!(r"{program_data}\RustYu Dirty Traces"),
+        format!(r"{local_app_data}\RustYu Dirty Traces"),
     ]
     .into_iter()
     .map(|path| normalize_path_key(&path))
@@ -512,10 +530,31 @@ async fn inno_dirty_workflow_inner() {
     });
     let (remaining_deletable, remaining_deferred) =
         partition_traces_by_fixture_allowlist(&remaining, &allowlist);
+    // 空父目录不再隐式清理：复扫允许恰好剩这两个已知空目录（须确为空），
+    // 其余可删除残留必须全部消失。
+    let empty_dir_allowance = expected_post_cleanup_empty_directories();
+    let mut unexpected_leftovers = Vec::new();
+    for trace in &remaining_deletable {
+        if empty_dir_allowance.contains(&normalize_path_key(&trace.path)) {
+            let entries: Vec<String> = std::fs::read_dir(&trace.path)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .map(|entry| entry.path().to_string_lossy().into_owned())
+                .collect();
+            assert!(
+                entries.is_empty(),
+                "允许残留的目录必须为空目录，实际仍有内容: {entries:?}"
+            );
+            println!("[deferred] 空目录 {}（显式目录候选待实现）", trace.path);
+        } else {
+            unexpected_leftovers.push(trace.path.clone());
+        }
+    }
     assert!(
-        remaining_deletable.is_empty(),
-        "可删除残留清理后复扫应消失，仍剩 {} 项",
-        remaining_deletable.len()
+        unexpected_leftovers.is_empty(),
+        "可删除残留清理后复扫应消失，仍剩 {:?}",
+        unexpected_leftovers
     );
     // 复扫残留必须全部属于 deferred（未删除项）；个别 deferred（如环境变量
     // 值）在安装目录消失后不再被扫描产出，其"原样保留"由下方直接读取注册表
@@ -546,10 +585,22 @@ async fn inno_dirty_workflow_inner() {
         ),
         "未完成项：环境变量应仍在（当前精确规则拒删）"
     );
-    assert!(
-        !Path::new(INSTALL_DIR).exists(),
-        "安装目录应已被删除"
-    );
+    // 空父目录不再被隐式清理（安全复核：目录必须作为显式候选经过归属、
+    // dry-run 与备份才能删）。安装目录本体没有目录级 trace，按当前行为
+    // 记录为已知残留：若存在则必须为空目录，显式目录候选待产品实现。
+    if Path::new(INSTALL_DIR).exists() {
+        let leftovers: Vec<String> = std::fs::read_dir(INSTALL_DIR)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|entry| entry.path().to_string_lossy().into_owned())
+            .collect();
+        assert!(
+            leftovers.is_empty(),
+            "安装目录若残留必须是空目录，实际仍有内容: {leftovers:?}"
+        );
+        println!("[deferred] 空安装目录 {INSTALL_DIR}（显式目录候选待实现）");
+    }
 
     // ---- 恢复：备份会话应能把文件与注册表内容还原 ----
     let backup_id = results

@@ -199,6 +199,17 @@ pub fn is_shared_application_value_container(trace: &Trace) -> bool {
 ///    整个组件出现（两侧为路径分隔符/引号/字段边界），裸子串命中不算。
 ///    Environment 容器禁用此证据（见 NAME_ONLY_CONTAINERS）。
 pub fn revalidate_shared_value_ownership(trace: &Trace) -> Result<(), UninstallerError> {
+    // 共享资源硬否决：目标仍被其他已安装程序共用时，无论归属证据多强
+    // 都不得删除。放在这个公共入口，使清理、备份计划、删除后验证三条
+    // 分流共用同一道硬闸（与 pre_delete_check 的 is_shared 语义一致，
+    // 分流不得绕过）。
+    if trace.is_shared {
+        return Err(UninstallerError::CriticalSystemItem(format!(
+            "该项仍被其他已安装程序共享使用，已跳过: {}",
+            trace.path
+        )));
+    }
+
     let Some((hkey, components, value_name)) = parse_value_trace(trace) else {
         return Err(UninstallerError::CriticalSystemItem(format!(
             "无法解析注册表值路径: {}",
@@ -532,6 +543,43 @@ mod tests {
             &format!(r"HKCU\{base}\(Default)"),
         );
         assert!(revalidate_shared_value_ownership(&default_trace).is_ok());
+
+        let _ = hive.delete_subkey_all(&base);
+    }
+
+    #[test]
+    fn shared_value_revalidation_rejects_items_still_shared_by_other_programs() {
+        // is_shared 硬否决必须位于公共归属入口：即使值名/数据归属明确，
+        // 仍被其他已安装程序共用的值在清理、备份计划、删除后验证三条
+        // 分流上都要被拒绝，分流不得绕过 pre_delete_check 的这层语义。
+        let suffix = uuid::Uuid::new_v4().to_string();
+        let base = format!(r"Software\rust-yu-test\{suffix}\Microsoft\Windows\CurrentVersion\Run");
+        let hive = RegKey::predef(HKEY_CURRENT_USER);
+        let (key, _) = hive.create_subkey(&base).expect("应能创建测试 Run 容器键");
+        key.set_value("DemoApp", &r#""C:\Program Files\Demo App\demo.exe""#)
+            .expect("应能写入自有值");
+        key.set_value("Neighbor", &r#""C:\Program Files\Other Vendor\tool.exe""#)
+            .expect("应能写入邻居值");
+
+        let mut shared_owned = trace(
+            TraceType::RegistryValue,
+            &format!(r"HKCU\{base}\DemoApp"),
+        );
+        shared_owned.is_shared = true;
+        assert!(
+            revalidate_shared_value_ownership(&shared_owned).is_err(),
+            "is_shared=true 的候选即使归属明确也必须硬拒绝"
+        );
+        // 同键邻居值不受影响（校验只针对传入候选，不触碰他人值）
+        assert!(key.get_raw_value("Neighbor").is_ok());
+
+        // is_shared=false 时同一候选按归属规则放行（对照组）
+        let mut unshared = trace(
+            TraceType::RegistryValue,
+            &format!(r"HKCU\{base}\DemoApp"),
+        );
+        unshared.is_shared = false;
+        assert!(revalidate_shared_value_ownership(&unshared).is_ok());
 
         let _ = hive.delete_subkey_all(&base);
     }
